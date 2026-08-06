@@ -23,10 +23,16 @@ Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
 Create the standard custom component package, manifest, config flow, typed
 runtime model, constants, translations, diagnostics, public-safety checker and
-tests, minimum/current HA lanes, Hassfest/HACS validation, Ruff, typing policy,
-actionlint/ShellCheck, zizmor, dependency/security coverage, and a required
-terminal release-gate job. Use CalVer versioning only when a release is actually
-prepared.
+tests, minimum/current HA lanes, Hassfest/HACS validation, Ruff format/lint, a
+proportionate strict mypy policy, pytest and Home Assistant tests,
+actionlint/ShellCheck, explicit job timeouts/concurrency, side-effect-free
+checkout without persisted credentials, and a required terminal release-gate
+job. Use CalVer versioning only when a release is actually prepared.
+
+Do not add CI while the repository remains design-only. CodeQL, zizmor,
+generic dependency/security scanners, action SHA pinning, and additional
+Dependabot coverage are deferred unless implementation evidence or a concrete
+publication requirement justifies their signal and maintenance cost.
 
 Exit: the empty integration configures/unloads cleanly and all CI is green.
 

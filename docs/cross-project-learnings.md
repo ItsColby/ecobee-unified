@@ -211,9 +211,9 @@ Ecobee Unified should adopt from its first commit:
   gate, never by uploading private tokens to CI;
 - redacted diagnostics use allow-listed bounded output where practical;
 - no raw remote bodies or arbitrary exception text; and
-- GitHub Actions are SHA-pinned with least permissions, no persisted checkout
-  credentials, concurrency cancellation, timeouts, actionlint/ShellCheck,
-  zizmor, and dependency update coverage.
+- GitHub Actions use least permissions, side-effect-free checkout without
+  persisted credentials, bounded timeouts/concurrency, and actionlint with
+  ShellCheck where shell is present.
 
 The repository privacy checker should scan tracked/public-relevant files while
 ignoring generated caches and local environments. Its own tests must prove both
@@ -230,11 +230,15 @@ surface:
 - install the HA harness and exact Core requirements as separate steps;
 - Linux/container or hosted execution for HA tests that import `fcntl`;
 - Ruff format/lint and a proportionate strict typing contract;
-- compile, JSON/translation, privacy, Hassfest, HACS, actionlint/ShellCheck,
-  zizmor, and dependency/security checks;
+- compile, JSON/translation, privacy, Hassfest, HACS, and
+  actionlint/ShellCheck;
 - a final release-gate job that fails unless every required job succeeded; and
-- CodeQL completion plus inspection/disposition of open alerts at the exact
-  candidate commit before tagging.
+- side-effect-free checkout plus explicit job timeouts and concurrency policy.
+
+CodeQL, zizmor, generic dependency/security scanners, action SHA pinning, and
+additional Dependabot coverage are not Phase 1 requirements. Add one only when
+a concrete repository risk, defect class, maintenance burden, or publication
+requirement makes its signal worth the setup and finding burden.
 
 Do not treat tool installation or workflow success as proof of correctness.
 Report exact skipped lanes. A validated local commit is not pushed, published,

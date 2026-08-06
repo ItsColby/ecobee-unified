@@ -53,8 +53,15 @@ climate semantic, never the raw sensor by apparent similarity.
 - current and minimum supported Home Assistant lanes;
 - separate harness/Core requirement installation, with Linux/hosted execution
   for HA-specific tests when native Windows cannot import Core;
-- Ruff, typing policy, pytest/coverage, Hassfest, HACS Action, actionlint with
-  ShellCheck, zizmor, dependency/security checks, and a terminal release gate.
+- Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,
+  compile/JSON/translation/privacy checks, Hassfest, HACS Action, actionlint
+  with ShellCheck, explicit job timeouts/concurrency, side-effect-free checkout
+  without persisted credentials, and a terminal release gate.
+
+CodeQL, zizmor, generic dependency/security scanners, action SHA pinning, and
+additional Dependabot coverage remain deferred until a concrete defect class,
+repository risk, or publication requirement makes them worthwhile. The
+design-only repository does not need CI before implementation begins.
 
 ## Privacy Gate
 

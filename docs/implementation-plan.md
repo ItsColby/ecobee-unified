@@ -14,8 +14,9 @@ implementation unless the separate deployment gate is explicitly opened.
   integration, without importing its runtime internals.
 - Re-evaluate every contract in `cross-project-learnings.md` against current
   Home Assistant APIs and record any deliberate non-applicability.
-- Record supported minimum/current Home Assistant versions and any deferred
-  quality rules.
+- Record Home Assistant Core 2026.8 as the single initial support/test lane and
+  any deferred quality rules. Add another Core lane only when support is
+  intentionally widened.
 
 Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
@@ -23,7 +24,7 @@ Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
 Create the standard custom component package, manifest, config flow, typed
 runtime model, constants, translations, diagnostics, public-safety checker and
-tests, minimum/current HA lanes, Hassfest/HACS validation, Ruff format/lint, a
+tests, one exact Home Assistant Core 2026.8 lane, Hassfest/HACS validation, Ruff format/lint, a
 proportionate strict mypy policy, pytest and Home Assistant tests,
 actionlint/ShellCheck, explicit job timeouts/concurrency, side-effect-free
 checkout without persisted credentials, and a required terminal release-gate

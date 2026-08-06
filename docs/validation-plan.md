@@ -50,7 +50,8 @@ climate semantic, never the raw sensor by apparent similarity.
 - diagnostics privacy;
 - bounded diagnostics and no raw backend response/exception leakage;
 - Repairs only for persistent actionable faults, with recovery deletion;
-- current and minimum supported Home Assistant lanes;
+- one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
+  legacy lane unless the maintained support contract is widened;
 - separate harness/Core requirement installation, with Linux/hosted execution
   for HA-specific tests when native Windows cannot import Core;
 - Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,

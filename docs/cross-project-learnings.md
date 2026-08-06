@@ -226,7 +226,8 @@ surface:
 
 - Python 3.14;
 - focused unit tests plus Home Assistant integration tests;
-- minimum supported and current deployed stable Core lanes;
+- one maintained Home Assistant Core 2026.8 support/test lane; add another lane
+  only when the support contract is intentionally widened;
 - install the HA harness and exact Core requirements as separate steps;
 - Linux/container or hosted execution for HA tests that import `fcntl`;
 - Ruff format/lint and a proportionate strict typing contract;

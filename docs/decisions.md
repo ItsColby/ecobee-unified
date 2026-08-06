@@ -16,6 +16,7 @@
 | D-010 | Keep raw backends enabled through migration and rollback. | They remain the acquisition owners and provide immediate recovery. Normal UI duplication is solved through canonical consumers and visibility, not deletion. |
 | D-011 | Use shadow entity IDs during rollout. | Reusing existing IDs would mix Recorder semantics and weaken rollback. |
 | D-012 | Public source and private deployment evidence have separate owners. | This keeps the integration publishable without leaking household topology or runtime IDs. |
+| D-013 | Home Assistant Core 2026.8 is the sole initial support and CI lane. | It matches the maintained target and current upstream contracts. A second legacy lane would add duplicate machinery without a maintained compatibility promise; widen only with explicit support evidence. |
 
 ## Deferred Until Evidence Exists
 

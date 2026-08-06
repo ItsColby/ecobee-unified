@@ -50,8 +50,9 @@ justify ambiguous values or dual writes.
   diagnostics, entity state, or exception chains.
 - Startup order and source reloads must not require a Home Assistant restart.
 - The integration must remain useful when one optional source is unavailable.
-- Compatibility is defined by tested Home Assistant versions and current public
-  contracts, not by implementation coincidence.
+- Initial compatibility is Home Assistant Core 2026.8, verified against its
+  public contracts. Widen support only when an additional version is an
+  intentional maintained contract with its own passing evidence.
 
 ## MVP Acceptance
 
@@ -65,7 +66,8 @@ MVP is complete when all of the following are true:
    substituted for a standard command.
 5. Command confirmation observes but never retries through another source.
 6. Reload, rename, source loss/recovery, and removal tests pass.
-7. Device linkage is correct on the supported Home Assistant baseline.
+7. Device linkage is correct on the supported Home Assistant Core 2026.8
+   baseline.
 8. Diagnostics are useful and privacy-redacted.
 9. All repository and Home Assistant test/quality workflows are terminal green.
 10. A private shadow deployment completes its soak and comparison criteria

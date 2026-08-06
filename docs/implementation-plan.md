@@ -12,6 +12,8 @@ implementation unless the separate deployment gate is explicitly opened.
   action schemas.
 - Inspect the supported public entity-linking pattern used by the Beestat-derived
   integration, without importing its runtime internals.
+- Re-evaluate every contract in `cross-project-learnings.md` against current
+  Home Assistant APIs and record any deliberate non-applicability.
 - Record supported minimum/current Home Assistant versions and any deferred
   quality rules.
 
@@ -19,9 +21,12 @@ Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
 ## Phase 1: Repository and Integration Skeleton
 
-Create the standard custom component package, manifest, config flow, constants,
-translations, diagnostics, tests, Hassfest/HACS validation, lint, typing policy,
-and CI. Use CalVer versioning only when a release is actually prepared.
+Create the standard custom component package, manifest, config flow, typed
+runtime model, constants, translations, diagnostics, public-safety checker and
+tests, minimum/current HA lanes, Hassfest/HACS validation, Ruff, typing policy,
+actionlint/ShellCheck, zizmor, dependency/security coverage, and a required
+terminal release-gate job. Use CalVer versioning only when a release is actually
+prepared.
 
 Exit: the empty integration configures/unloads cleanly and all CI is green.
 
@@ -32,6 +37,8 @@ Exit: the empty integration configures/unloads cleanly and all CI is green.
 - Track source entity changes through supported registry/event APIs.
 - Validate domains/integrations and reject loops/duplicates.
 - Implement source health, age, availability, and redacted diagnostics.
+- Build one normalized per-mapping snapshot as the only projection input for
+  climate and diagnostics.
 
 Exit: mappings survive reload and rename; loss/recovery is tested.
 
@@ -49,7 +56,8 @@ Exit: the complete availability matrix and field-selection tests pass.
 
 - Route standard climate operations only to HomeKit.
 - Add explicit vendor operations only where Home Assistant UX remains clear.
-- Implement pending-command observation, confirmation, timeout, and diagnostics.
+- Implement revision-guarded pending-command observation, confirmation,
+  timeout, supersession, and diagnostics.
 - Do not retry through another backend.
 
 Exit: every command path proves exactly one service call, including failures,

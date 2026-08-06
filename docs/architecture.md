@@ -74,7 +74,10 @@ duplicate normal-use entities.
 ## Updates and Availability
 
 Subscribe to source state changes and maintain an in-memory snapshot. Entity
-properties perform no I/O. Availability is capability-aware:
+properties perform no I/O. Build one normalized per-mapping snapshot and make
+the climate entity, diagnostics, and any diagnostic entity project that same
+snapshot rather than interpreting raw attributes independently. Availability is
+capability-aware:
 
 - HomeKit available: canonical local climate state and standard control work.
 - Ecobee available: vendor detail/actions work.
@@ -102,9 +105,13 @@ Exactly one backend writes each operation:
 | Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
 
 After a standard HomeKit command, mark it pending and observe the Ecobee state
-for confirmation. A timeout reports an unconfirmed command; it must not send a
-second write. The initial confirmation window should exceed two normal Ecobee
-cloud refresh intervals and be validated against live behavior.
+for confirmation. Give every command a monotonically increasing revision and
+update confirmation state only if the observation still belongs to the current
+revision. A late cloud update must not confirm or fail a superseded command. A
+timeout reports an unconfirmed command; it must not send a second write. The
+initial confirmation window should exceed two normal Ecobee cloud refresh
+intervals and be validated against live behavior. Normal source processing must
+continue while confirmation is pending.
 
 ## Entity Surface
 

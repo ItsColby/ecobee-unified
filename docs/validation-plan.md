@@ -10,6 +10,8 @@
 - entity rename, device rename, source removal/re-add, and registry disable;
 - startup before each source integration and later source setup/reload;
 - config-entry version migration and rollback fixtures.
+- options/mapping changes that preserve temporarily missing entity selections;
+- explicit confirmation for physical-device or command-writer changes.
 
 ### Field Selection
 
@@ -35,6 +37,7 @@ climate semantic, never the raw sensor by apparent similarity.
 - confirmation observes Ecobee state without issuing another call;
 - confirmation success, mismatch, timeout, reload, and source loss;
 - rapid repeated commands and superseded pending state;
+- late observations for an older revision cannot mutate the current command;
 - service error propagation and diagnostics redaction.
 
 ### Home Assistant Contracts
@@ -45,9 +48,13 @@ climate semantic, never the raw sensor by apparent similarity.
 - disabled-by-default policy for diagnostic/noisy entities;
 - translations and config-flow strings;
 - diagnostics privacy;
-- Repairs creation/dismissal only for actionable persistent faults;
+- bounded diagnostics and no raw backend response/exception leakage;
+- Repairs only for persistent actionable faults, with recovery deletion;
 - current and minimum supported Home Assistant lanes;
-- Ruff, typing policy, pytest/coverage, Hassfest, and HACS Action.
+- separate harness/Core requirement installation, with Linux/hosted execution
+  for HA-specific tests when native Windows cannot import Core;
+- Ruff, typing policy, pytest/coverage, Hassfest, HACS Action, actionlint with
+  ShellCheck, zizmor, dependency/security checks, and a terminal release gate.
 
 ## Privacy Gate
 

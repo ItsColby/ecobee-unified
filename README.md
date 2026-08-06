@@ -17,8 +17,10 @@ control-policy layer:
 - one canonical entity for dashboards, automations, and voice exposure.
 
 The repository currently contains the implementation contract and validation
-plan, not integration code. Start with [the architecture](docs/architecture.md)
-and [requirements](docs/requirements.md).
+plan, not integration code. Start with [the architecture](docs/architecture.md),
+[requirements](docs/requirements.md), and the
+[cross-project learnings](docs/cross-project-learnings.md) carried forward from
+two maintained Home Assistant custom integrations.
 
 ## Non-goals
 

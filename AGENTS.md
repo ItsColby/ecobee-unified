@@ -10,9 +10,10 @@ Read, in order:
 
 1. `docs/architecture.md`
 2. `docs/requirements.md`
-3. `docs/decisions.md`
-4. `docs/implementation-plan.md`
-5. `docs/validation-plan.md`
+3. `docs/cross-project-learnings.md`
+4. `docs/decisions.md`
+5. `docs/implementation-plan.md`
+6. `docs/validation-plan.md`
 
 The maintainer's private runtime mapping, consumer inventory, migration plan,
 and live validation evidence are external inputs. Never copy private entity
@@ -35,8 +36,12 @@ documentation use generic fixtures only.
 - Keep Recorder attributes compact. Put high-volume evidence in diagnostics,
   not state attributes.
 - Entity properties must perform no I/O.
+- Build one normalized per-mapping snapshot and project every entity and
+  diagnostic surface from it; do not reinterpret source attributes separately.
 - Missing or stale sources degrade explicitly; they do not trigger name-based
   remapping or silent semantic substitution.
+- Pending commands are revision-guarded so a late source update cannot confirm
+  or fail a superseded command.
 
 ## Implementation Posture
 

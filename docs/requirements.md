@@ -30,6 +30,10 @@ justify ambiguous values or dual writes.
 | F-12 | Preserve unit conversion, target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Operate without Beestat, and fail honestly if the required climate semantics cannot be supplied. |
+| F-15 | Normalize each mapping once and project climate/diagnostic surfaces from the same snapshot. |
+| F-16 | Revision-guard pending commands so stale observations cannot update a superseded command. |
+| F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
+| F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
 
 ## Non-functional Requirements
 
@@ -42,6 +46,8 @@ justify ambiguous values or dual writes.
 - No duplicate command caused by retries, confirmation, or source changes.
 - No household-specific values in source, tests, diagnostics fixtures, docs,
   Git history, release notes, or CI logs.
+- No raw backend response bodies or arbitrary backend exception text in logs,
+  diagnostics, entity state, or exception chains.
 - Startup order and source reloads must not require a Home Assistant restart.
 - The integration must remain useful when one optional source is unavailable.
 - Compatibility is defined by tested Home Assistant versions and current public
@@ -64,6 +70,7 @@ MVP is complete when all of the following are true:
 9. All repository and Home Assistant test/quality workflows are terminal green.
 10. A private shadow deployment completes its soak and comparison criteria
     before any existing consumer is migrated.
+11. A late observation cannot confirm, fail, or clear a newer pending command.
 
 ## Explicit Non-goals for MVP
 

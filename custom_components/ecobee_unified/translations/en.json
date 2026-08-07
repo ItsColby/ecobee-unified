@@ -7,46 +7,54 @@
     "error": {
       "confirmation_required": "Confirm this physical thermostat or command-writer change.",
       "duplicate_ecobee_source": "This Ecobee climate is already mapped.",
-      "duplicate_beestat_source": "Each Beestat context sensor can be mapped only once.",
+      "duplicate_optional_source": "Each optional source entity can be mapped only once.",
       "duplicate_homekit_source": "This HomeKit climate is already mapped.",
       "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",
-      "invalid_beestat_statistics_source": "Select an entity supplied by Beestat Statistics.",
-      "invalid_ecobee_source": "Select a climate entity supplied by Ecobee.",
-      "invalid_homekit_controller_source": "Select a climate entity supplied by HomeKit Controller.",
+      "invalid_ecobee_source": "Select an entity supplied by Ecobee on the mapped Ecobee device.",
+      "invalid_homekit_controller_source": "Select an entity supplied by HomeKit Controller on the mapped thermostat device.",
       "invalid_name": "Enter a name of 1 to 64 characters."
     },
     "step": {
       "mapping": {
         "data": {
           "add_another": "Add another thermostat",
+          "ecobee_aqi_entity": "Ecobee air quality index (optional)",
+          "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
+          "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
-          "name": "Mapping name",
-          "next_transition_entity": "Beestat next transition (optional)",
-          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+          "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "name": "Mapping name"
         },
-        "description": "Map one physical thermostat explicitly. HomeKit owns standard state and control; Ecobee owns vendor detail and actions.",
+        "description": "Build one thermostat device surface. HomeKit owns local climate, preset, and clear-hold control; Ecobee owns vendor-only detail and actions.",
         "title": "Thermostat mapping"
       },
       "reconfigure_add": {
         "data": {
+          "ecobee_aqi_entity": "Ecobee air quality index (optional)",
+          "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
+          "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
-          "name": "Mapping name",
-          "next_transition_entity": "Beestat next transition (optional)",
-          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+          "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "name": "Mapping name"
         },
         "title": "Add mapping"
       },
       "reconfigure_edit": {"data": {"mapping_id": "Mapping"}, "title": "Edit mapping"},
       "reconfigure_edit_confirm": {
         "data": {
-          "confirm_change": "Confirm a HomeKit or Ecobee source change",
+          "confirm_change": "Confirm a command-writer source change",
+          "ecobee_aqi_entity": "Ecobee air quality index (optional)",
+          "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
+          "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
-          "name": "Mapping name",
-          "next_transition_entity": "Beestat next transition (optional)",
-          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+          "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "name": "Mapping name"
         },
         "title": "Confirm mapping change"
       },
@@ -54,7 +62,16 @@
       "reconfigure_remove_confirm": {"data": {"confirm_change": "Remove {name}"}, "title": "Confirm mapping removal"}
     }
   },
-  "entity": {"climate": {"thermostat": {"name": "Unified climate"}}},
+  "entity": {
+    "climate": {"thermostat": {"name": "Unified climate"}},
+    "number": {"minimum_fan_runtime": {"name": "Minimum fan runtime"}},
+    "sensor": {
+      "air_quality_index": {"name": "Air quality index"},
+      "co2": {"name": "Carbon dioxide"},
+      "equipment_stage": {"name": "Equipment stage"},
+      "voc": {"name": "Volatile organic compounds"}
+    }
+  },
   "exceptions": {
     "ecobee_command_failed": {"message": "The Ecobee action failed."},
     "ecobee_writer_unavailable": {"message": "The mapped Ecobee writer is unavailable."},
@@ -65,7 +82,8 @@
     "invalid_temperature_range": {"message": "The requested low temperature must not exceed the high temperature."},
     "unsupported_command": {"message": "The mapped HomeKit climate does not support this command."},
     "unsupported_fan_mode": {"message": "The mapped HomeKit climate does not support this fan mode."},
-    "unsupported_hvac_mode": {"message": "The mapped HomeKit climate does not support this HVAC mode."}
+    "unsupported_hvac_mode": {"message": "The mapped HomeKit climate does not support this HVAC mode."},
+    "unsupported_preset_mode": {"message": "The mapped HomeKit current mode select does not support this preset."}
   },
   "issues": {
     "mapping_source_missing": {
@@ -77,7 +95,6 @@
     "step": {
       "init": {
         "data": {
-          "beestat_stale_seconds": "Beestat stale after (seconds)",
           "confirmation_seconds": "Command confirmation window (seconds)",
           "ecobee_stale_seconds": "Ecobee stale after (seconds)",
           "homekit_stale_seconds": "HomeKit stale after (seconds)"

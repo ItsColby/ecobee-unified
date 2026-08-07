@@ -8,7 +8,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
-from .const import CONF_MAPPINGS, DOMAIN, PLATFORMS
+from .const import (
+    CONF_CONFIRMATION_SECONDS,
+    CONF_ECOBEE_STALE_SECONDS,
+    CONF_HOMEKIT_STALE_SECONDS,
+    CONF_MAPPINGS,
+    DOMAIN,
+    PLATFORMS,
+)
 from .manager import MappingManager
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
@@ -53,7 +60,7 @@ async def async_unload_entry(
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Normalize supported schema revisions without guessing source identity."""
 
-    if entry.version != 1 or entry.minor_version > 1:
+    if entry.version != 1 or entry.minor_version > 2:
         return False
     normalized = [
         MappingConfig.from_dict(item).as_dict()
@@ -64,8 +71,18 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.config_entries.async_update_entry(
         entry,
         data={CONF_MAPPINGS: normalized},
+        options={
+            key: value
+            for key, value in entry.options.items()
+            if key
+            in {
+                CONF_HOMEKIT_STALE_SECONDS,
+                CONF_ECOBEE_STALE_SECONDS,
+                CONF_CONFIRMATION_SECONDS,
+            }
+        },
         version=1,
-        minor_version=1,
+        minor_version=2,
     )
     return True
 

@@ -9,7 +9,7 @@
 - invalid domain/integration and circular mapping rejection;
 - entity rename, device rename, source removal/re-add, and registry disable;
 - source device move, detach, removal, and restoration with helper relinking
-  and config-entry reload but no config-entry or stable-entity recreation;
+  for climate/number/sensor records without config-entry reload or stable-entity recreation;
 - startup before each source integration and later source setup/reload;
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
@@ -34,7 +34,8 @@ climate semantic, never the raw sensor by apparent similarity.
 ### Commands
 
 - each standard climate method makes exactly one HomeKit service call;
-- each vendor method makes exactly one Ecobee action call;
+- preset and clear-hold each make exactly one mapped HomeKit service call;
+- minimum fan runtime makes exactly one Ecobee action call;
 - writer unavailable fails clearly without fallback;
 - confirmation observes Ecobee state without issuing another call;
 - confirmation success, mismatch, timeout, reload, and source loss;
@@ -49,6 +50,8 @@ climate semantic, never the raw sensor by apparent similarity.
 - no I/O in properties;
 - device linking and no foreign identifiers/connections;
 - stable unique IDs and entity categories;
+- capability-aware creation/projection of equipment stage and optional
+  AQI/CO2/VOC, with no temperature/humidity/occupancy/weather duplicates;
 - disabled-by-default policy for diagnostic/noisy entities;
 - translations and config-flow strings;
 - diagnostics privacy;
@@ -57,6 +60,8 @@ climate semantic, never the raw sensor by apparent similarity.
   reevaluation without another source-change event;
 - volatile source-age, active-sensor, and command-confirmation attributes are
   excluded from Recorder;
+- schedule/transition and vendor control/detail are not duplicated in climate
+  attributes when first-class Beestat/number/sensor entities own them;
 - Repairs only for persistent actionable faults, with recovery deletion;
 - one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
   legacy lane unless the maintained support contract is widened;

@@ -5,7 +5,6 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any, override
 
-import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
@@ -15,18 +14,14 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    ATTR_MINUTES,
-    ATTR_RESUME_ALL,
     DOMAIN,
     SERVICE_RESUME_PROGRAM,
-    SERVICE_SET_MINIMUM_FAN_RUNTIME,
     SIGNAL_SNAPSHOT_UPDATED,
 )
 from .manager import MappingManager
@@ -57,13 +52,8 @@ async def async_setup_entry(
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
         SERVICE_RESUME_PROGRAM,
-        {vol.Optional(ATTR_RESUME_ALL, default=False): cv.boolean},
+        {},
         "async_resume_program",
-    )
-    platform.async_register_entity_service(
-        SERVICE_SET_MINIMUM_FAN_RUNTIME,
-        {vol.Required(ATTR_MINUTES): vol.All(cv.positive_int, vol.Range(max=60))},
-        "async_set_minimum_fan_runtime",
     )
 
 
@@ -178,10 +168,23 @@ class EcobeeUnifiedClimate(ClimateEntity):
     def supported_features(self) -> ClimateEntityFeature:
         if not self._snapshot.homekit_writable:
             return ClimateEntityFeature(0)
-        return (
+        features = (
             ClimateEntityFeature(self._snapshot.supported_features)
             & SUPPORTED_CONTROL_FEATURES
         )
+        if self._snapshot.homekit_preset_writable and self._snapshot.preset_modes:
+            features |= ClimateEntityFeature.PRESET_MODE
+        return features
+
+    @property
+    @override
+    def preset_mode(self) -> str | None:
+        return self._snapshot.preset_mode
+
+    @property
+    @override
+    def preset_modes(self) -> list[str]:
+        return list(self._snapshot.preset_modes)
 
     @property
     @override
@@ -224,13 +227,9 @@ class EcobeeUnifiedClimate(ClimateEntity):
             "source_age_seconds": dict(snapshot.source_ages),
             "selected_sources": dict(snapshot.provenance),
             "degradation": list(snapshot.degradation),
-            "ecobee_preset_mode": snapshot.preset_mode,
+            "ecobee_preset_mode": snapshot.ecobee_preset_mode,
             "ecobee_climate_mode": snapshot.climate_mode,
-            "equipment_running": snapshot.equipment_running,
             "active_comfort_sensors": list(snapshot.active_sensors),
-            "minimum_fan_runtime": snapshot.minimum_fan_runtime,
-            "scheduled_profile": snapshot.scheduled_profile,
-            "next_transition": snapshot.next_transition,
             "command_confirmation": {
                 "revision": snapshot.command.revision,
                 "operation": snapshot.command.operation,
@@ -297,6 +296,14 @@ class EcobeeUnifiedClimate(ClimateEntity):
             self._context,
         )
 
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        self._require_feature(ClimateEntityFeature.PRESET_MODE)
+        if preset_mode not in self._snapshot.preset_modes:
+            self._raise_validation("unsupported_preset_mode")
+        await self._manager.async_set_preset_mode(
+            self._mapping.mapping_id, preset_mode, self._context
+        )
+
     async def async_turn_off(self) -> None:
         self._require_feature(ClimateEntityFeature.TURN_OFF)
         await self._manager.async_standard_command(
@@ -317,14 +324,9 @@ class EcobeeUnifiedClimate(ClimateEntity):
             self._context,
         )
 
-    async def async_resume_program(self, resume_all: bool) -> None:
+    async def async_resume_program(self) -> None:
         await self._manager.async_resume_program(
-            self._mapping.mapping_id, resume_all, self._context
-        )
-
-    async def async_set_minimum_fan_runtime(self, minutes: int) -> None:
-        await self._manager.async_set_minimum_fan_runtime(
-            self._mapping.mapping_id, minutes, self._context
+            self._mapping.mapping_id, self._context
         )
 
     def _require_feature(self, feature: ClimateEntityFeature) -> None:

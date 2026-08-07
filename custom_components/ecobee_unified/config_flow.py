@@ -26,19 +26,20 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ADD_ANOTHER,
-    CONF_BEESTAT_STALE_SECONDS,
     CONF_CONFIRM_CHANGE,
     CONF_CONFIRMATION_SECONDS,
+    CONF_ECOBEE_AQI_ENTITY,
+    CONF_ECOBEE_CO2_ENTITY,
     CONF_ECOBEE_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
+    CONF_ECOBEE_VOC_ENTITY,
+    CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
+    CONF_HOMEKIT_PRESET_ENTITY,
     CONF_HOMEKIT_STALE_SECONDS,
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
-    CONF_NEXT_TRANSITION_ENTITY,
-    CONF_SCHEDULED_PROFILE_ENTITY,
-    DEFAULT_BEESTAT_STALE_SECONDS,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DEFAULT_HOMEKIT_STALE_SECONDS,
@@ -49,6 +50,8 @@ from .models import MappingConfig
 
 CLIMATE_SELECTOR = EntitySelector(EntitySelectorConfig(domain="climate"))
 SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
+SELECT_SELECTOR = EntitySelector(EntitySelectorConfig(domain="select"))
+BUTTON_SELECTOR = EntitySelector(EntitySelectorConfig(domain="button"))
 BOOLEAN_SELECTOR = BooleanSelector()
 
 
@@ -56,7 +59,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Create the single multi-thermostat Ecobee Unified entry."""
 
     VERSION = 1
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         self._pending_mappings: list[dict[str, str]] = []
@@ -193,8 +196,13 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = str(err)
             else:
                 changes_writer = any(
-                    current[key] != updated[key]
-                    for key in (CONF_HOMEKIT_ENTITY, CONF_ECOBEE_ENTITY)
+                    current.get(key) != updated.get(key)
+                    for key in (
+                        CONF_HOMEKIT_ENTITY,
+                        CONF_HOMEKIT_PRESET_ENTITY,
+                        CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+                        CONF_ECOBEE_ENTITY,
+                    )
                 )
                 if changes_writer and not user_input.get(CONF_CONFIRM_CHANGE, False):
                     errors["base"] = "confirmation_required"
@@ -300,9 +308,6 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             CONF_ECOBEE_STALE_SECONDS: self.config_entry.options.get(
                 CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS
             ),
-            CONF_BEESTAT_STALE_SECONDS: self.config_entry.options.get(
-                CONF_BEESTAT_STALE_SECONDS, DEFAULT_BEESTAT_STALE_SECONDS
-            ),
             CONF_CONFIRMATION_SECONDS: self.config_entry.options.get(
                 CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS
             ),
@@ -332,16 +337,27 @@ def _mapping_schema(
             description={"suggested_value": defaults.get(CONF_ECOBEE_ENTITY, "")},
         ): CLIMATE_SELECTOR,
         vol.Optional(
-            CONF_SCHEDULED_PROFILE_ENTITY,
-            description={
-                "suggested_value": defaults.get(CONF_SCHEDULED_PROFILE_ENTITY)
-            },
-        ): SENSOR_SELECTOR,
+            CONF_HOMEKIT_PRESET_ENTITY,
+            description={"suggested_value": defaults.get(CONF_HOMEKIT_PRESET_ENTITY)},
+        ): SELECT_SELECTOR,
         vol.Optional(
-            CONF_NEXT_TRANSITION_ENTITY,
-            description={"suggested_value": defaults.get(CONF_NEXT_TRANSITION_ENTITY)},
-        ): SENSOR_SELECTOR,
+            CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+            description={
+                "suggested_value": defaults.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY)
+            },
+        ): BUTTON_SELECTOR,
     }
+    for key in (
+        CONF_ECOBEE_AQI_ENTITY,
+        CONF_ECOBEE_CO2_ENTITY,
+        CONF_ECOBEE_VOC_ENTITY,
+    ):
+        schema[
+            vol.Optional(
+                key,
+                description={"suggested_value": defaults.get(key)},
+            )
+        ] = SENSOR_SELECTOR
     if include_add:
         schema[vol.Required(CONF_ADD_ANOTHER, default=False)] = BOOLEAN_SELECTOR
     if include_confirmation:
@@ -358,43 +374,70 @@ def _mapping_from_input(
     name = str(user_input[CONF_NAME]).strip()
     if not name or len(name) > 64:
         raise vol.Invalid("invalid_name")
+    homekit_entity = _entity_reference(
+        hass,
+        str(user_input[CONF_HOMEKIT_ENTITY]),
+        "homekit_controller",
+        "climate",
+        preserved.homekit_entity if preserved else None,
+    )
+    ecobee_entity = _entity_reference(
+        hass,
+        str(user_input[CONF_ECOBEE_ENTITY]),
+        "ecobee",
+        "climate",
+        preserved.ecobee_entity if preserved else None,
+    )
+    ecobee_device_id = _reference_device_id(hass, ecobee_entity)
+    if (
+        any(
+            user_input.get(key)
+            for key in (
+                CONF_ECOBEE_AQI_ENTITY,
+                CONF_ECOBEE_CO2_ENTITY,
+                CONF_ECOBEE_VOC_ENTITY,
+            )
+        )
+        and ecobee_device_id is None
+    ):
+        raise vol.Invalid("invalid_ecobee_source")
     mapping = MappingConfig(
         mapping_id=mapping_id or uuid4().hex,
         name=name,
-        homekit_entity=_entity_reference(
+        homekit_entity=homekit_entity,
+        ecobee_entity=ecobee_entity,
+        homekit_preset_entity=_optional_entity_reference(
             hass,
-            str(user_input[CONF_HOMEKIT_ENTITY]),
+            user_input.get(CONF_HOMEKIT_PRESET_ENTITY),
             "homekit_controller",
-            "climate",
-            preserved.homekit_entity if preserved else None,
+            "select",
+            preserved.homekit_preset_entity if preserved else None,
+            required_device_id=_reference_device_id(hass, homekit_entity),
         ),
-        ecobee_entity=_entity_reference(
+        homekit_clear_hold_entity=_optional_entity_reference(
             hass,
-            str(user_input[CONF_ECOBEE_ENTITY]),
-            "ecobee",
-            "climate",
-            preserved.ecobee_entity if preserved else None,
+            user_input.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY),
+            "homekit_controller",
+            "button",
+            preserved.homekit_clear_hold_entity if preserved else None,
+            required_device_id=_reference_device_id(hass, homekit_entity),
         ),
-        scheduled_profile_entity=_optional_entity_reference(
-            hass,
-            user_input.get(CONF_SCHEDULED_PROFILE_ENTITY),
-            "beestat_statistics",
-            "sensor",
-            preserved.scheduled_profile_entity if preserved else None,
-        ),
-        next_transition_entity=_optional_entity_reference(
-            hass,
-            user_input.get(CONF_NEXT_TRANSITION_ENTITY),
-            "beestat_statistics",
-            "sensor",
-            preserved.next_transition_entity if preserved else None,
-        ),
+        **{
+            field_name: _optional_entity_reference(
+                hass,
+                user_input.get(config_key),
+                "ecobee",
+                "sensor",
+                getattr(preserved, field_name) if preserved else None,
+                required_device_id=ecobee_device_id,
+            )
+            for config_key, field_name in (
+                (CONF_ECOBEE_AQI_ENTITY, "ecobee_aqi_entity"),
+                (CONF_ECOBEE_CO2_ENTITY, "ecobee_co2_entity"),
+                (CONF_ECOBEE_VOC_ENTITY, "ecobee_voc_entity"),
+            )
+        },
     )
-    if (
-        mapping.scheduled_profile_entity
-        and mapping.scheduled_profile_entity == mapping.next_transition_entity
-    ):
-        raise vol.Invalid("duplicate_beestat_source")
     return mapping.as_dict()
 
 
@@ -425,32 +468,57 @@ def _optional_entity_reference(
     platform: str,
     domain: str,
     preserve_reference: str | None = None,
+    *,
+    required_device_id: str | None = None,
 ) -> str | None:
     if not entity_id:
         return None
-    return _entity_reference(hass, str(entity_id), platform, domain, preserve_reference)
+    reference = _entity_reference(
+        hass, str(entity_id), platform, domain, preserve_reference
+    )
+    if (
+        preserve_reference == reference
+        and er.async_resolve_entity_id(er.async_get(hass), reference) is None
+    ):
+        return reference
+    if (
+        required_device_id is not None
+        and _reference_device_id(hass, reference) != required_device_id
+    ):
+        raise vol.Invalid(f"invalid_{platform}_source")
+    return reference
+
+
+def _reference_device_id(hass: Any, reference: str) -> str | None:
+    registry = er.async_get(hass)
+    entity_id = er.async_resolve_entity_id(registry, reference)
+    entry = registry.async_get(entity_id) if entity_id else None
+    return entry.device_id if entry is not None else None
 
 
 def _validate_no_duplicate_sources(
     existing: list[dict[str, str]], candidate: dict[str, str]
 ) -> None:
-    candidate_beestat = {
-        reference
-        for key in (CONF_SCHEDULED_PROFILE_ENTITY, CONF_NEXT_TRANSITION_ENTITY)
-        if (reference := candidate.get(key))
+    optional_keys = (
+        CONF_HOMEKIT_PRESET_ENTITY,
+        CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+        CONF_ECOBEE_AQI_ENTITY,
+        CONF_ECOBEE_CO2_ENTITY,
+        CONF_ECOBEE_VOC_ENTITY,
+    )
+    candidate_optional = {
+        reference for key in optional_keys if (reference := candidate.get(key))
     }
     for mapping in existing:
         if mapping[CONF_HOMEKIT_ENTITY] == candidate[CONF_HOMEKIT_ENTITY]:
             raise vol.Invalid("duplicate_homekit_source")
         if mapping[CONF_ECOBEE_ENTITY] == candidate[CONF_ECOBEE_ENTITY]:
             raise vol.Invalid("duplicate_ecobee_source")
-        existing_beestat = {
-            reference
-            for key in (CONF_SCHEDULED_PROFILE_ENTITY, CONF_NEXT_TRANSITION_ENTITY)
-            if (reference := mapping.get(key))
+        existing_optional = {
+            reference for key in optional_keys if (reference := mapping.get(key))
         }
-        if candidate_beestat & existing_beestat:
-            raise vol.Invalid("duplicate_beestat_source")
+        if candidate_optional & existing_optional:
+            raise vol.Invalid("duplicate_optional_source")
 
 
 def _mapping_selector(mappings: list[dict[str, str]]) -> SelectSelector:
@@ -478,12 +546,16 @@ def _mapping_form_defaults(hass: Any, mapping: dict[str, str]) -> dict[str, Any]
             registry, mapping[CONF_ECOBEE_ENTITY]
         )
         or mapping[CONF_ECOBEE_ENTITY],
-        CONF_SCHEDULED_PROFILE_ENTITY: _resolved_or_reference(
-            registry, mapping.get(CONF_SCHEDULED_PROFILE_ENTITY)
-        ),
-        CONF_NEXT_TRANSITION_ENTITY: _resolved_or_reference(
-            registry, mapping.get(CONF_NEXT_TRANSITION_ENTITY)
-        ),
+        **{
+            key: _resolved_or_reference(registry, mapping.get(key))
+            for key in (
+                CONF_HOMEKIT_PRESET_ENTITY,
+                CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+                CONF_ECOBEE_AQI_ENTITY,
+                CONF_ECOBEE_CO2_ENTITY,
+                CONF_ECOBEE_VOC_ENTITY,
+            )
+        },
     }
 
 
@@ -516,10 +588,6 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_ECOBEE_STALE_SECONDS,
                 default=defaults[CONF_ECOBEE_STALE_SECONDS],
             ): selector(300, 7200, 60),
-            vol.Required(
-                CONF_BEESTAT_STALE_SECONDS,
-                default=defaults[CONF_BEESTAT_STALE_SECONDS],
-            ): selector(900, 86_400, 300),
             vol.Required(
                 CONF_CONFIRMATION_SECONDS,
                 default=defaults[CONF_CONFIRMATION_SECONDS],

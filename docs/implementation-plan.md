@@ -48,14 +48,14 @@ Exit: the empty integration configures/unloads cleanly and all CI is green.
 - Validate domains/integrations and reject loops/duplicates.
 - Implement source health, age, availability, and redacted diagnostics.
 - Build one normalized per-mapping snapshot as the only projection input for
-  climate and diagnostics.
+  climate, number, sensor, and diagnostics surfaces.
 
 Exit: mappings survive reload and rename; loss/recovery is tested.
 
-## Phase 3: Read-only Unified Climate
+## Phase 3: Read-only Unified Device Surface
 
 - Implement climate capabilities and the exact field ownership table.
-- Link the entity to the physical helper device.
+- Link every unified entity to the physical helper device.
 - Preserve source units, precision, min/max, features, and unknown states.
 - Add bounded provenance and degradation attributes.
 - Implement no control methods yet.
@@ -65,7 +65,9 @@ Exit: the complete availability matrix and field-selection tests pass.
 ## Phase 4: Single-writer Control
 
 - Route standard climate operations only to HomeKit.
-- Add explicit vendor operations only where Home Assistant UX remains clear.
+- Route preset selection and clear-hold only to explicitly mapped HomeKit
+  select/button entities.
+- Expose minimum fan runtime as the sole Ecobee-backed number writer.
 - Implement revision-guarded pending-command observation, confirmation,
   timeout, supersession, and diagnostics.
 - Do not retry through another backend.
@@ -75,11 +77,12 @@ timeouts, reloads, and rapid repeated requests.
 
 ## Phase 5: Optional Enrichment
 
-- Add scheduled-profile/next-transition context from selected Beestat-derived
-  entities.
-- Add a diagnostic problem entity or equipment-stage sensor only if it has a
-  defined consumer and stable Recorder semantics.
-- Keep all historical or high-cardinality data out of climate attributes.
+- Add a bounded equipment-stage sensor and explicitly mapped AQI/CO2/VOC
+  sensors; do not duplicate HomeKit temperature/humidity/occupancy/weather.
+- Rely on Beestat's first-class schedule/filter/alert entities already linked
+  to the same device; do not copy their state or move Recorder ownership.
+- Keep all historical, volatile-age, and high-cardinality data out of recorded
+  climate attributes.
 
 Exit: the integration remains fully usable without the optional source.
 

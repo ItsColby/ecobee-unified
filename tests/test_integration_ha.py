@@ -171,10 +171,21 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
 ) -> None:
     hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
     ec = _register_source(hass, "ecobee", "ec_a")
+    preset = _register_sibling(hass, hk, "select", "hk_a_current_mode")
+    clear_hold = _register_sibling(hass, hk, "button", "hk_a_clear_hold")
+    hass.states.async_set(preset.entity_id, "Home", {"options": ["Home", "Away"]})
+    mapping = MappingConfig(
+        "mapping_a",
+        "Zone A",
+        hk.id,
+        ec.id,
+        homekit_preset_entity=preset.id,
+        homekit_clear_hold_entity=clear_hold.id,
+    )
     manager = MappingManager(
         hass,
         "entry_a",
-        (_mapping("mapping_a", "Zone A", hk, ec),),
+        (mapping,),
         {},
     )
     await manager.async_start()
@@ -196,11 +207,21 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
         )
 
         service_call.reset_mock()
-        await manager.async_resume_program("mapping_a", False, None)
+        await manager.async_set_preset_mode("mapping_a", "Away", None)
         service_call.assert_awaited_once_with(
-            "ecobee",
-            "resume_program",
-            {"entity_id": ec.entity_id, "resume_all": False},
+            "select",
+            "select_option",
+            {"entity_id": preset.entity_id, "option": "Away"},
+            blocking=True,
+            context=None,
+        )
+
+        service_call.reset_mock()
+        await manager.async_resume_program("mapping_a", None)
+        service_call.assert_awaited_once_with(
+            "button",
+            "press",
+            {"entity_id": clear_hold.entity_id},
             blocking=True,
             context=None,
         )
@@ -270,6 +291,24 @@ def _climate_attributes(temperature: float) -> dict[str, object]:
         "target_temp_step": 0.5,
         "unit_of_measurement": "°C",
     }
+
+
+def _register_sibling(
+    hass: HomeAssistant,
+    source: er.RegistryEntry,
+    domain: str,
+    unique_id: str,
+) -> er.RegistryEntry:
+    source_entry = hass.config_entries.async_get_entry(source.config_entry_id)
+    assert source_entry is not None
+    return er.async_get(hass).async_get_or_create(
+        domain,
+        source.platform,
+        unique_id,
+        config_entry=source_entry,
+        device_id=source.device_id,
+        suggested_object_id=unique_id,
+    )
 
 
 def _mapping(

@@ -14,22 +14,22 @@ Verified for the initial Home Assistant Core 2026.8.0 source candidate on
    integration as a manifest dependency or `after_dependency`. Core processes
    those requirement closures while loading the helper flow, which would make
    independent source packages an unnecessary setup prerequisite. Explicitly
-   selected HomeKit, Ecobee, and optional Beestat entities are instead observed
+   selected HomeKit and Ecobee entities are instead observed
    through the state and entity registries and recover when their owners load.
-3. **Resume semantics:** The Core 2026.8 Ecobee integration exposes the public
-   `resume_program` entity action with `resume_all`. Ecobee Unified exposes this
-   as a clearly vendor-owned action. It does not reinterpret HomeKit preset or
-   hold behavior as equivalent.
+3. **Preset/resume semantics:** Core 2026.8 HomeKit Controller exposes Ecobee
+   Current Mode as a supported `select` and Clear Hold as a supported `button`.
+   When explicitly mapped on the same source device, Ecobee Unified uses those
+   local entities as its sole preset and resume writers.
 4. **Fan minimum semantics:** The Core Ecobee integration exposes
    `set_fan_min_on_time` with a 0-to-60-minute bound. The unified action routes
-   to that writer exactly once.
+   from the first-class number to that writer exactly once.
 5. **Compatibility lane:** Core 2026.8.0 is the sole initial support and test
    lane. There is no broader-support requirement.
 6. **Source-device lifecycle:** Core 2026.8's helper lifecycle updates helper
-   entity registry links and reloads the helper config entry when the selected
-   source entity's device association changes. Ecobee Unified applies that
-   registry/listener/reload pattern to moves, detachments, removals, and
-   restorations while preserving its stable config entry and entity identity.
+   entity registry links when the selected source entity's device association
+   changes. Ecobee Unified applies supported entity/device registry listeners
+   to reconcile all owned helper records in place across moves, detachments,
+   removals, and restorations, preserving stable config-entry/entity identity.
 7. **Unchanged source reports:** Core advances `State.last_reported` and emits
    `EVENT_STATE_REPORTED` when an entity reports unchanged state and attributes.
    Source health therefore ages from `last_reported`, report handlers use the

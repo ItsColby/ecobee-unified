@@ -12,18 +12,22 @@
 | D-006 | Beestat-derived entities are optional read-only enrichment. | Their value is schedule/history context, not live control or current-state authority. |
 | D-007 | One deterministic source per semantic; no averaging and no freshest-wins. | Equivalent-looking source fields can differ in meaning, aggregation, calibration, and cadence. |
 | D-008 | Read fallback is allowed; automatic write fallback is initially disabled. | Read continuity is useful. Retrying a command through another path risks duplicate or conflicting holds. |
-| D-009 | Link the unified climate to the existing physical HomeKit device. | This gives a native single-device presentation without creating a counterfeit hardware identity or co-owning the source device. |
+| D-009 | Link every unified entity to the existing physical HomeKit device. | This gives a native single-device presentation without creating a counterfeit hardware identity or co-owning the source device. |
 | D-010 | Keep raw backends enabled through migration and rollback. | They remain the acquisition owners and provide immediate recovery. Normal UI duplication is solved through canonical consumers and visibility, not deletion. |
 | D-011 | Use shadow entity IDs during rollout. | Reusing existing IDs would mix Recorder semantics and weaken rollback. |
 | D-012 | Public source and private deployment evidence have separate owners. | This keeps the integration publishable without leaking household topology or runtime IDs. |
 | D-013 | Home Assistant Core 2026.8 is the sole initial support and CI lane. | It matches the maintained target and current upstream contracts. A second legacy lane would add duplicate machinery without a maintained compatibility promise; widen only with explicit support evidence. |
+| D-014 | The product is a canonical thermostat device surface, not only a canonical climate. | Home Assistant's one-entry-per-device rule supports helper entities on the foreign device while preserving source transport ownership. |
+| D-015 | HomeKit Current Mode and Clear Hold are the canonical preset/resume writers when explicitly mapped. | Core 2026.8 exposes supported local select/button entities; using them avoids a cloud write and preserves one writer. |
+| D-016 | Expose minimum fan runtime, equipment stage, and optional AQI/CO2/VOC as first-class sibling entities. | They add vendor-only semantics without duplicating HomeKit temperature, humidity, occupancy, or weather. |
+| D-017 | Do not copy Beestat schedule/transition into unified climate attributes. | Beestat already owns first-class entities and Recorder/history; colocation supplies one user-facing surface without moving transport or storage ownership. |
 
 ## Deferred Until Evidence Exists
 
 | Topic | Default |
 |---|---|
 | Automatic write failover | Off. Add only with an idempotency design and proven need. |
-| Proxy air-quality entities | Keep native Ecobee entities; add only for a genuinely new canonical semantic. |
+| Additional cloud projections | Add only when they are non-duplicate, bounded, capability-proven, and have a clear device-surface role. |
 | Derived room-temperature metrics | Post-MVP, after explicit room mapping and consumer definitions. |
 | Config subentries | Do not add unless current Home Assistant UX/lifecycle requirements make them materially better. |
 | Public HACS catalog listing | Not planned; a public repository plus custom-repository install is sufficient unless later value is demonstrated. |

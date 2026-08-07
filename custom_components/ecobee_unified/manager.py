@@ -28,17 +28,19 @@ from homeassistant.util import dt as dt_util
 
 from .commands import CommandTracker
 from .const import (
-    ATTR_RESUME_ALL,
-    CONF_BEESTAT_STALE_SECONDS,
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
     CONF_HOMEKIT_STALE_SECONDS,
-    DEFAULT_BEESTAT_STALE_SECONDS,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DEFAULT_HOMEKIT_STALE_SECONDS,
     DOMAIN,
     SIGNAL_SNAPSHOT_UPDATED,
+    SUFFIX_AIR_QUALITY_INDEX,
+    SUFFIX_CO2,
+    SUFFIX_EQUIPMENT_STAGE,
+    SUFFIX_MINIMUM_FAN_RUNTIME,
+    SUFFIX_VOC,
 )
 from .models import (
     MappingConfig,
@@ -142,9 +144,6 @@ class MappingManager:
         ecobee_stale_seconds = int(
             self._options.get(CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS)
         )
-        beestat_stale_seconds = int(
-            self._options.get(CONF_BEESTAT_STALE_SECONDS, DEFAULT_BEESTAT_STALE_SECONDS)
-        )
         homekit = self._raw_source(
             mapping.homekit_entity,
             homekit_stale_seconds,
@@ -158,25 +157,34 @@ class MappingManager:
             now=now,
             report_times=report_times,
         )
-        scheduled_profile = self._optional_raw_source(
-            mapping.scheduled_profile_entity,
-            beestat_stale_seconds,
+        homekit_preset = self._optional_raw_source(
+            mapping.homekit_preset_entity,
+            homekit_stale_seconds,
             now=now,
             report_times=report_times,
         )
-        next_transition = self._optional_raw_source(
-            mapping.next_transition_entity,
-            beestat_stale_seconds,
-            now=now,
-            report_times=report_times,
+        cloud_sensors = tuple(
+            self._optional_raw_source(
+                reference,
+                ecobee_stale_seconds,
+                now=now,
+                report_times=report_times,
+            )
+            for reference in (
+                mapping.ecobee_aqi_entity,
+                mapping.ecobee_co2_entity,
+                mapping.ecobee_voc_entity,
+            )
         )
         snapshot = build_snapshot(
             mapping_id,
             homekit,
             ecobee,
-            scheduled_profile,
-            next_transition,
-            self._tracker.summary(mapping_id),
+            homekit_preset=homekit_preset,
+            air_quality_index=cloud_sensors[0],
+            co2=cloud_sensors[1],
+            voc=cloud_sensors[2],
+            command=self._tracker.summary(mapping_id),
         )
         if observation_revision is not None and self._tracker.observe(
             mapping_id, observation_revision, snapshot
@@ -186,18 +194,22 @@ class MappingManager:
                 mapping_id,
                 homekit,
                 ecobee,
-                scheduled_profile,
-                next_transition,
-                self._tracker.summary(mapping_id),
+                homekit_preset=homekit_preset,
+                air_quality_index=cloud_sensors[0],
+                co2=cloud_sensors[1],
+                voc=cloud_sensors[2],
+                command=self._tracker.summary(mapping_id),
             )
         self._snapshots[mapping_id] = snapshot
         stale_inputs = [
             (homekit, homekit_stale_seconds),
             (ecobee, ecobee_stale_seconds),
         ]
+        if homekit_preset is not None:
+            stale_inputs.append((homekit_preset, homekit_stale_seconds))
         stale_inputs.extend(
-            (source, beestat_stale_seconds)
-            for source in (scheduled_profile, next_transition)
+            (source, ecobee_stale_seconds)
+            for source in cloud_sensors
             if source is not None
         )
         self._schedule_stale_refresh(mapping_id, stale_inputs)
@@ -248,6 +260,7 @@ class MappingManager:
         mapping_id: str,
         service: str,
         service_data: Mapping[str, Any],
+        expected: Mapping[str, Any],
         context: Context | None,
     ) -> None:
         """Call exactly one explicit Ecobee action with no fallback."""
@@ -267,6 +280,9 @@ class MappingManager:
                 translation_domain=DOMAIN,
                 translation_key="ecobee_writer_unavailable",
             )
+        revision = self._tracker.begin(mapping_id, service, expected)
+        self._replace_timeout(mapping_id, revision)
+        self.refresh_mapping(mapping_id)
         try:
             await self.hass.services.async_call(
                 "ecobee",
@@ -276,22 +292,112 @@ class MappingManager:
                 context=context,
             )
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._cancel_timeout(mapping_id)
+                self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="ecobee_command_failed",
             ) from None
 
     async def async_resume_program(
-        self, mapping_id: str, resume_all: bool, context: Context | None
+        self, mapping_id: str, context: Context | None
     ) -> None:
-        """Route the documented Ecobee resume-program action."""
+        """Press the explicitly mapped local HomeKit clear-hold button once."""
 
-        await self.async_vendor_command(
-            mapping_id,
-            "resume_program",
-            {ATTR_RESUME_ALL: resume_all},
-            context,
+        mapping = self._mapping_by_id[mapping_id]
+        preset = self._optional_raw_source(
+            mapping.homekit_preset_entity,
+            int(
+                self._options.get(
+                    CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS
+                )
+            ),
+            now=dt_util.utcnow(),
+            report_times=None,
         )
+        button_id = (
+            self.resolve_entity_id(mapping.homekit_clear_hold_entity)
+            if mapping.homekit_clear_hold_entity
+            else None
+        )
+        button_entry = (
+            er.async_get(self.hass).async_get(button_id) if button_id else None
+        )
+        if (
+            preset is None
+            or not preset.usable
+            or button_entry is None
+            or button_entry.disabled
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="homekit_writer_unavailable",
+            )
+        revision = self._tracker.begin(
+            mapping_id, "clear_hold", {"preset_mode": "__reported__"}
+        )
+        self._replace_timeout(mapping_id, revision)
+        self.refresh_mapping(mapping_id)
+        try:
+            await self.hass.services.async_call(
+                "button",
+                "press",
+                {"entity_id": button_id},
+                blocking=True,
+                context=context,
+            )
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._cancel_timeout(mapping_id)
+                self.refresh_mapping(mapping_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="homekit_command_failed",
+            ) from None
+
+    async def async_set_preset_mode(
+        self, mapping_id: str, preset_mode: str, context: Context | None
+    ) -> None:
+        """Select one capability-advertised HomeKit preset exactly once."""
+
+        mapping = self._mapping_by_id[mapping_id]
+        snapshot = self.snapshot(mapping_id)
+        entity_id = (
+            self.resolve_entity_id(mapping.homekit_preset_entity)
+            if mapping.homekit_preset_entity
+            else None
+        )
+        if (
+            not snapshot.homekit_preset_writable
+            or entity_id is None
+            or preset_mode not in snapshot.preset_modes
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_preset_mode",
+            )
+        revision = self._tracker.begin(
+            mapping_id, "set_preset_mode", {"preset_mode": preset_mode}
+        )
+        self._replace_timeout(mapping_id, revision)
+        self.refresh_mapping(mapping_id)
+        try:
+            await self.hass.services.async_call(
+                "select",
+                "select_option",
+                {"entity_id": entity_id, "option": preset_mode},
+                blocking=True,
+                context=context,
+            )
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._cancel_timeout(mapping_id)
+                self.refresh_mapping(mapping_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="homekit_command_failed",
+            ) from None
 
     async def async_set_minimum_fan_runtime(
         self, mapping_id: str, minutes: int, context: Context | None
@@ -307,6 +413,7 @@ class MappingManager:
             mapping_id,
             "set_fan_min_on_time",
             {"fan_min_on_time": minutes},
+            {"minimum_fan_runtime": minutes},
             context,
         )
 
@@ -318,8 +425,10 @@ class MappingManager:
             references = (
                 mapping.homekit_entity,
                 mapping.ecobee_entity,
-                mapping.scheduled_profile_entity,
-                mapping.next_transition_entity,
+                mapping.homekit_preset_entity,
+                mapping.ecobee_aqi_entity,
+                mapping.ecobee_co2_entity,
+                mapping.ecobee_voc_entity,
             )
             if entity_id not in {
                 resolved
@@ -327,9 +436,20 @@ class MappingManager:
                 if reference and (resolved := self.resolve_entity_id(reference))
             }:
                 continue
+            preset_id = (
+                self.resolve_entity_id(mapping.homekit_preset_entity)
+                if mapping.homekit_preset_entity
+                else None
+            )
+            operation = self._tracker.pending_operation(mapping.mapping_id)
+            expected_observer = (
+                preset_id
+                if operation in {"set_preset_mode", "clear_hold"}
+                else ecobee_id
+            )
             observation_revision = (
                 self._tracker.current_revision(mapping.mapping_id)
-                if entity_id == ecobee_id
+                if operation is not None and entity_id == expected_observer
                 else None
             )
             new_state = event.data["new_state"]
@@ -348,7 +468,23 @@ class MappingManager:
 
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
-            if entity_id != self.resolve_entity_id(mapping.ecobee_entity):
+            observed_ids = {self.resolve_entity_id(mapping.ecobee_entity)}
+            if mapping.homekit_preset_entity:
+                observed_ids.add(self.resolve_entity_id(mapping.homekit_preset_entity))
+            if entity_id not in observed_ids:
+                continue
+            operation = self._tracker.pending_operation(mapping.mapping_id)
+            preset_id = (
+                self.resolve_entity_id(mapping.homekit_preset_entity)
+                if mapping.homekit_preset_entity
+                else None
+            )
+            expected_observer = (
+                preset_id
+                if operation in {"set_preset_mode", "clear_hold"}
+                else self.resolve_entity_id(mapping.ecobee_entity)
+            )
+            if operation is None or entity_id != expected_observer:
                 continue
             revision = self._tracker.pending_revision(mapping.mapping_id)
             if revision is not None:
@@ -362,8 +498,7 @@ class MappingManager:
     def _handle_registry_event(self, _event: Event[Any]) -> None:
         self._subscribe_states()
         self.refresh_all()
-        if self._sync_helper_device_links():
-            self.hass.config_entries.async_schedule_reload(self.entry_id)
+        self._sync_helper_device_links()
 
     @callback
     def _handle_timeout(self, mapping_id: str, revision: int) -> None:
@@ -421,8 +556,10 @@ class MappingManager:
             for reference in (
                 mapping.homekit_entity,
                 mapping.ecobee_entity,
-                mapping.scheduled_profile_entity,
-                mapping.next_transition_entity,
+                mapping.homekit_preset_entity,
+                mapping.ecobee_aqi_entity,
+                mapping.ecobee_co2_entity,
+                mapping.ecobee_voc_entity,
             )
             if reference and (resolved := self.resolve_entity_id(reference))
         }
@@ -436,7 +573,8 @@ class MappingManager:
         ecobee_entity_ids = {
             resolved
             for mapping in self.mappings
-            if (resolved := self.resolve_entity_id(mapping.ecobee_entity))
+            for reference in (mapping.ecobee_entity, mapping.homekit_preset_entity)
+            if reference and (resolved := self.resolve_entity_id(reference))
         }
         self._unsub_state_report = (
             async_track_state_report_event(
@@ -452,14 +590,21 @@ class MappingManager:
         registry = er.async_get(self.hass)
         device_registry = dr.async_get(self.hass)
         changed = False
-        for mapping in self.mappings:
-            helper_entity_id = registry.async_get_entity_id(
-                "climate", DOMAIN, mapping.mapping_id
+        mapping_by_unique_id = {
+            unique_id: mapping
+            for mapping in self.mappings
+            for unique_id in (
+                mapping.mapping_id,
+                f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}",
+                f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}",
+                f"{mapping.mapping_id}_{SUFFIX_AIR_QUALITY_INDEX}",
+                f"{mapping.mapping_id}_{SUFFIX_CO2}",
+                f"{mapping.mapping_id}_{SUFFIX_VOC}",
             )
-            helper_entry = (
-                registry.async_get(helper_entity_id) if helper_entity_id else None
-            )
-            if helper_entry is None or helper_entry.config_entry_id != self.entry_id:
+        }
+        for helper_entry in er.async_entries_for_config_entry(registry, self.entry_id):
+            mapping = mapping_by_unique_id.get(helper_entry.unique_id)
+            if mapping is None or helper_entry.config_entry_id != self.entry_id:
                 continue
             source_entity_id = self.resolve_entity_id(mapping.homekit_entity)
             source_entry = (
@@ -559,6 +704,15 @@ class MappingManager:
             invalid.append("homekit device")
         if er.async_resolve_entity_id(registry, mapping.ecobee_entity) is None:
             invalid.append("ecobee")
+        for label, reference in (
+            ("HomeKit preset", mapping.homekit_preset_entity),
+            ("HomeKit clear hold", mapping.homekit_clear_hold_entity),
+            ("Ecobee air quality", mapping.ecobee_aqi_entity),
+            ("Ecobee carbon dioxide", mapping.ecobee_co2_entity),
+            ("Ecobee volatile organic compounds", mapping.ecobee_voc_entity),
+        ):
+            if reference and er.async_resolve_entity_id(registry, reference) is None:
+                invalid.append(label)
         issue_id = f"mapping_{mapping.mapping_id}"
         if invalid:
             ir.async_create_issue(

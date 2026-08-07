@@ -2,9 +2,10 @@
 
 ## User Outcome
 
-Home Assistant should present each physical thermostat as one canonical device
-and climate entity while preserving the specificity of Ecobee cloud data, the
-responsiveness of HomeKit, and useful Beestat-derived schedule/history context.
+Home Assistant should present each physical thermostat as one canonical
+user-facing device surface, centered on one climate entity and colocated
+non-duplicate controls/context, while preserving the specificity of Ecobee
+cloud data, the responsiveness of HomeKit, and Beestat-owned schedule/history.
 Routine users should not see multiple competing copies, but diagnostics must
 make every selected source and fallback explicit.
 
@@ -18,22 +19,24 @@ justify ambiguous values or dual writes.
 |---|---|
 | F-01 | Configure multiple thermostat mappings through native config/options flows without credentials. |
 | F-02 | Validate source domains/integrations and reject circular or semantically invalid mappings. |
-| F-03 | Expose one unified climate entity per mapping with stable unique IDs. |
+| F-03 | Expose one stable unified climate plus justified sibling entities on the HomeKit-owned thermostat device. |
 | F-04 | Implement the deterministic field ownership and fallback table in `architecture.md`. |
 | F-05 | Route every command to exactly one documented backend service/entity. |
 | F-06 | Subscribe to source state changes; never perform I/O from entity properties. |
 | F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added. |
-| F-08 | Link the unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
+| F-08 | Link every unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
 | F-09 | Expose compact provenance, source age/health, and command-confirmation status. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, and recent command state. |
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
 | F-12 | Preserve unit conversion, target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Operate without Beestat, and fail honestly if the required climate semantics cannot be supplied. |
-| F-15 | Normalize each mapping once and project climate/diagnostic surfaces from the same snapshot. |
+| F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |
 | F-16 | Revision-guard pending commands so stale observations cannot update a superseded command. |
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
+| F-19 | When explicitly mapped and capability-advertised, expose HomeKit current-mode presets and local clear-hold/resume with exactly one local writer. |
+| F-20 | Project only justified Ecobee-only detail: minimum fan runtime, bounded equipment stage, and explicitly selected AQI/CO2/VOC sensors; do not duplicate temperature, humidity, occupancy, weather, schedule, or history. |
 
 ## Non-functional Requirements
 
@@ -62,8 +65,8 @@ MVP is complete when all of the following are true:
 2. The climate entity reports every standard field from the documented owner
    and uses only the documented fallback under tested failure conditions.
 3. Standard climate commands produce exactly one HomeKit service call.
-4. Vendor operations produce exactly one Ecobee action and are never silently
-   substituted for a standard command.
+4. Preset and clear-hold operations produce exactly one HomeKit action; the
+   minimum-fan control produces exactly one Ecobee action, with no failover.
 5. Command confirmation observes but never retries through another source.
 6. Reload, rename, source loss/recovery, and removal tests pass.
 7. Device linkage is correct on the supported Home Assistant Core 2026.8
@@ -76,7 +79,7 @@ MVP is complete when all of the following are true:
 
 ## Explicit Non-goals for MVP
 
-- Re-exporting all source sensors.
+- Re-exporting all source sensors rather than the justified cloud-only subset.
 - Creating weather, occupancy, motion, battery, or history duplicates.
 - Direct Ecobee authentication or Beestat API access.
 - Predictive HVAC control or automatic schedule changes.

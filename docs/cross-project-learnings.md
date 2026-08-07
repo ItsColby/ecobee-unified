@@ -22,11 +22,13 @@ registry, event, and service APIs. It does not import another integration's
 runtime objects, call the Ecobee or Beestat APIs, scrape diagnostics, edit
 `.storage`, schedule comfort changes, or deliver notifications.
 
-HomeKit remains the standard climate-state and control owner. The Ecobee
-integration remains the vendor-detail and vendor-action owner. Optional
-Beestat-derived entities remain schedule/history context only. The unified
-integration owns mapping, deterministic field selection, degradation, command
-routing, command confirmation, and the canonical presentation surface.
+HomeKit remains the standard climate-state/control, preset, and clear-hold
+owner. The Ecobee integration remains the vendor-detail and minimum-fan action
+owner. Beestat-derived entities remain the first-class
+schedule/history/filter/alert surface and keep Recorder/import ownership. The
+unified integration owns mapping, deterministic field selection, degradation,
+command routing, command confirmation, and canonical climate plus
+non-duplicate vendor projections on the same user-facing device.
 
 ## Runtime and Configuration
 
@@ -48,13 +50,13 @@ routing, command confirmation, and the canonical presentation surface.
 
 - Build one immutable or treated-as-immutable per-mapping snapshot containing
   normalized capabilities, values, provenance, source ages, degradation, and
-  pending-command state. Climate, diagnostics, and diagnostic entities project
+  pending-command state. Climate, number, sensor, and diagnostics project
   that same snapshot; entity properties perform no I/O.
 - Select by documented semantics, never by newest timestamp, name similarity,
   or averaging. An unsupported field remains absent.
 - HomeKit loss may activate only the documented Ecobee read fallback and must
   disable HomeKit-owned writes. Ecobee loss removes vendor detail/actions.
-  Beestat loss removes schedule/history context. Loss of every valid source for
+  Beestat loss affects its independently owned device entities. Loss of every valid source for
   a required climate semantic makes the unified climate unavailable.
 - Subscribe only to explicitly mapped entities, bound retained history and
   diagnostic examples, and keep normal source processing active while command
@@ -62,12 +64,12 @@ routing, command confirmation, and the canonical presentation surface.
 
 ## Devices and Entities
 
-- Link the unified climate to the selected physical thermostat device using
+- Link every unified climate/number/sensor to the selected physical thermostat device using
   Home Assistant's supported helper-device pattern without returning foreign
   identifiers/connections or claiming source-device ownership.
-- Reconcile the helper link when the HomeKit source entity is moved, detached,
-  removed, or restored, then use the supported config-entry reload path so the
-  live entity and registry remain aligned without replacing stable identity.
+- Reconcile every owned helper link in place when the HomeKit source entity is
+  moved, detached, removed, or restored; do not reload/recreate the config entry
+  or mutate a foreign entity record.
 - Keep stable unique IDs across reload, rename, recovery, and migration. Do not
   auto-discover thermostats or duplicate entities when a source reloads.
 - Keep Recorder attributes compact and stable. Put detailed mapping,
@@ -81,8 +83,8 @@ routing, command confirmation, and the canonical presentation surface.
 
 - Validate the mapped entry/entity, capability, writer availability, units,
   and bounds before issuing exactly one service call.
-- Standard climate commands use HomeKit only. Vendor-specific actions use the
-  explicitly documented Ecobee path. Read fallback never implies write
+- Standard climate, preset, and clear-hold commands use HomeKit only. The
+  minimum-fan number uses the explicitly documented Ecobee path. Read fallback never implies write
   failover, and a timeout never causes a second-backend retry.
 - Give each pending command a monotonically increasing revision. After every
   await or source event, update confirmation only if that revision is still

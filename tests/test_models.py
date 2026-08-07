@@ -125,7 +125,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(21.0, snapshot.target_temperature)
         self.assertEqual("homekit", snapshot.provenance["current_temperature"])
         self.assertNotEqual(24.0, snapshot.current_temperature)
-        self.assertEqual("home", snapshot.preset_mode)
+        self.assertIsNone(snapshot.preset_mode)
+        self.assertEqual("home", snapshot.ecobee_preset_mode)
         self.assertEqual("Home", snapshot.climate_mode)
 
     def test_ecobee_fallback_is_read_only_and_explicit(self) -> None:
@@ -255,7 +256,7 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertEqual(20.0, snapshot.current_temperature)
 
-    def test_optional_context_is_bounded_and_does_not_affect_availability(self) -> None:
+    def test_optional_vendor_projections_are_bounded_and_independent(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",
             source("heat", {"current_temperature": 20.0}),
@@ -266,21 +267,28 @@ class SnapshotTests(unittest.TestCase):
                     "active_sensors": [f"sensor_{index}" for index in range(20)],
                 },
             ),
+            RawSource(
+                "Home",
+                {"options": [f"mode_{index}" for index in range(20)]},
+                health=SourceHealth.HEALTHY,
+            ),
+            RawSource("42", health=SourceHealth.HEALTHY),
             RawSource(None, health=SourceHealth.UNAVAILABLE),
             None,
             CommandSummary(2, "set_temperature", CommandStatus.PENDING, 3),
         )
         self.assertTrue(snapshot.available)
         self.assertEqual(8, len(snapshot.active_sensors))
-        self.assertIsNone(snapshot.scheduled_profile)
-        self.assertIn("scheduled_profile_unavailable", snapshot.degradation)
+        self.assertEqual("Home", snapshot.preset_mode)
+        self.assertEqual(8, len(snapshot.preset_modes))
+        self.assertEqual(42.0, snapshot.air_quality_index)
+        self.assertIsNone(snapshot.co2)
+        self.assertIn("co2_unavailable", snapshot.degradation)
         self.assertEqual(
             SourceHealth.UNAVAILABLE,
-            snapshot.source_health["scheduled_profile"],
+            snapshot.source_health["co2"],
         )
-        self.assertEqual(
-            SourceHealth.MISSING, snapshot.source_health["next_transition"]
-        )
+        self.assertEqual(SourceHealth.MISSING, snapshot.source_health["voc"])
         self.assertEqual(CommandStatus.PENDING, snapshot.command.status)
 
 

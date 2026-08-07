@@ -87,6 +87,16 @@ class CommandTracker:
             else None
         )
 
+    def pending_operation(self, mapping_id: str) -> str | None:
+        """Return the current operation only while confirmation is pending."""
+
+        command = self._commands.get(mapping_id)
+        return (
+            command.operation
+            if command is not None and command.status is CommandStatus.PENDING
+            else None
+        )
+
     def summary(self, mapping_id: str) -> CommandSummary:
         """Return a bounded projection of recent command state."""
 

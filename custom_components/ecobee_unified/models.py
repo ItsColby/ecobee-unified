@@ -46,8 +46,11 @@ class MappingConfig:
     name: str
     homekit_entity: str
     ecobee_entity: str
-    scheduled_profile_entity: str | None = None
-    next_transition_entity: str | None = None
+    homekit_preset_entity: str | None = None
+    homekit_clear_hold_entity: str | None = None
+    ecobee_aqi_entity: str | None = None
+    ecobee_co2_entity: str | None = None
+    ecobee_voc_entity: str | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> MappingConfig:
@@ -58,10 +61,13 @@ class MappingConfig:
             name=str(value["name"]),
             homekit_entity=str(value["homekit_entity"]),
             ecobee_entity=str(value["ecobee_entity"]),
-            scheduled_profile_entity=_optional_text(
-                value.get("scheduled_profile_entity")
+            homekit_preset_entity=_optional_text(value.get("homekit_preset_entity")),
+            homekit_clear_hold_entity=_optional_text(
+                value.get("homekit_clear_hold_entity")
             ),
-            next_transition_entity=_optional_text(value.get("next_transition_entity")),
+            ecobee_aqi_entity=_optional_text(value.get("ecobee_aqi_entity")),
+            ecobee_co2_entity=_optional_text(value.get("ecobee_co2_entity")),
+            ecobee_voc_entity=_optional_text(value.get("ecobee_voc_entity")),
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -73,10 +79,19 @@ class MappingConfig:
             "homekit_entity": self.homekit_entity,
             "ecobee_entity": self.ecobee_entity,
         }
-        if self.scheduled_profile_entity:
-            result["scheduled_profile_entity"] = self.scheduled_profile_entity
-        if self.next_transition_entity:
-            result["next_transition_entity"] = self.next_transition_entity
+        result.update(
+            {
+                key: value
+                for key, value in (
+                    ("homekit_preset_entity", self.homekit_preset_entity),
+                    ("homekit_clear_hold_entity", self.homekit_clear_hold_entity),
+                    ("ecobee_aqi_entity", self.ecobee_aqi_entity),
+                    ("ecobee_co2_entity", self.ecobee_co2_entity),
+                    ("ecobee_voc_entity", self.ecobee_voc_entity),
+                )
+                if value
+            }
+        )
         return result
 
 
@@ -117,6 +132,8 @@ class NormalizedSnapshot:
     mapping_id: str
     available: bool
     homekit_writable: bool
+    homekit_preset_writable: bool
+    ecobee_writable: bool
     hvac_mode: str | None
     hvac_action: str | None
     current_temperature: float | None
@@ -133,12 +150,15 @@ class NormalizedSnapshot:
     target_temperature_step: float | None
     temperature_unit: str | None
     preset_mode: str | None
+    preset_modes: tuple[str, ...]
+    ecobee_preset_mode: str | None
     climate_mode: str | None
     equipment_running: str | None
     active_sensors: tuple[str, ...]
     minimum_fan_runtime: int | None
-    scheduled_profile: str | None
-    next_transition: str | None
+    air_quality_index: float | None
+    co2: float | None
+    voc: float | None
     source_health: Mapping[str, SourceHealth]
     source_ages: Mapping[str, int | None]
     provenance: Mapping[str, str]
@@ -166,8 +186,10 @@ def build_snapshot(
     mapping_id: str,
     homekit: RawSource,
     ecobee: RawSource,
-    scheduled_profile: RawSource | None = None,
-    next_transition: RawSource | None = None,
+    homekit_preset: RawSource | None = None,
+    air_quality_index: RawSource | None = None,
+    co2: RawSource | None = None,
+    voc: RawSource | None = None,
     command: CommandSummary | None = None,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
@@ -208,25 +230,33 @@ def build_snapshot(
         {
             "homekit": homekit.health,
             "ecobee": ecobee.health,
-            "scheduled_profile": _optional_health(scheduled_profile),
-            "next_transition": _optional_health(next_transition),
+            "homekit_preset": _optional_health(homekit_preset),
+            "air_quality_index": _optional_health(air_quality_index),
+            "co2": _optional_health(co2),
+            "voc": _optional_health(voc),
         }
     )
     source_ages = MappingProxyType(
         {
             "homekit": homekit.age_seconds,
             "ecobee": ecobee.age_seconds,
-            "scheduled_profile": _optional_age(scheduled_profile),
-            "next_transition": _optional_age(next_transition),
+            "homekit_preset": _optional_age(homekit_preset),
+            "air_quality_index": _optional_age(air_quality_index),
+            "co2": _optional_age(co2),
+            "voc": _optional_age(voc),
         }
     )
 
     if not ecobee.usable:
         degradation.add("ecobee_vendor_context_unavailable")
-    if scheduled_profile is not None and not scheduled_profile.usable:
-        degradation.add("scheduled_profile_unavailable")
-    if next_transition is not None and not next_transition.usable:
-        degradation.add("next_transition_unavailable")
+    for source_name, source in (
+        ("homekit_preset", homekit_preset),
+        ("air_quality_index", air_quality_index),
+        ("co2", co2),
+        ("voc", voc),
+    ):
+        if source is not None and not source.usable:
+            degradation.add(f"{source_name}_unavailable")
 
     available = hvac_mode is not None and current_temperature is not None
     if not available:
@@ -236,6 +266,8 @@ def build_snapshot(
         mapping_id=mapping_id,
         available=available,
         homekit_writable=homekit.usable,
+        homekit_preset_writable=bool(homekit_preset and homekit_preset.usable),
+        ecobee_writable=ecobee.usable,
         hvac_mode=hvac_mode,
         hvac_action=values["hvac_action"],
         current_temperature=current_temperature,
@@ -251,9 +283,17 @@ def build_snapshot(
         max_temp=values["max_temp"],
         target_temperature_step=values["target_temperature_step"],
         temperature_unit=values["temperature_unit"],
-        preset_mode=_bounded_text(ecobee.attributes.get("preset_mode"))
-        if ecobee.usable
-        else None,
+        preset_mode=_optional_source_state(homekit_preset),
+        preset_modes=(
+            _bounded_strings(homekit_preset.attributes.get("options"))
+            if homekit_preset and homekit_preset.usable
+            else ()
+        ),
+        ecobee_preset_mode=(
+            _bounded_text(ecobee.attributes.get("preset_mode"))
+            if ecobee.usable
+            else None
+        ),
         climate_mode=_bounded_text(ecobee.attributes.get("climate_mode"))
         if ecobee.usable
         else None,
@@ -271,12 +311,15 @@ def build_snapshot(
         )
         if ecobee.usable
         else None,
-        scheduled_profile=_optional_source_state(scheduled_profile),
-        next_transition=_optional_source_state(next_transition),
+        air_quality_index=_optional_source_number(air_quality_index),
+        co2=_optional_source_number(co2),
+        voc=_optional_source_number(voc),
         source_health=source_health,
         source_ages=source_ages,
         provenance=MappingProxyType(provenance),
-        confirmation_values=MappingProxyType(_confirmation_values(ecobee)),
+        confirmation_values=MappingProxyType(
+            _confirmation_values(ecobee, homekit_preset)
+        ),
         degradation=tuple(sorted(degradation)),
         command=command or CommandSummary(),
     )
@@ -290,6 +333,9 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
         if wanted == "__not_off__":
             if actual in {None, "off"}:
                 return False
+        elif wanted == "__reported__":
+            if actual is None:
+                return False
         elif isinstance(wanted, int | float) and isinstance(actual, int | float):
             if not isclose(float(actual), float(wanted), abs_tol=0.11):
                 return False
@@ -298,18 +344,31 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
     return bool(expected)
 
 
-def _confirmation_values(ecobee: RawSource) -> dict[str, Any]:
-    """Normalize only Ecobee fields used to observe HomeKit commands."""
+def _confirmation_values(
+    ecobee: RawSource, homekit_preset: RawSource | None
+) -> dict[str, Any]:
+    """Normalize only fields used to observe a current command revision."""
 
-    if not ecobee.usable:
-        return {}
-    values = {
-        "hvac_mode": _hvac_mode(ecobee.state),
-        "target_temperature": _number(ecobee.attributes.get("temperature")),
-        "target_temperature_low": _number(ecobee.attributes.get("target_temp_low")),
-        "target_temperature_high": _number(ecobee.attributes.get("target_temp_high")),
-        "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
-    }
+    values: dict[str, Any] = {}
+    if ecobee.usable:
+        values.update(
+            {
+                "hvac_mode": _hvac_mode(ecobee.state),
+                "target_temperature": _number(ecobee.attributes.get("temperature")),
+                "target_temperature_low": _number(
+                    ecobee.attributes.get("target_temp_low")
+                ),
+                "target_temperature_high": _number(
+                    ecobee.attributes.get("target_temp_high")
+                ),
+                "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
+                "minimum_fan_runtime": _bounded_integer(
+                    ecobee.attributes.get("fan_min_on_time"), 0, 60
+                ),
+            }
+        )
+    if homekit_preset is not None and homekit_preset.usable:
+        values["preset_mode"] = _bounded_text(homekit_preset.state)
     return {key: value for key, value in values.items() if value is not None}
 
 
@@ -422,6 +481,16 @@ def _bounded_strings(value: Any) -> tuple[str, ...]:
 
 def _optional_source_state(source: RawSource | None) -> str | None:
     return _bounded_text(source.state) if source and source.usable else None
+
+
+def _optional_source_number(source: RawSource | None) -> float | None:
+    if source is None or not source.usable or source.state is None:
+        return None
+    try:
+        value = float(source.state)
+    except ValueError:
+        return None
+    return value if isfinite(value) else None
 
 
 def _optional_health(source: RawSource | None) -> SourceHealth:

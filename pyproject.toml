@@ -1,0 +1,42 @@
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = [
+  "ASYNC",
+  "B",
+  "BLE",
+  "C4",
+  "C901",
+  "DTZ",
+  "LOG",
+  "N818",
+  "PERF",
+  "PLC",
+  "PLE",
+  "PLW",
+  "RUF",
+  "S104",
+  "S113",
+  "S310",
+  "S314",
+  "S324",
+  "S501",
+  "S506",
+  "S507",
+  "TID",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["T20"]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unused_configs = true
+show_error_codes = true

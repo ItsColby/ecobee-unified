@@ -1,37 +1,102 @@
 # Ecobee Unified
 
-Ecobee Unified is a design-stage Home Assistant custom integration that will
-combine complementary data already exposed by HomeKit Controller, the native
-Ecobee integration, and an optional Beestat-derived integration into one
-canonical thermostat entity per physical thermostat.
+Ecobee Unified is an unreleased Home Assistant helper integration that presents
+one canonical climate entity for each explicitly mapped physical thermostat. It
+combines supported Home Assistant entity state without becoming another Ecobee
+or Beestat API client.
 
-It will not replace those integrations or connect to Ecobee directly. The
-source integrations remain the owners of transport, authentication, devices,
-and raw entities. Ecobee Unified will provide a deterministic presentation and
-control-policy layer:
+The source candidate targets Home Assistant Core 2026.8.0. It is not a release,
+has not been deployed, and is not yet offered through a public repository or
+HACS.
 
-- local, responsive climate state and standard controls from HomeKit;
-- Ecobee-specific operating detail and actions from the Ecobee integration;
-- optional schedule/history-derived context from Beestat data;
-- explicit source health, provenance, and degradation; and
-- one canonical entity for dashboards, automations, and voice exposure.
+## Ownership and behavior
 
-The repository currently contains the implementation contract and validation
-plan, not integration code. Home Assistant Core 2026.8 is the single initial
-support and test baseline. Start with [the architecture](docs/architecture.md),
-[requirements](docs/requirements.md), and the
-[Ecobee-specific consequences of the shared engineering contract](docs/cross-project-learnings.md).
+- HomeKit Controller owns standard climate state and every standard climate
+  command.
+- Ecobee owns vendor detail plus the explicit `resume_program` and
+  `set_minimum_fan_runtime` actions.
+- Optional Beestat Statistics entities provide read-only scheduled-profile and
+  next-transition context.
+- Each semantic has one deterministic source and documented read fallback.
+  Values are never averaged and a newer timestamp never changes ownership.
+- Read fallback never changes the command writer. A timeout never retries a
+  command through another backend.
 
-## Non-goals
+The integration stores entity-registry IDs rather than names, so registry
+renames survive. Missing selections are preserved and require explicit
+reconfiguration; replacements are never guessed.
 
-- A new Ecobee cloud client or credential store.
-- A replacement for HomeKit Controller, Ecobee, or Beestat history entities.
-- Duplicate weather, motion, occupancy, battery, air-quality, or historical
-  entities without a new canonical semantic.
-- Averaging duplicate measurements or switching sources only because one has a
-  newer timestamp.
-- Sending the same command through multiple backends.
+## Entity surface
 
-## Status
+Each mapping creates one climate entity linked to the selected HomeKit device
+using the Core 2026.8 helper-device pattern. Entity properties project one
+immutable normalized snapshot and perform no I/O. Compact attributes expose
+field provenance, source age/health, degradation, bounded Ecobee context,
+optional schedule context, and revision-guarded command confirmation.
 
-Design ready for implementation. No release or installation is implied.
+Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
+device IDs, config-entry IDs, and source values.
+
+## Configuration
+
+The initial flow collects one or more mappings in a single config entry. Each
+mapping requires a HomeKit Controller climate and an Ecobee climate; Beestat
+context is optional. Reconfiguration supports explicit add, edit, and remove
+operations. Editing physical association or command routing requires a second
+confirmation.
+
+Options expose documented freshness thresholds and the command-confirmation
+window. Freshness affects health and read fallback only.
+
+## Actions
+
+`ecobee_unified.resume_program` targets a unified climate entity and calls the
+mapped Ecobee `resume_program` action exactly once.
+
+`ecobee_unified.set_minimum_fan_runtime` targets a unified climate entity,
+accepts 0 through 60 minutes, and calls the mapped Ecobee
+`set_fan_min_on_time` action exactly once.
+
+Standard HVAC mode, temperature/range, fan, turn-on, and turn-off operations
+call only the selected HomeKit climate.
+
+## Validation
+
+The local, dependency-light tier is:
+
+```text
+python -m unittest tests.test_models tests.test_commands tests.test_public_safety
+python -m compileall -q custom_components/ecobee_unified tests scripts
+python -m ruff format --check custom_components tests scripts
+python -m ruff check custom_components tests scripts
+python scripts/check_public_safety.py
+actionlint
+```
+
+The exact Core lane installs the compatible Home Assistant harness first, Core
+2026.8.0 second, product-owned typing tools last, and then proves the final
+environment before tests:
+
+```text
+python -m pip install "pytest-homeassistant-custom-component==0.13.354"
+python -m pip install --upgrade -r requirements-ha-test.txt
+python -m pip install --upgrade mypy
+python -m pip check
+python -m mypy --strict custom_components/ecobee_unified
+pytest tests/test_integration_ha.py tests/test_runtime_core_api.py -q
+```
+
+The Home Assistant test surface is Linux-owned because Core imports POSIX-only
+modules. Hassfest and HACS validation are defined in CI but cannot be claimed
+green until a separately authorized public repository runs them.
+
+## Known limits
+
+- The source-health and confirmation defaults need private shadow-deployment
+  measurement before a release.
+- No automatic write failover exists.
+- Raw source entities remain required and recoverable.
+- No historical series, raw diagnostics, arbitrary backend errors, or room
+  sensor duplicates are re-exported.
+- Installation, restart, live validation, consumer migration, publication,
+  and release are separate gates.

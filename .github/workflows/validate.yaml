@@ -1,0 +1,121 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests and static validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install static validation tools
+        run: python -m pip install "ruff==0.16.1" "shellcheck-py==0.11.0.1"
+      - name: Install actionlint
+        env:
+          GOBIN: ${{ runner.temp }}/actionlint-bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$GOBIN" >> "$GITHUB_PATH"
+      - name: Report validation tool versions
+        run: |
+          actionlint -version
+          shellcheck --version
+          python -m ruff --version
+      - name: Lint workflows and shell fragments
+        run: actionlint
+      - run: python -m ruff format --check custom_components tests scripts
+      - run: python -m ruff check custom_components tests scripts
+      - run: python -m unittest tests.test_models tests.test_commands tests.test_public_safety
+      - run: python -m compileall -q custom_components/ecobee_unified tests scripts
+      - run: python scripts/check_public_safety.py
+      - name: Validate JSON metadata and translations
+        run: >-
+          python -c "import json, pathlib;
+          [json.loads(pathlib.Path(path).read_text(encoding='utf-8'))
+          for path in
+          ['custom_components/ecobee_unified/manifest.json',
+          'custom_components/ecobee_unified/strings.json',
+          'custom_components/ecobee_unified/translations/en.json',
+          'hacs.json']]"
+
+  home_assistant:
+    name: Home Assistant integration tests (Core 2026.8.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install Home Assistant test harness
+        run: python -m pip install "pytest-homeassistant-custom-component==0.13.354"
+      - name: Install supported Home Assistant Core
+        run: python -m pip install --upgrade -r requirements-ha-test.txt
+      - name: Install product-owned typing tool
+        run: python -m pip install "mypy==2.3.0"
+      - name: Verify final dependency closure
+        run: python -m pip check
+      - run: python -m mypy --strict custom_components/ecobee_unified
+      - run: pytest tests/test_integration_ha.py tests/test_runtime_core_api.py -q
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
+        with:
+          category: integration
+
+  release_gate:
+    name: Release gate
+    if: ${{ always() }}
+    needs: [unit, home_assistant, hassfest, hacs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job
+        env:
+          UNIT: ${{ needs.unit.result }}
+          HOME_ASSISTANT: ${{ needs.home_assistant.result }}
+          HASSFEST: ${{ needs.hassfest.result }}
+          HACS: ${{ needs.hacs.result }}
+        run: |
+          test "$UNIT" = success
+          test "$HOME_ASSISTANT" = success
+          test "$HASSFEST" = success
+          test "$HACS" = success

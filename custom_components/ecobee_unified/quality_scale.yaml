@@ -1,0 +1,16 @@
+rules:
+  action-exceptions: done
+  config-entry-unloading: done
+  config-flow: done
+  config-flow-test-coverage: done
+  diagnostics: done
+  entity-event-setup: done
+  entity-unique-id: done
+  entity-unavailable: done
+  exception-translations: done
+  has-entity-name: done
+  reconfiguration-flow: done
+  repair-issues: done
+  runtime-data: done
+  strict-typing: done
+  unique-config-entry: done

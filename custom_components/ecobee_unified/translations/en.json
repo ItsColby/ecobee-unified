@@ -1,0 +1,84 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Ecobee Unified is already configured.",
+      "one_mapping_required": "At least one thermostat mapping must remain."
+    },
+    "error": {
+      "confirmation_required": "Confirm this physical thermostat or command-writer change.",
+      "duplicate_ecobee_source": "This Ecobee climate is already mapped.",
+      "duplicate_homekit_source": "This HomeKit climate is already mapped.",
+      "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",
+      "invalid_beestat_statistics_source": "Select an entity supplied by Beestat Statistics.",
+      "invalid_ecobee_source": "Select a climate entity supplied by Ecobee.",
+      "invalid_homekit_controller_source": "Select a climate entity supplied by HomeKit Controller.",
+      "invalid_name": "Enter a name of 1 to 64 characters."
+    },
+    "step": {
+      "mapping": {
+        "data": {
+          "add_another": "Add another thermostat",
+          "ecobee_entity": "Ecobee climate",
+          "homekit_entity": "HomeKit climate",
+          "name": "Mapping name",
+          "next_transition_entity": "Beestat next transition (optional)",
+          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+        },
+        "description": "Map one physical thermostat explicitly. HomeKit owns standard state and control; Ecobee owns vendor detail and actions.",
+        "title": "Thermostat mapping"
+      },
+      "reconfigure_add": {
+        "data": {
+          "ecobee_entity": "Ecobee climate",
+          "homekit_entity": "HomeKit climate",
+          "name": "Mapping name",
+          "next_transition_entity": "Beestat next transition (optional)",
+          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+        },
+        "title": "Add mapping"
+      },
+      "reconfigure_edit": {"data": {"mapping_id": "Mapping"}, "title": "Edit mapping"},
+      "reconfigure_edit_confirm": {
+        "data": {
+          "confirm_change": "I understand this changes physical association or command routing",
+          "ecobee_entity": "Ecobee climate",
+          "homekit_entity": "HomeKit climate",
+          "name": "Mapping name",
+          "next_transition_entity": "Beestat next transition (optional)",
+          "scheduled_profile_entity": "Beestat scheduled profile (optional)"
+        },
+        "title": "Confirm mapping change"
+      },
+      "reconfigure_remove": {"data": {"mapping_id": "Mapping"}, "title": "Remove mapping"},
+      "reconfigure_remove_confirm": {"data": {"confirm_change": "Remove {name}"}, "title": "Confirm mapping removal"}
+    }
+  },
+  "entity": {"climate": {"thermostat": {"name": "Unified climate"}}},
+  "exceptions": {
+    "ecobee_command_failed": {"message": "The Ecobee action failed."},
+    "ecobee_writer_unavailable": {"message": "The mapped Ecobee writer is unavailable."},
+    "homekit_command_failed": {"message": "The HomeKit command failed."},
+    "homekit_writer_unavailable": {"message": "The mapped HomeKit writer is unavailable; no fallback write was attempted."},
+    "invalid_fan_runtime": {"message": "Minimum fan runtime must be between 0 and 60 minutes."}
+  },
+  "issues": {
+    "mapping_source_missing": {
+      "description": "The explicitly mapped {source} source no longer exists. Reconfigure this thermostat mapping; Ecobee Unified will not guess a replacement.",
+      "title": "A thermostat mapping needs attention"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "beestat_stale_seconds": "Beestat stale after (seconds)",
+          "confirmation_seconds": "Command confirmation window (seconds)",
+          "ecobee_stale_seconds": "Ecobee stale after (seconds)",
+          "homekit_stale_seconds": "HomeKit stale after (seconds)"
+        },
+        "description": "Freshness affects health and read fallback only. It never changes the command writer.",
+        "title": "Source timing"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+resume_program:
+  name: Resume Ecobee program
+  description: Resume the selected thermostat's Ecobee schedule through exactly one Ecobee action.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    resume_all:
+      name: Resume all events
+      description: Clear all events rather than only the current event.
+      default: false
+      selector:
+        boolean:
+
+set_minimum_fan_runtime:
+  name: Set Ecobee minimum fan runtime
+  description: Set the hourly minimum fan runtime through exactly one Ecobee action.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    minutes:
+      name: Minutes
+      description: Minimum fan runtime per hour.
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 60
+          mode: box

@@ -33,12 +33,9 @@
 
 These are verification tasks, not unresolved product choices:
 
-- Re-read the current Home Assistant helper-device linking and config-entry
-  lifecycle APIs before coding.
-- Confirm optional custom-integration dependency behavior; do not make Beestat a
-  hard setup dependency if partial operation is supported.
-- Confirm the exact semantics of HomeKit clear-hold versus Ecobee resume-program
-  before exposing one or both.
+- Helper-device linking, config-entry lifecycle, optional-source behavior, and
+  public Ecobee action semantics were resolved for Core 2026.8.0 in
+  `upstream-contracts.md` before implementation.
 - Measure realistic source-staleness and command-confirmation thresholds in the
   private shadow deployment.
 - Recheck the integration name/domain and publication destination before any

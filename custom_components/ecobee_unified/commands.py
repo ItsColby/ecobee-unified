@@ -77,6 +77,16 @@ class CommandTracker:
         command = self._commands.get(mapping_id)
         return command.revision if command else None
 
+    def pending_revision(self, mapping_id: str) -> int | None:
+        """Return the current revision only while confirmation is pending."""
+
+        command = self._commands.get(mapping_id)
+        return (
+            command.revision
+            if command is not None and command.status is CommandStatus.PENDING
+            else None
+        )
+
     def summary(self, mapping_id: str) -> CommandSummary:
         """Return a bounded projection of recent command state."""
 

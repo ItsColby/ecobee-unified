@@ -48,6 +48,12 @@ The integration must not return foreign identifiers or connections and must not
 claim co-ownership of that device. If the source device is missing, keep the
 entity registered and report degraded/unavailable state.
 
+The link follows the selected source entity rather than only its setup-time
+device. Entity/device registry changes reconcile the unified entity's
+`device_id`; moving, detaching, removing, or restoring the HomeKit source then
+schedules the supported config-entry reload so the live entity and registry
+agree without replacing the config entry or stable entity identity.
+
 ## Deterministic Field Ownership
 
 | Semantic | Primary | Read fallback | Notes |
@@ -89,7 +95,13 @@ capability-aware:
   becomes unavailable rather than inventing state.
 
 Source staleness thresholds must reflect backend cadence and be configurable or
-well-documented. They are health signals, not a reason to reinterpret fields.
+well-documented. Freshness uses Home Assistant's `last_reported` timestamp so a
+healthy unchanged report remains fresh; `last_updated` would incorrectly age a
+stable value merely because its semantics did not change. Lifecycle-owned
+timers reevaluate at stale boundaries even when no new state-change event
+arrives. Event handlers use the event-owned stable report/change timestamp
+rather than relying on Core's intentionally mutable `State.last_reported`
+field. These are health signals, not a reason to reinterpret fields.
 
 ## Command Policy
 
@@ -111,7 +123,10 @@ revision. A late cloud update must not confirm or fail a superseded command. A
 timeout reports an unconfirmed command; it must not send a second write. The
 initial confirmation window should exceed two normal Ecobee cloud refresh
 intervals and be validated against live behavior. Normal source processing must
-continue while confirmation is pending.
+continue while confirmation is pending. A matching Ecobee state report counts
+as a new observation even when state and attributes are unchanged; report-event
+handling is limited to pending mapped commands and retains the same revision
+guard.
 
 ## Entity Surface
 
@@ -126,7 +141,10 @@ MVP per thermostat:
 Keep climate attributes bounded: selected sources, source status/age,
 equipment running, active climate mode/sensors, minimum fan runtime, scheduled
 profile/next transition, and command confirmation. Do not record large raw
-payloads, long lists, or historical samples as attributes.
+payloads, long lists, or historical samples as attributes. Volatile source age,
+active-sensor detail, and command-confirmation age/status remain live attributes
+but are excluded from Recorder; bounded redacted diagnostics own their detailed
+history-independent evidence.
 
 ## Derived Expansion
 

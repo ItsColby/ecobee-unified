@@ -8,6 +8,8 @@
 - multiple mappings in one entry;
 - invalid domain/integration and circular mapping rejection;
 - entity rename, device rename, source removal/re-add, and registry disable;
+- source device move, detach, removal, and restoration with helper relinking
+  and config-entry reload but no config-entry or stable-entity recreation;
 - startup before each source integration and later source setup/reload;
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
@@ -36,6 +38,8 @@ climate semantic, never the raw sensor by apparent similarity.
 - writer unavailable fails clearly without fallback;
 - confirmation observes Ecobee state without issuing another call;
 - confirmation success, mismatch, timeout, reload, and source loss;
+- confirmation from a fresh matching report whose state and attributes are
+  unchanged;
 - rapid repeated commands and superseded pending state;
 - late observations for an older revision cannot mutate the current command;
 - service error propagation and diagnostics redaction.
@@ -49,6 +53,10 @@ climate semantic, never the raw sensor by apparent similarity.
 - translations and config-flow strings;
 - diagnostics privacy;
 - bounded diagnostics and no raw backend response/exception leakage;
+- `last_reported` freshness across unchanged reports plus stale-boundary
+  reevaluation without another source-change event;
+- volatile source-age, active-sensor, and command-confirmation attributes are
+  excluded from Recorder;
 - Repairs only for persistent actionable faults, with recovery deletion;
 - one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
   legacy lane unless the maintained support contract is widened;
@@ -76,6 +84,9 @@ text, and packaged archive for:
 - local filesystem paths and private repository URLs.
 
 Fixtures use names such as `zone_a`, `room_sensor_a`, and synthetic IDs only.
+History scanning covers commit metadata, every historical filename, and every
+reachable bounded blob so removed private text or binary content cannot evade a
+patch-only scan.
 
 ## Private Shadow Acceptance
 

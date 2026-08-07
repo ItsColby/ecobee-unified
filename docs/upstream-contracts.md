@@ -25,6 +25,16 @@ Verified for the initial Home Assistant Core 2026.8.0 source candidate on
    to that writer exactly once.
 5. **Compatibility lane:** Core 2026.8.0 is the sole initial support and test
    lane. There is no broader-support requirement.
+6. **Source-device lifecycle:** Core 2026.8's helper lifecycle updates helper
+   entity registry links and reloads the helper config entry when the selected
+   source entity's device association changes. Ecobee Unified applies that
+   registry/listener/reload pattern to moves, detachments, removals, and
+   restorations while preserving its stable config entry and entity identity.
+7. **Unchanged source reports:** Core advances `State.last_reported` and emits
+   `EVENT_STATE_REPORTED` when an entity reports unchanged state and attributes.
+   Source health therefore ages from `last_reported`, report handlers use the
+   event-owned stable timestamp rather than the mutable `State` field, and
+   matching Ecobee reports can confirm only the current pending command revision.
 
 ## Still deployment- or publication-gated
 

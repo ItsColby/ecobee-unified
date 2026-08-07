@@ -65,11 +65,15 @@ routing, command confirmation, and the canonical presentation surface.
 - Link the unified climate to the selected physical thermostat device using
   Home Assistant's supported helper-device pattern without returning foreign
   identifiers/connections or claiming source-device ownership.
+- Reconcile the helper link when the HomeKit source entity is moved, detached,
+  removed, or restored, then use the supported config-entry reload path so the
+  live entity and registry remain aligned without replacing stable identity.
 - Keep stable unique IDs across reload, rename, recovery, and migration. Do not
   auto-discover thermostats or duplicate entities when a source reloads.
 - Keep Recorder attributes compact and stable. Put detailed mapping,
   capability, source-age, field-selection, and command evidence in bounded,
-  redacted diagnostics.
+  redacted diagnostics. Mark volatile source age, active-sensor detail, and
+  command-confirmation projections unrecorded.
 - Add a diagnostic entity only when it has a durable state semantic and a
   demonstrated automation or UI consumer.
 
@@ -84,6 +88,12 @@ routing, command confirmation, and the canonical presentation surface.
   await or source event, update confirmation only if that revision is still
   current so a late cloud observation cannot confirm, fail, or clear a newer
   command.
+- Treat Core's unchanged state-report event as a fresh Ecobee observation only
+  while that mapped command is pending. Use `last_reported`, not
+  `last_updated`, for health cadence so stable values do not become false stale
+  failures; use the stable timestamp carried by the event rather than its
+  mutable `State` object, and retain bounded timer-owned reevaluation when no
+  event arrives.
 - Use Repairs only for persistent, actionable mapping faults such as a removed
   required entity, an invalid domain, or an internally inconsistent mapping.
   Clear the issue promptly on recovery. Transient source loss, cloud lag, and
@@ -94,6 +104,9 @@ routing, command confirmation, and the canonical presentation surface.
 - Public source, fixtures, documentation, diagnostics, logs, CI, history, and
   release artifacts contain no household-specific identifiers, credentials,
   private paths, raw diagnostics, or arbitrary backend response/error text.
+- Public-history validation inspects commit metadata, every historical
+  filename, and every reachable bounded blob, including removed content and
+  binary/non-UTF-8 artifacts that a patch-only scan cannot inspect.
 - Diagnostics are allow-listed and bounded. Exact private-value scans and live
   deployment evidence remain in maintainer-controlled private owners.
 - The initial support contract is one exact Home Assistant Core 2026.8 lane,

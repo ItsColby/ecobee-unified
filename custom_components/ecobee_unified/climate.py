@@ -72,7 +72,9 @@ class EcobeeUnifiedClimate(ClimateEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "thermostat"
-    _unrecorded_attributes = frozenset({"active_comfort_sensors", "source_age_seconds"})
+    _unrecorded_attributes = frozenset(
+        {"active_comfort_sensors", "command_confirmation", "source_age_seconds"}
+    )
 
     def __init__(self, manager: MappingManager, mapping: MappingConfig) -> None:
         self._manager = manager

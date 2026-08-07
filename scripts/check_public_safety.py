@@ -43,6 +43,7 @@ PATTERNS = {
 EMAIL_PATTERN = re.compile(
     r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE
 )
+MAX_HISTORY_BLOB_BYTES = 1_000_000
 
 
 def _text_failures(text: str) -> set[str]:
@@ -130,8 +131,57 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
 
 
 def _history_failures(root: Path) -> list[str]:
-    result = subprocess.run(
-        ["git", "log", "--format=", "-p", "--all"],
+    failures: set[str] = set()
+    metadata = subprocess.run(
+        ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce%n%B%x00"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    try:
+        metadata_text = metadata.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        failures.add("Git history metadata: non-UTF-8 content")
+    else:
+        failures.update(
+            f"Git history metadata: {item}" for item in _text_failures(metadata_text)
+        )
+
+    references = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname)"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="strict",
+    )
+    failures.update(
+        f"Git history reference: {item}" for item in _text_failures(references.stdout)
+    )
+
+    filenames = subprocess.run(
+        ["git", "log", "--all", "--format=", "--name-only", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    for raw_name in filenames.stdout.split(b"\0"):
+        if not raw_name:
+            continue
+        try:
+            name = raw_name.decode("utf-8").strip("\n")
+        except UnicodeDecodeError:
+            failures.add("Git history filename: non-UTF-8 content")
+            continue
+        failures.update(
+            f"Git history filename: {item}" for item in _text_failures(name)
+        )
+        if Path(name).suffix.lower() not in TEXT_SUFFIXES:
+            failures.add("Git history filename: unreviewed binary content")
+
+    objects = subprocess.run(
+        ["git", "rev-list", "--objects", "--all"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -139,7 +189,43 @@ def _history_failures(root: Path) -> list[str]:
         encoding="utf-8",
         errors="replace",
     )
-    return [f"Git history: {item}" for item in sorted(_text_failures(result.stdout))]
+    object_ids = sorted(
+        {line.split(maxsplit=1)[0] for line in objects.stdout.splitlines()}
+    )
+    object_details = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        input="\n".join(object_ids),
+    )
+    for detail in object_details.stdout.splitlines():
+        object_id, object_type, raw_size = detail.split()
+        if object_type not in {"blob", "tag"}:
+            continue
+        if int(raw_size) > MAX_HISTORY_BLOB_BYTES:
+            failures.add(f"Git history {object_type}: oversized unreviewed content")
+            continue
+        blob = subprocess.run(
+            ["git", "cat-file", object_type, object_id],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        ).stdout
+        try:
+            text = blob.decode("utf-8")
+        except UnicodeDecodeError:
+            failures.add(f"Git history {object_type}: non-UTF-8 content")
+            continue
+        if "\0" in text:
+            failures.add(f"Git history {object_type}: unreviewed binary content")
+            continue
+        failures.update(
+            f"Git history {object_type}: {item}" for item in _text_failures(text)
+        )
+    return sorted(failures)
 
 
 def main() -> int:

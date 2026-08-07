@@ -23,7 +23,7 @@ justify ambiguous values or dual writes.
 | F-05 | Route every command to exactly one documented backend service/entity. |
 | F-06 | Subscribe to source state changes; never perform I/O from entity properties. |
 | F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added. |
-| F-08 | Link the unified entity to the selected physical thermostat device using the supported helper pattern. |
+| F-08 | Link the unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
 | F-09 | Expose compact provenance, source age/health, and command-confirmation status. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, and recent command state. |
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |

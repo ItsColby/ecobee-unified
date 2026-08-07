@@ -41,8 +41,10 @@ class CommandTrackerTests(unittest.TestCase):
         )
         self.assertFalse(tracker.timeout("mapping_a", old_revision))
         self.assertFalse(tracker.fail("mapping_a", old_revision))
+        self.assertEqual(new_revision, tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
         self.assertTrue(tracker.timeout("mapping_a", new_revision))
+        self.assertIsNone(tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.UNCONFIRMED, tracker.summary("mapping_a").status)
 
     def test_confirmation_uses_ecobee_observation_not_homekit_projection(self) -> None:

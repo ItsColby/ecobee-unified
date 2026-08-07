@@ -32,10 +32,14 @@ Each mapping creates one climate entity linked to the selected HomeKit device
 using the Core 2026.8 helper-device pattern. Entity properties project one
 immutable normalized snapshot and perform no I/O. Compact attributes expose
 field provenance, source age/health, degradation, bounded Ecobee context,
-optional schedule context, and revision-guarded command confirmation.
+optional schedule context, and revision-guarded command confirmation. Volatile
+source-age, active-sensor, and command-confirmation attributes remain visible
+live but are excluded from Recorder.
 
 Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
-device IDs, config-entry IDs, and source values.
+device IDs, config-entry IDs, and source values. Public-safety validation scans
+the working tree, tracked archive, commit metadata, every historical filename,
+and every reachable bounded Git blob.
 
 ## Configuration
 

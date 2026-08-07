@@ -6,7 +6,13 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
-from homeassistant.core import Context, Event, HomeAssistant, State, callback
+from homeassistant.core import (
+    Context,
+    Event,
+    EventStateReportedData,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -16,6 +22,7 @@ from homeassistant.helpers.event import (
     EventStateChangedData,
     async_call_later,
     async_track_state_change_event,
+    async_track_state_report_event,
 )
 from homeassistant.util import dt as dt_util
 
@@ -60,6 +67,7 @@ class MappingManager:
         self._tracker = CommandTracker()
         self._options = options
         self._unsub_state: Callable[[], None] | None = None
+        self._unsub_state_report: Callable[[], None] | None = None
         self._unsub_registry: Callable[[], None] | None = None
         self._unsub_device_registry: Callable[[], None] | None = None
         self._unsub_timeouts: dict[str, Callable[[], None]] = {}
@@ -83,6 +91,9 @@ class MappingManager:
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
+        if self._unsub_state_report:
+            self._unsub_state_report()
+            self._unsub_state_report = None
         if self._unsub_registry:
             self._unsub_registry()
             self._unsub_registry = None
@@ -115,11 +126,16 @@ class MappingManager:
             self.refresh_mapping(mapping.mapping_id)
 
     def refresh_mapping(
-        self, mapping_id: str, *, observation_revision: int | None = None
+        self,
+        mapping_id: str,
+        *,
+        observation_revision: int | None = None,
+        report_times: Mapping[str, datetime] | None = None,
     ) -> None:
         """Normalize mapped states once and publish every projection from it."""
 
         mapping = self._mapping_by_id[mapping_id]
+        now = dt_util.utcnow()
         homekit_stale_seconds = int(
             self._options.get(CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS)
         )
@@ -133,13 +149,26 @@ class MappingManager:
             mapping.homekit_entity,
             homekit_stale_seconds,
             require_device=True,
+            now=now,
+            report_times=report_times,
         )
-        ecobee = self._raw_source(mapping.ecobee_entity, ecobee_stale_seconds)
+        ecobee = self._raw_source(
+            mapping.ecobee_entity,
+            ecobee_stale_seconds,
+            now=now,
+            report_times=report_times,
+        )
         scheduled_profile = self._optional_raw_source(
-            mapping.scheduled_profile_entity, beestat_stale_seconds
+            mapping.scheduled_profile_entity,
+            beestat_stale_seconds,
+            now=now,
+            report_times=report_times,
         )
         next_transition = self._optional_raw_source(
-            mapping.next_transition_entity, beestat_stale_seconds
+            mapping.next_transition_entity,
+            beestat_stale_seconds,
+            now=now,
+            report_times=report_times,
         )
         snapshot = build_snapshot(
             mapping_id,
@@ -303,14 +332,38 @@ class MappingManager:
                 if entity_id == ecobee_id
                 else None
             )
-            self.refresh_mapping(
-                mapping.mapping_id, observation_revision=observation_revision
+            new_state = event.data["new_state"]
+            report_times = (
+                {entity_id: new_state.last_updated} if new_state is not None else None
             )
+            self.refresh_mapping(
+                mapping.mapping_id,
+                observation_revision=observation_revision,
+                report_times=report_times,
+            )
+
+    @callback
+    def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:
+        """Observe a fresh unchanged Ecobee report only for pending commands."""
+
+        entity_id = event.data["entity_id"]
+        for mapping in self.mappings:
+            if entity_id != self.resolve_entity_id(mapping.ecobee_entity):
+                continue
+            revision = self._tracker.pending_revision(mapping.mapping_id)
+            if revision is not None:
+                self.refresh_mapping(
+                    mapping.mapping_id,
+                    observation_revision=revision,
+                    report_times={entity_id: event.data["last_reported"]},
+                )
 
     @callback
     def _handle_registry_event(self, _event: Event[Any]) -> None:
         self._subscribe_states()
         self.refresh_all()
+        if self._sync_helper_device_links():
+            self.hass.config_entries.async_schedule_reload(self.entry_id)
 
     @callback
     def _handle_timeout(self, mapping_id: str, revision: int) -> None:
@@ -360,6 +413,8 @@ class MappingManager:
     def _subscribe_states(self) -> None:
         if self._unsub_state:
             self._unsub_state()
+        if self._unsub_state_report:
+            self._unsub_state_report()
         entity_ids = {
             resolved
             for mapping in self.mappings
@@ -378,12 +433,68 @@ class MappingManager:
             if entity_ids
             else None
         )
+        ecobee_entity_ids = {
+            resolved
+            for mapping in self.mappings
+            if (resolved := self.resolve_entity_id(mapping.ecobee_entity))
+        }
+        self._unsub_state_report = (
+            async_track_state_report_event(
+                self.hass, ecobee_entity_ids, self._handle_state_report_event
+            )
+            if ecobee_entity_ids
+            else None
+        )
+
+    def _sync_helper_device_links(self) -> bool:
+        """Relink unified entities when their HomeKit source device changes."""
+
+        registry = er.async_get(self.hass)
+        device_registry = dr.async_get(self.hass)
+        changed = False
+        for mapping in self.mappings:
+            helper_entity_id = registry.async_get_entity_id(
+                "climate", DOMAIN, mapping.mapping_id
+            )
+            helper_entry = (
+                registry.async_get(helper_entity_id) if helper_entity_id else None
+            )
+            if helper_entry is None or helper_entry.config_entry_id != self.entry_id:
+                continue
+            source_entity_id = self.resolve_entity_id(mapping.homekit_entity)
+            source_entry = (
+                registry.async_get(source_entity_id) if source_entity_id else None
+            )
+            source_device_id = (
+                source_entry.device_id
+                if source_entry is not None
+                and source_entry.device_id is not None
+                and device_registry.async_get(source_entry.device_id) is not None
+                else None
+            )
+            if helper_entry.device_id == source_device_id:
+                continue
+            registry.async_update_entity(
+                helper_entry.entity_id, device_id=source_device_id
+            )
+            changed = True
+        return changed
 
     def _optional_raw_source(
-        self, entity_reference: str | None, stale_seconds: int
+        self,
+        entity_reference: str | None,
+        stale_seconds: int,
+        *,
+        now: datetime,
+        report_times: Mapping[str, datetime] | None,
     ) -> RawSource | None:
         return (
-            self._raw_source(entity_reference, stale_seconds)
+            self._raw_source(
+                entity_reference,
+                stale_seconds,
+                now=now,
+                report_times=report_times,
+            )
             if entity_reference
             else None
         )
@@ -394,6 +505,8 @@ class MappingManager:
         stale_seconds: int,
         *,
         require_device: bool = False,
+        now: datetime | None = None,
+        report_times: Mapping[str, datetime] | None = None,
     ) -> RawSource:
         registry = er.async_get(self.hass)
         entity_id = er.async_resolve_entity_id(registry, entity_reference)
@@ -411,7 +524,12 @@ class MappingManager:
         state = self.hass.states.get(entity_id)
         if state is None:
             return RawSource(None, health=SourceHealth.UNAVAILABLE)
-        age = _state_age_seconds(state, dt_util.utcnow())
+        observed_at = (
+            report_times.get(entity_id, state.last_reported)
+            if report_times is not None
+            else state.last_reported
+        )
+        age = _state_age_seconds(observed_at, now or dt_util.utcnow())
         if state.state in {"unknown", "unavailable"}:
             health = SourceHealth.UNAVAILABLE
         elif age > stale_seconds:
@@ -457,5 +575,5 @@ class MappingManager:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
 
-def _state_age_seconds(state: State, now: datetime) -> int:
-    return max(0, int((now - state.last_updated).total_seconds()))
+def _state_age_seconds(last_reported: datetime, now: datetime) -> int:
+    return max(0, int((now - last_reported).total_seconds()))

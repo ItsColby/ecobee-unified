@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.check_public_safety import _text_failures, run_archive_guard, run_guard
+from scripts.check_public_safety import (
+    _history_failures,
+    _text_failures,
+    run_archive_guard,
+    run_guard,
+)
 
 
 class PublicSafetyTests(unittest.TestCase):
@@ -38,6 +45,49 @@ class PublicSafetyTests(unittest.TestCase):
         count, failures = run_archive_guard(root)
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
+
+    def test_retired_history_content_and_binary_blobs_are_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            (root / "retired.txt").write_text(
+                "private address " + "192" + ".168.1.2", encoding="utf-8"
+            )
+            (root / "retired.bin").write_bytes(b"\x89PNG\r\n\x1a\n\x00private")
+            self._git(root, "add", "retired.txt", "retired.bin")
+            self._git(root, "commit", "-m", "Add retired evidence")
+            (root / "retired.txt").unlink()
+            (root / "retired.bin").unlink()
+            self._git(root, "add", "--update")
+            self._git(
+                root,
+                "commit",
+                "-m",
+                "Remove retired evidence for " + "person" + "@real-domain.dev",
+            )
+
+            failures = _history_failures(root)
+
+        self.assertIn("Git history blob: private IPv4 address", failures)
+        self.assertIn("Git history metadata: non-example email address", failures)
+        self.assertIn("Git history filename: unreviewed binary content", failures)
+        self.assertIn("Git history blob: non-UTF-8 content", failures)
+
+    @staticmethod
+    def _git(root: Path, *arguments: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Example Maintainer",
+                "-c",
+                "user.email=maintainer@example.com",
+                *arguments,
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
 
     def test_support_and_ci_have_one_exact_core_lane(self) -> None:
         root = Path(__file__).resolve().parents[1]

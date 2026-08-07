@@ -229,6 +229,46 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
     await manager.async_stop()
 
 
+async def test_vendor_action_services_target_unified_climate_once(
+    hass: HomeAssistant,
+) -> None:
+    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
+    ec = _register_source(hass, "ecobee", "ec_a")
+    entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
+    calls = []
+
+    async def capture(call) -> None:
+        calls.append(call)
+
+    hass.services.async_register("ecobee", "set_occupancy_modes", capture)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    unified = registry.async_get_entity_id("climate", DOMAIN, "mapping_a")
+    assert unified is not None
+    for service in (
+        "create_vacation",
+        "delete_vacation",
+        "set_occupancy_modes",
+        "set_sensors_used_in_climate",
+    ):
+        assert hass.services.has_service(DOMAIN, service)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_occupancy_modes",
+        {"entity_id": unified, "auto_away": True},
+        blocking=True,
+    )
+    assert len(calls) == 1
+    assert calls[0].domain == "ecobee"
+    assert calls[0].service == "set_occupancy_modes"
+    assert dict(calls[0].data) == {
+        "entity_id": ec.entity_id,
+        "auto_away": True,
+    }
+
+
 async def test_diagnostics_are_bounded_and_identifier_free(
     hass: HomeAssistant,
 ) -> None:

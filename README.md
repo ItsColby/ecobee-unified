@@ -5,10 +5,12 @@ one canonical user-facing device surface for each explicitly mapped physical
 thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
 
-The locally validated and committed candidate source targets Home Assistant
-Core 2026.8.0. A local candidate commit is not remote Git integration,
-publication, release, deployment, or HACS availability; none of those later
-states is claimed here.
+The candidate keeps Home Assistant Core 2026.8.0 as its distribution minimum
+and dependency-closed harness lane. Bounded direct validation also targets the
+installed Core 2026.8.1 patch, whose compatible published test harness is still
+pending. A local candidate commit is not remote Git integration, publication,
+release, deployment, or HACS availability; none of those later states is
+claimed here.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
@@ -18,6 +20,9 @@ documented in [Unified Surface Convergence](docs/unified-surface-convergence.md)
 - HomeKit Controller owns standard climate state/control, optional current-mode
   presets, and the optional local clear-hold action.
 - Ecobee owns vendor detail and the minimum-fan-runtime cloud action.
+- Bounded Unified actions route vacation, occupancy-policy, and comfort-sensor
+  participation changes to the mapped Ecobee climate without exposing raw
+  backend targets.
 - Beestat Statistics retains first-class schedule, transition, filter, alert,
   history-import, and Recorder ownership while linking its own enrichment
   entities to the same physical device.
@@ -72,6 +77,13 @@ mapped local HomeKit Clear Hold button exactly once.
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once.
 
+`ecobee_unified.create_vacation`, `delete_vacation`,
+`set_occupancy_modes`, and `set_sensors_used_in_climate` target a Unified
+climate entity and inject its explicitly mapped Ecobee climate writer. Inputs
+are bounded and capability-checked before exactly one call. Because public
+source state cannot prove the complete resulting vacation or policy,
+successful dispatch is reported as `submitted`, not `confirmed`.
+
 Standard HVAC mode, temperature/range, target-humidity, fan, turn-on, and
 turn-off operations call only the selected HomeKit climate. Temperature unit
 and safety bounds remain writer-owned. When the mapped HomeKit adapter omits
@@ -91,9 +103,10 @@ python scripts/check_public_safety.py
 actionlint
 ```
 
-The exact Core lane installs the compatible Home Assistant harness first, Core
-2026.8.0 second, product-owned typing tools last, and then proves the final
-environment before tests:
+The formal minimum lane installs the compatible Home Assistant harness first,
+Core 2026.8.0 second, product-owned typing tools last, and then proves the final
+environment before tests. Installed Core 2026.8.1 receives bounded direct API
+validation until the real harness publishes a dependency-compatible release:
 
 ```text
 python -m pip install "pytest-homeassistant-custom-component==0.13.354"
@@ -113,6 +126,8 @@ green until a separately authorized public repository runs them.
 - The Ecobee cadence-health and confirmation defaults need private
   shadow-deployment measurement before a release.
 - No automatic write failover exists.
+- Ecobee microphone and daylight-saving administration remain outside the
+  routine Unified surface.
 - Raw source entities remain required and recoverable.
 - No historical series, Beestat schedule/transition, raw diagnostics,
   arbitrary backend errors, or room-sensor duplicates are re-exported.

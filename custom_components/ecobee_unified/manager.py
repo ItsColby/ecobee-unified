@@ -33,6 +33,10 @@ from .const import (
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
+    SERVICE_CREATE_VACATION,
+    SERVICE_DELETE_VACATION,
+    SERVICE_SET_OCCUPANCY_MODES,
+    SERVICE_SET_SENSORS_USED_IN_CLIMATE,
     SIGNAL_SNAPSHOT_UPDATED,
     SUFFIX_AIR_QUALITY_INDEX,
     SUFFIX_CO2,
@@ -52,6 +56,14 @@ from .models import (
 # physical Ecobee. Core 2026.8's HomeKit writer honors the accessory's native
 # granularity even though its climate adapter omits target_temp_step.
 TEMPERATURE_STEP_FUSION_PROVEN = True
+UNCONFIRMABLE_VENDOR_ACTIONS = frozenset(
+    {
+        SERVICE_CREATE_VACATION,
+        SERVICE_DELETE_VACATION,
+        SERVICE_SET_OCCUPANCY_MODES,
+        SERVICE_SET_SENSORS_USED_IN_CLIMATE,
+    }
+)
 
 
 class MappingManager:
@@ -279,21 +291,7 @@ class MappingManager:
     ) -> None:
         """Call exactly one explicit Ecobee action with no fallback."""
 
-        mapping = self._mapping_by_id[mapping_id]
-        entity_id = self.resolve_entity_id(mapping.ecobee_entity)
-        source = self._raw_source(
-            mapping.ecobee_entity,
-            int(
-                self._options.get(
-                    CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS
-                )
-            ),
-        )
-        if entity_id is None or not source.usable:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="ecobee_writer_unavailable",
-            )
+        entity_id = self._vendor_writer_entity(mapping_id, service)
         revision = self._tracker.begin(mapping_id, service, expected)
         self._subscribe_state_reports()
         self._replace_timeout(mapping_id, revision)
@@ -315,6 +313,40 @@ class MappingManager:
                 translation_domain=DOMAIN,
                 translation_key="ecobee_command_failed",
             ) from None
+
+    async def async_vendor_action(
+        self,
+        mapping_id: str,
+        service: str,
+        service_data: Mapping[str, Any],
+        context: Context | None,
+    ) -> None:
+        """Submit one Ecobee effect that has no honest state confirmation."""
+
+        entity_id = self._vendor_writer_entity(mapping_id, service)
+        revision = self._tracker.begin(mapping_id, service, {})
+        self._replace_timeout(mapping_id, revision)
+        self._subscribe_state_reports()
+        self.refresh_mapping(mapping_id)
+        try:
+            await self.hass.services.async_call(
+                "ecobee",
+                service,
+                {"entity_id": entity_id, **service_data},
+                blocking=True,
+                context=context,
+            )
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._cancel_timeout(mapping_id)
+                self.refresh_mapping(mapping_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="ecobee_command_failed",
+            ) from None
+        if self._tracker.submit(mapping_id, revision):
+            self._cancel_timeout(mapping_id)
+            self.refresh_mapping(mapping_id)
 
     async def async_resume_program(
         self, mapping_id: str, context: Context | None
@@ -438,6 +470,30 @@ class MappingManager:
             {"minimum_fan_runtime": minutes},
             context,
         )
+
+    def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
+        """Resolve one healthy mapped Ecobee writer for a supported action."""
+
+        mapping = self._mapping_by_id[mapping_id]
+        entity_id = self.resolve_entity_id(mapping.ecobee_entity)
+        source = self._raw_source(
+            mapping.ecobee_entity,
+            int(
+                self._options.get(
+                    CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS
+                )
+            ),
+        )
+        if (
+            entity_id is None
+            or not source.usable
+            or not self.hass.services.has_service("ecobee", service)
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="ecobee_writer_unavailable",
+            )
+        return entity_id
 
     @callback
     def _handle_state_event(self, event: Event[EventStateChangedData]) -> None:
@@ -725,6 +781,8 @@ class MappingManager:
             return mapping.homekit_preset_entity
         if operation == "set_humidity":
             return mapping.homekit_entity
+        if operation in UNCONFIRMABLE_VENDOR_ACTIONS:
+            return None
         return mapping.ecobee_entity if operation is not None else None
 
     def _source_device_id(self, entity_reference: str) -> str | None:

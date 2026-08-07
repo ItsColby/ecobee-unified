@@ -52,13 +52,14 @@ jobs:
           python -c "import json, pathlib;
           [json.loads(pathlib.Path(path).read_text(encoding='utf-8'))
           for path in
-          ['custom_components/ecobee_unified/manifest.json',
+          ['custom_components/ecobee_unified/icons.json',
+          'custom_components/ecobee_unified/manifest.json',
           'custom_components/ecobee_unified/strings.json',
           'custom_components/ecobee_unified/translations/en.json',
           'hacs.json']]"
 
   home_assistant:
-    name: Home Assistant integration tests (Core 2026.8.0)
+    name: Home Assistant integration tests (Core 2026.8.0 minimum)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

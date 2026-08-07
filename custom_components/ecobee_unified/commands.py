@@ -66,6 +66,11 @@ class CommandTracker:
 
         return self._set_status(mapping_id, revision, CommandStatus.FAILED)
 
+    def submit(self, mapping_id: str, revision: int) -> bool:
+        """Record an accepted write whose effect is not state-confirmable."""
+
+        return self._set_status(mapping_id, revision, CommandStatus.SUBMITTED)
+
     def timeout(self, mapping_id: str, revision: int) -> bool:
         """Mark only the current pending revision unconfirmed."""
 

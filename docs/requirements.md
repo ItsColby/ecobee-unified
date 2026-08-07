@@ -40,6 +40,7 @@ justify ambiguous values or dual writes.
 | F-21 | Treat quiet HomeKit push/event observation age as diagnostic rather than unavailability; only cadence-backed sources may become stale by elapsed time. |
 | F-22 | Expose standard target humidity only through capability-advertised HomeKit bounds, one HomeKit writer, and revision-guarded HomeKit confirmation. |
 | F-23 | Permit target-temperature step fusion only as an explicit same-physical-device metadata exception with proven HomeKit writer granularity and reconciled units/bounds; never as generic freshness fallback. |
+| F-24 | Expose bounded Unified-domain facades for vacation, occupancy-policy, and comfort-sensor-participation actions through the explicitly mapped Ecobee climate, with input/capability validation, exactly one write, and honest submitted-not-confirmed status where source state cannot prove the effect. |
 
 ## Non-functional Requirements
 
@@ -68,8 +69,9 @@ MVP is complete when all of the following are true:
 2. The climate entity reports every standard field from the documented owner
    and uses only the documented fallback under tested failure conditions.
 3. Standard climate commands produce exactly one HomeKit service call.
-4. Preset and clear-hold operations produce exactly one HomeKit action; the
-   minimum-fan control produces exactly one Ecobee action, with no failover.
+4. Preset and clear-hold operations produce exactly one HomeKit action;
+   minimum-fan, vacation, occupancy-policy, and sensor-participation controls
+   produce exactly one mapped Ecobee action, with no failover.
 5. Command confirmation observes but never retries through another source.
 6. Reload, rename, source loss/recovery, and removal tests pass.
 7. Device linkage is correct on the supported Home Assistant Core 2026.8
@@ -86,6 +88,8 @@ MVP is complete when all of the following are true:
 - Creating weather, occupancy, motion, battery, or history duplicates.
 - Direct Ecobee authentication or Beestat API access.
 - Predictive HVAC control or automatic schedule changes.
+- Microphone and daylight-saving administration without a demonstrated routine
+  user outcome.
 - Automatic command failover.
 - Reclaiming the entity IDs of existing climate entities during first install.
 - Public catalog submission.

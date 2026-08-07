@@ -5,3 +5,122 @@ resume_program:
     entity:
       integration: ecobee_unified
       domain: climate
+
+create_vacation:
+  name: Create Ecobee vacation
+  description: Submit one vacation to the explicitly mapped Ecobee thermostat. The action is reported as submitted because source state cannot confirm the complete vacation definition.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    vacation_name:
+      name: Vacation name
+      required: true
+      selector:
+        text:
+    cool_temp:
+      name: Cooling temperature
+      required: true
+      selector:
+        number:
+          min: 7
+          max: 95
+          step: 0.5
+          unit_of_measurement: "°"
+    heat_temp:
+      name: Heating temperature
+      required: true
+      selector:
+        number:
+          min: 7
+          max: 95
+          step: 0.5
+          unit_of_measurement: "°"
+    start_date:
+      name: Start date
+      selector:
+        date:
+    start_time:
+      name: Start time
+      selector:
+        time:
+    end_date:
+      name: End date
+      selector:
+        date:
+    end_time:
+      name: End time
+      selector:
+        time:
+    fan_mode:
+      name: Fan mode
+      default: auto
+      selector:
+        select:
+          options:
+            - auto
+            - "on"
+    fan_min_on_time:
+      name: Minimum fan runtime
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+
+delete_vacation:
+  name: Delete Ecobee vacation
+  description: Delete one named vacation from the explicitly mapped Ecobee thermostat.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    vacation_name:
+      name: Vacation name
+      required: true
+      selector:
+        text:
+
+set_occupancy_modes:
+  name: Set Ecobee occupancy policy
+  description: Submit Smart Home/Away and Follow Me policy changes to the explicitly mapped Ecobee thermostat. At least one field is required.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    auto_away:
+      name: Smart Home/Away
+      selector:
+        boolean:
+    follow_me:
+      name: Follow Me
+      selector:
+        boolean:
+
+set_sensors_used_in_climate:
+  name: Set Ecobee comfort sensors
+  description: Set the Ecobee sensors participating in one comfort profile on the explicitly mapped thermostat.
+  target:
+    entity:
+      integration: ecobee_unified
+      domain: climate
+  fields:
+    preset_mode:
+      name: Comfort profile
+      description: Leave empty to use the Ecobee thermostat's currently active profile.
+      selector:
+        text:
+    device_ids:
+      name: Ecobee sensor devices
+      required: true
+      selector:
+        device:
+          multiple: true
+          integration: ecobee
+          entity:
+            - domain: climate
+            - domain: sensor

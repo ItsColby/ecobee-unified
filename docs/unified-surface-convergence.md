@@ -74,13 +74,17 @@ and consumer migration provide the singular experience.
   tests. The Home coordinator alone owns portfolio wording/status/evidence
   updates after reviewing the committed product proofs.
 
-## Deferred Recommendations
+## Vendor-action completion
 
-Do not add vacation creation/deletion, occupancy policy, sensor participation,
-microphone, daylight-saving policy, notifications, derived room metrics, or
-automatic write failover merely for breadth. Each is an independently
-approvable later batch requiring a non-duplicate user outcome, explicit source
-capability, bounded state/confirmation semantics, and a proven consumer.
+Vacation creation/deletion, Smart Home/Away and Follow Me policy, and comfort
+sensor participation are now bounded opt-in Unified climate actions. They
+target only the explicitly mapped Ecobee climate, validate the public Core
+service contract, and issue one call. Source state cannot prove their complete
+effect, so successful dispatch is honestly reported as `submitted`.
+
+Microphone and daylight-saving administration, notifications, derived room
+metrics, and automatic write failover remain deferred. They do not currently
+justify routine Unified-surface ownership.
 
 Private shadow deployment, consumer migration, dashboard/exposure changes,
 backend visibility cleanup, release, HACS, restart/reload, and live validation

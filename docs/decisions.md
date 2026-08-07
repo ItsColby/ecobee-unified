@@ -24,6 +24,7 @@
 | D-018 | HomeKit observation age is diagnostic, not health, because its push/event contract has no heartbeat. | Quiet healthy thermostats must not oscillate into cloud fallback merely because no value changed. Actual unavailable/unknown/missing state still degrades and recovers normally. |
 | D-019 | Target humidity is a standard HomeKit-owned climate capability. | The HomeKit writer advertises bounds, receives the only write, and supplies confirmation; Ecobee does not become a fallback writer. |
 | D-020 | Ecobee may fill only an omitted target-temperature presentation step after same-device and writer-granularity proof. | This reconciles the local writer's actual granularity with the unified UI without borrowing cloud precision, bounds, units, or read freshness. |
+| D-021 | Expose only vacations, occupancy policy, and comfort-sensor participation as opt-in Unified Ecobee actions. | These complete useful thermostat administration without requiring users to target raw Ecobee entities. The mapped service target is injected exactly once; unprojected effects are reported as submitted rather than falsely confirmed. Microphone and daylight-saving settings remain excluded. |
 
 ## Deferred Until Evidence Exists
 
@@ -41,7 +42,7 @@
 These are verification tasks, not unresolved product choices:
 
 - Helper-device linking, config-entry lifecycle, optional-source behavior, and
-  public Ecobee action semantics were resolved for Core 2026.8.0 in
+  public Ecobee action semantics were resolved for installed Core 2026.8.1 in
   `upstream-contracts.md` before implementation.
 - Measure realistic Ecobee cadence-staleness and command-confirmation thresholds
   in the private shadow deployment.

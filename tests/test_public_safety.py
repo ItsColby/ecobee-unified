@@ -96,11 +96,28 @@ class PublicSafetyTests(unittest.TestCase):
         )
         requirements = (root / "requirements-ha-test.txt").read_text(encoding="utf-8")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
+        icons = json.loads(
+            (root / "custom_components/ecobee_unified/icons.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual("homeassistant==2026.8.0", requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
-        self.assertIn("Home Assistant integration tests (Core 2026.8.0)", workflow)
+        self.assertIn(
+            "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
+        )
         self.assertEqual(1, workflow.count("pytest-homeassistant-custom-component=="))
         self.assertNotIn("matrix.", workflow)
+        self.assertEqual(
+            {
+                "create_vacation",
+                "delete_vacation",
+                "resume_program",
+                "set_occupancy_modes",
+                "set_sensors_used_in_climate",
+            },
+            set(icons["services"]),
+        )
         harness = (
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
         )

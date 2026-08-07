@@ -153,6 +153,14 @@ Source candidate per thermostat:
 5. Existing Beestat schedule/filter/alert entities linked independently to the
    same device; no re-export or Recorder ownership transfer.
 
+Unified climate actions also expose bounded vacation creation/deletion,
+Smart Home/Away and Follow Me policy, and comfort-sensor participation. They
+always inject the mapping's Ecobee climate target and issue one Ecobee service
+call. Because the public source state cannot prove the complete resulting
+vacation or policy definition, a successful action is reported as `submitted`,
+not falsely `confirmed`; service errors remain `failed`. Microphone and
+daylight-saving administration remain outside the routine thermostat surface.
+
 Keep climate attributes bounded: selected sources, source status/age,
 active climate mode/sensors and command confirmation. Schedule/transition,
 equipment stage, and minimum fan runtime have first-class owners. Do not record large raw

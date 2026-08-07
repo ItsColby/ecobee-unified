@@ -2,9 +2,12 @@
 
 Date: 2026-08-07
 
-Ecobee Unified is implemented, locally validated, and locally committed as an
-unreleased, public-safe source candidate for Home Assistant Core 2026.8.0. A
-local candidate commit is not remote Git integration. This status does not
+Ecobee Unified is implemented as an unreleased, public-safe source candidate
+with Core 2026.8.0 as its distribution minimum and dependency-closed formal
+harness lane. Bounded direct validation passes against installed Core
+2026.8.1, but the latest published real harness still requires Core 2026.8.0;
+the installed-Core and release gates therefore remain blocked. A local
+candidate commit is not remote Git integration. This status does not
 authorize or claim publication, release, installation, reload/restart, live
 validation, consumer migration, outbound effects, or rollback.
 
@@ -27,6 +30,9 @@ validation, consumer migration, outbound effects, or rollback.
 - Standard climate, preset, and clear-hold commands call only their explicitly
   mapped HomeKit entities. The minimum-fan number calls only Ecobee
   `set_fan_min_on_time`. No path retries or fails over to a second writer.
+- Bounded vacation, occupancy-policy, and comfort-sensor-participation actions
+  inject only the mapped Ecobee climate and issue one call. Effects not fully
+  projected in source state are reported as submitted rather than confirmed.
 - Beestat retains first-class schedule/transition/filter/alert entities plus
   history import and Recorder ownership; Ecobee Unified does not duplicate
   schedule/transition or vendor sibling state in climate attributes.
@@ -54,25 +60,28 @@ validation, consumer migration, outbound effects, or rollback.
 | Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, writer-owned temperature unit/bounds, and explicit same-device step fusion without freshness or precision substitution. |
 | Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover preset capability, local clear hold, minimum fan number, bounded equipment stage, optional AQI/CO2/VOC, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
 | Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; full climate method matrix is in the Linux HA test suite. |
-| Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one HomeKit clear-hold button press, and one Ecobee `set_fan_min_on_time` call. |
+| Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one HomeKit clear-hold button press, and one mapped Ecobee call for minimum fan, vacation, occupancy policy, and sensor participation. Unprojectable effects remain submitted. |
 | Observation never retries | Proven locally | Command tracker and service-registry tests prove confirmation is read-only and timeouts issue no service call. |
 | Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, registry rename, capability loss/recovery, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Sixty-three local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 43-file working-tree/43-file tracked-archive plus complete reachable-history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
+| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | Seventy-one bounded tests pass directly on installed Core 2026.8.1, along with strict mypy, Ruff, compile, and a 44-file working-tree/44-file tracked-archive plus complete reachable-history privacy scan. The same bounded suite passes in the dependency-closed Core 2026.8.0 minimum environment, but the latest real harness cannot yet form a closed 2026.8.1 lane; Linux pytest, Hassfest, and HACS also remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
 ## Validation boundary
 
-The isolated environment was installed in final order with
-`pytest-homeassistant-custom-component==0.13.354`, then
-`homeassistant==2026.8.0`, then the product-owned typing tool. Final
-`python -m pip check` passes. The Windows host cannot import the full Home
+The latest published harness metadata was re-read from PyPI:
+`pytest-homeassistant-custom-component==0.13.354` requires
+`homeassistant==2026.8.0`. Installing installed Core 2026.8.1 after that
+correctly makes `python -m pip check` fail on the exact mismatch. The formal
+Core 2026.8.0 workflow remains dependency-closed; it is not relabeled as the
+installed-Core lane. The Windows host also cannot import the full Home
 Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
-and WSL has no installed distribution. The real Core API tests therefore run
-without that plugin, while the complete pytest suite remains Linux/CI-owned.
+and WSL has no installed distribution. Bounded real Core API tests run directly
+under `unittest` without a fake harness; the complete pytest suite remains
+Linux/CI-owned.
 
 The historical Home-owned handoff was integrated and privately pushed at Home
 commit `492e00102b76f2f5dd743fcc9ee58bcc34877374`. At that receipt, the registry

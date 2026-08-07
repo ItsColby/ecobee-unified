@@ -36,6 +36,7 @@ class CommandStatus(StrEnum):
 
     NONE = "none"
     PENDING = "pending"
+    SUBMITTED = "submitted"
     CONFIRMED = "confirmed"
     UNCONFIRMED = "unconfirmed"
     FAILED = "failed"

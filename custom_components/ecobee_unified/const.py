@@ -28,6 +28,10 @@ DEFAULT_ECOBEE_STALE_SECONDS: Final = 900
 DEFAULT_CONFIRMATION_SECONDS: Final = 660
 
 SERVICE_RESUME_PROGRAM: Final = "resume_program"
+SERVICE_CREATE_VACATION: Final = "create_vacation"
+SERVICE_DELETE_VACATION: Final = "delete_vacation"
+SERVICE_SET_OCCUPANCY_MODES: Final = "set_occupancy_modes"
+SERVICE_SET_SENSORS_USED_IN_CLIMATE: Final = "set_sensors_used_in_climate"
 SOURCE_HOMEKIT: Final = "homekit"
 SOURCE_ECOBEE: Final = "ecobee"
 SIGNAL_SNAPSHOT_UPDATED: Final = f"{DOMAIN}_snapshot_updated"

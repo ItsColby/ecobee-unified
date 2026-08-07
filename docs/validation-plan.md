@@ -39,6 +39,13 @@ climate semantic, never the raw sensor by apparent similarity.
 - each standard climate method makes exactly one HomeKit service call;
 - preset and clear-hold each make exactly one mapped HomeKit service call;
 - minimum fan runtime makes exactly one Ecobee action call;
+- vacation create/delete, occupancy policy, and sensor participation each
+  inject the mapped Ecobee climate and make exactly one action call;
+- unprojectable vendor effects become `submitted`, never `confirmed`, and a
+  late completion cannot mutate a newer command revision;
+- vacation names/temperatures/date-time pairs, occupancy policy, source
+  service availability, and Ecobee sensor device selections fail before any
+  effect when invalid;
 - writer unavailable fails clearly without fallback;
 - confirmation observes the operation-owned source without issuing another
   call: Ecobee for cloud-observed standard operations, HomeKit for target

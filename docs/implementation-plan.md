@@ -74,12 +74,16 @@ Exit: the complete availability matrix and field-selection tests pass.
 - Route standard target humidity only to the capability-advertised HomeKit
   climate, validate its writer-owned bounds, and confirm from HomeKit reports.
 - Expose minimum fan runtime as the sole Ecobee-backed number writer.
+- Expose bounded Unified-domain vacation, occupancy-policy, and
+  comfort-sensor-participation actions through the mapped Ecobee climate. Mark
+  successful unprojectable effects submitted rather than confirmed.
 - Implement revision-guarded pending-command observation, confirmation,
   timeout, supersession, and diagnostics.
 - Do not retry through another backend.
 
 Exit: every command path proves exactly one service call, including failures,
-timeouts, reloads, and rapid repeated requests.
+timeouts, reloads, rapid repeated requests, and late completion of an
+unconfirmable vendor action.
 
 ## Phase 5: Optional Enrichment
 

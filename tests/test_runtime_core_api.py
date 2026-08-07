@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import voluptuous as vol
@@ -27,7 +28,12 @@ from custom_components.ecobee_unified import (
     async_remove_entry,
     async_setup_entry,
 )
-from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
+from custom_components.ecobee_unified.climate import (
+    EcobeeUnifiedClimate,
+)
+from custom_components.ecobee_unified.climate import (
+    async_setup_entry as async_setup_climate_entry,
+)
 from custom_components.ecobee_unified.config_flow import (
     _mapping_form_defaults,
     _mapping_from_input,
@@ -51,7 +57,7 @@ from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.ecobee_unified.manager import MappingManager
-from custom_components.ecobee_unified.models import MappingConfig
+from custom_components.ecobee_unified.models import CommandStatus, MappingConfig
 from custom_components.ecobee_unified.number import EcobeeMinimumFanRuntimeNumber
 from custom_components.ecobee_unified.runtime import EcobeeUnifiedRuntime
 from custom_components.ecobee_unified.sensor import PROJECTIONS, EcobeeCloudSensor
@@ -145,6 +151,38 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 }
             ),
             entity._unrecorded_attributes,
+        )
+
+    async def test_climate_platform_registers_bounded_unified_actions(self) -> None:
+        registrations: list[tuple[str, object, str]] = []
+        platform = Mock()
+        platform.async_register_entity_service.side_effect = (
+            lambda service, schema, method: registrations.append(
+                (service, schema, method)
+            )
+        )
+        entities: list[EcobeeUnifiedClimate] = []
+        entry = SimpleNamespace(runtime_data=EcobeeUnifiedRuntime(manager=self.manager))
+
+        with patch(
+            "custom_components.ecobee_unified.climate.entity_platform.async_get_current_platform",
+            return_value=platform,
+        ):
+            await async_setup_climate_entry(self.hass, entry, entities.extend)
+
+        self.assertEqual(1, len(entities))
+        self.assertEqual(
+            [
+                ("resume_program", "async_resume_program"),
+                ("create_vacation", "async_create_vacation"),
+                ("delete_vacation", "async_delete_vacation"),
+                ("set_occupancy_modes", "async_set_occupancy_modes"),
+                (
+                    "set_sensors_used_in_climate",
+                    "async_set_sensors_used_in_climate",
+                ),
+            ],
+            [(service, method) for service, _schema, method in registrations],
         )
 
     async def test_entity_properties_only_project_the_normalized_snapshot(self) -> None:
@@ -787,6 +825,223 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             {"entity_id": self.homekit_clear_hold.entity_id},
             dict(calls[0].data),
+        )
+
+    async def test_vendor_action_facade_routes_exactly_one_mapped_call(self) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        for service in (
+            "create_vacation",
+            "delete_vacation",
+            "set_occupancy_modes",
+            "set_sensors_used_in_climate",
+        ):
+            self.hass.services.async_register("ecobee", service, capture)
+        ecobee_entry = self.hass.config_entries.async_get_entry(
+            self.ecobee.config_entry_id
+        )
+        assert ecobee_entry is not None
+        sensor_device = dr.async_get(self.hass).async_get_or_create(
+            config_entry_id=ecobee_entry.entry_id,
+            identifiers={("ecobee", "sensor_a")},
+        )
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        entity.hass = self.hass
+
+        await entity.async_create_vacation(
+            "Trip",
+            82.0,
+            58.0,
+            "2026-09-01",
+            "08:00:00",
+            "2026-09-05",
+            "18:00:00",
+            "auto",
+            5,
+        )
+        self.assertEqual(1, len(calls))
+        self.assertEqual("create_vacation", calls[0].service)
+        self.assertEqual(
+            {
+                "entity_id": self.ecobee.entity_id,
+                "vacation_name": "Trip",
+                "cool_temp": 82.0,
+                "heat_temp": 58.0,
+                "start_date": "2026-09-01",
+                "start_time": "08:00:00",
+                "end_date": "2026-09-05",
+                "end_time": "18:00:00",
+                "fan_mode": "auto",
+                "fan_min_on_time": 5,
+            },
+            dict(calls[0].data),
+        )
+        self.assertEqual(
+            CommandStatus.SUBMITTED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+
+        calls.clear()
+        await entity.async_delete_vacation("Trip")
+        self.assertEqual(1, len(calls))
+        self.assertEqual("delete_vacation", calls[0].service)
+        self.assertEqual(
+            {"entity_id": self.ecobee.entity_id, "vacation_name": "Trip"},
+            dict(calls[0].data),
+        )
+
+        calls.clear()
+        await entity.async_set_occupancy_modes(auto_away=True, follow_me=False)
+        self.assertEqual(1, len(calls))
+        self.assertEqual("set_occupancy_modes", calls[0].service)
+        self.assertEqual(
+            {
+                "entity_id": self.ecobee.entity_id,
+                "auto_away": True,
+                "follow_me": False,
+            },
+            dict(calls[0].data),
+        )
+
+        calls.clear()
+        await entity.async_set_sensors_used_in_climate(
+            [sensor_device.id], preset_mode="Home"
+        )
+        self.assertEqual(1, len(calls))
+        self.assertEqual("set_sensors_used_in_climate", calls[0].service)
+        self.assertEqual(
+            {
+                "entity_id": self.ecobee.entity_id,
+                "device_ids": [sensor_device.id],
+                "preset_mode": "Home",
+            },
+            dict(calls[0].data),
+        )
+
+    async def test_vendor_action_facade_rejects_invalid_or_unprovable_inputs(
+        self,
+    ) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        for service in (
+            "create_vacation",
+            "delete_vacation",
+            "set_occupancy_modes",
+            "set_sensors_used_in_climate",
+        ):
+            self.hass.services.async_register("ecobee", service, capture)
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        entity.hass = self.hass
+        assert self.ecobee.device_id is not None
+
+        invalid_calls = (
+            entity.async_create_vacation("", 82.0, 58.0),
+            entity.async_create_vacation("Trip", float("nan"), 58.0),
+            entity.async_create_vacation("Trip", 58.0, 82.0),
+            entity.async_create_vacation(
+                "Trip",
+                82.0,
+                58.0,
+                "2026-09-05",
+                "18:00:00",
+                "2026-09-01",
+                "08:00:00",
+            ),
+            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-02-30", "08:00:00"),
+            entity.async_set_occupancy_modes(),
+            entity.async_set_sensors_used_in_climate(["unknown_device"]),
+            entity.async_set_sensors_used_in_climate(
+                [self.ecobee.device_id, self.ecobee.device_id]
+            ),
+            entity.async_set_sensors_used_in_climate(
+                [self.ecobee.device_id], preset_mode=" "
+            ),
+        )
+        for call in invalid_calls:
+            with self.assertRaises(ServiceValidationError):
+                await call
+        self.assertEqual([], calls)
+
+    async def test_vendor_action_requires_registered_service_and_healthy_source(
+        self,
+    ) -> None:
+        with self.assertRaises(ServiceValidationError):
+            await self.manager.async_vendor_action(
+                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
+            )
+
+        self.hass.services.async_register("ecobee", "create_vacation", lambda _: None)
+        self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
+        await self.hass.async_block_till_done()
+        with self.assertRaises(ServiceValidationError):
+            await self.manager.async_vendor_action(
+                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
+            )
+
+    async def test_vendor_action_timeout_owns_late_completion(self) -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        self.manager._tracker.begin(
+            "mapping_a", "set_temperature", {"target_temperature": 23.0}
+        )
+        self.manager._subscribe_state_reports()
+        self.assertIsNotNone(self.manager._unsub_state_report)
+
+        async def delayed(_call: ServiceCall) -> None:
+            started.set()
+            await release.wait()
+
+        self.hass.services.async_register("ecobee", "delete_vacation", delayed)
+        task = asyncio.create_task(
+            self.manager.async_vendor_action(
+                "mapping_a", "delete_vacation", {"vacation_name": "Trip"}, None
+            )
+        )
+        await started.wait()
+        self.assertIsNone(self.manager._unsub_state_report)
+        revision = self.manager._tracker.current_revision("mapping_a")
+        assert revision is not None
+
+        self.manager._handle_timeout("mapping_a", revision)
+        self.assertEqual(
+            CommandStatus.UNCONFIRMED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+
+        release.set()
+        await task
+        self.assertEqual(
+            CommandStatus.UNCONFIRMED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+
+    async def test_vendor_action_failure_is_bounded(self) -> None:
+        calls = 0
+
+        async def fail(_call: ServiceCall) -> None:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("arbitrary backend body")
+
+        self.hass.services.async_register("ecobee", "create_vacation", fail)
+        with self.assertRaises(HomeAssistantError) as raised:
+            await self.manager.async_vendor_action(
+                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
+            )
+
+        self.assertEqual(1, calls)
+        self.assertEqual("ecobee_command_failed", raised.exception.translation_key)
+        self.assertNotIn("backend", str(raised.exception))
+        self.assertEqual(
+            CommandStatus.FAILED,
+            self.manager.snapshot("mapping_a").command.status,
         )
 
     async def test_unavailable_writers_and_invalid_vendor_bounds_fail_before_effect(

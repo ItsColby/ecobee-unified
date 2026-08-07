@@ -47,6 +47,27 @@ class CommandTrackerTests(unittest.TestCase):
         self.assertIsNone(tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.UNCONFIRMED, tracker.summary("mapping_a").status)
 
+    def test_unobservable_action_is_submitted_without_false_confirmation(self) -> None:
+        tracker = CommandTracker(lambda: 10.0)
+        revision = tracker.begin("mapping_a", "create_vacation", {})
+
+        self.assertTrue(tracker.submit("mapping_a", revision))
+        self.assertIsNone(tracker.pending_revision("mapping_a"))
+        self.assertEqual(CommandStatus.SUBMITTED, tracker.summary("mapping_a").status)
+        self.assertFalse(tracker.observe("mapping_a", revision, _snapshot(21.0)))
+        self.assertFalse(tracker.timeout("mapping_a", revision))
+
+    def test_late_submission_cannot_mutate_newer_command(self) -> None:
+        tracker = CommandTracker(lambda: 10.0)
+        old_revision = tracker.begin("mapping_a", "delete_vacation", {})
+        new_revision = tracker.begin(
+            "mapping_a", "set_temperature", {"target_temperature": 23.0}
+        )
+
+        self.assertFalse(tracker.submit("mapping_a", old_revision))
+        self.assertEqual(new_revision, tracker.pending_revision("mapping_a"))
+        self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
+
     def test_confirmation_uses_ecobee_observation_not_homekit_projection(self) -> None:
         tracker = CommandTracker(lambda: 10.0)
         revision = tracker.begin(

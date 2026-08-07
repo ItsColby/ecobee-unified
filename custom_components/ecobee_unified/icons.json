@@ -1,0 +1,26 @@
+{
+  "entity": {
+    "number": {
+      "minimum_fan_runtime": {
+        "default": "mdi:fan-clock"
+      }
+    }
+  },
+  "services": {
+    "create_vacation": {
+      "service": "mdi:umbrella-beach"
+    },
+    "delete_vacation": {
+      "service": "mdi:umbrella-beach-outline"
+    },
+    "resume_program": {
+      "service": "mdi:play"
+    },
+    "set_occupancy_modes": {
+      "service": "mdi:eye-settings"
+    },
+    "set_sensors_used_in_climate": {
+      "service": "mdi:home-thermometer"
+    }
+  }
+}

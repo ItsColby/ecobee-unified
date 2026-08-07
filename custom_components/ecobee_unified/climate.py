@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date as dt_date
+from datetime import time as dt_time
 from math import isfinite
 from typing import Any, override
 
+import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
@@ -14,6 +17,8 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -21,7 +26,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     DOMAIN,
+    SERVICE_CREATE_VACATION,
+    SERVICE_DELETE_VACATION,
     SERVICE_RESUME_PROGRAM,
+    SERVICE_SET_OCCUPANCY_MODES,
+    SERVICE_SET_SENSORS_USED_IN_CLIMATE,
     SIGNAL_SNAPSHOT_UPDATED,
 )
 from .manager import MappingManager
@@ -36,6 +45,72 @@ SUPPORTED_CONTROL_FEATURES = (
     | ClimateEntityFeature.TURN_OFF
     | ClimateEntityFeature.TURN_ON
 )
+
+ATTR_AUTO_AWAY = "auto_away"
+ATTR_COOL_TEMP = "cool_temp"
+ATTR_DEVICE_IDS = "device_ids"
+ATTR_END_DATE = "end_date"
+ATTR_END_TIME = "end_time"
+ATTR_FAN_MIN_ON_TIME = "fan_min_on_time"
+ATTR_FAN_MODE = "fan_mode"
+ATTR_FOLLOW_ME = "follow_me"
+ATTR_HEAT_TEMP = "heat_temp"
+ATTR_PRESET_MODE = "preset_mode"
+ATTR_START_DATE = "start_date"
+ATTR_START_TIME = "start_time"
+ATTR_VACATION_NAME = "vacation_name"
+
+
+def _date_string(value: Any) -> str:
+    result = cv.string(value)
+    try:
+        if len(result) != 10:
+            raise ValueError
+        dt_date.fromisoformat(result)
+    except ValueError as err:
+        raise vol.Invalid("Date must use YYYY-MM-DD") from err
+    return result
+
+
+def _time_string(value: Any) -> str:
+    result = cv.string(value)
+    try:
+        if len(result) != 8:
+            raise ValueError
+        dt_time.fromisoformat(result)
+    except ValueError as err:
+        raise vol.Invalid("Time must use HH:MM:SS") from err
+    return result
+
+
+CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Required(ATTR_VACATION_NAME): vol.All(cv.string, vol.Length(min=1, max=12)),
+    vol.Required(ATTR_COOL_TEMP): vol.All(vol.Coerce(float), vol.Range(min=7, max=95)),
+    vol.Required(ATTR_HEAT_TEMP): vol.All(vol.Coerce(float), vol.Range(min=7, max=95)),
+    vol.Inclusive(ATTR_START_DATE, "start"): _date_string,
+    vol.Inclusive(ATTR_START_TIME, "start"): _time_string,
+    vol.Inclusive(ATTR_END_DATE, "end"): _date_string,
+    vol.Inclusive(ATTR_END_TIME, "end"): _time_string,
+    vol.Optional(ATTR_FAN_MODE, default="auto"): vol.In({"auto", "on"}),
+    vol.Optional(ATTR_FAN_MIN_ON_TIME, default=0): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=60)
+    ),
+}
+DELETE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Required(ATTR_VACATION_NAME): vol.All(cv.string, vol.Length(min=1, max=12))
+}
+SET_OCCUPANCY_MODES_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Optional(ATTR_AUTO_AWAY): cv.boolean,
+    vol.Optional(ATTR_FOLLOW_ME): cv.boolean,
+}
+SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Optional(ATTR_PRESET_MODE): vol.All(cv.string, vol.Length(min=1, max=64)),
+    vol.Required(ATTR_DEVICE_IDS): vol.All(
+        cv.ensure_list,
+        [cv.string],
+        vol.Length(min=1, max=32),
+    ),
+}
 
 
 async def async_setup_entry(
@@ -55,6 +130,26 @@ async def async_setup_entry(
         SERVICE_RESUME_PROGRAM,
         {},
         "async_resume_program",
+    )
+    platform.async_register_entity_service(
+        SERVICE_CREATE_VACATION,
+        CREATE_VACATION_SCHEMA,
+        "async_create_vacation",
+    )
+    platform.async_register_entity_service(
+        SERVICE_DELETE_VACATION,
+        DELETE_VACATION_SCHEMA,
+        "async_delete_vacation",
+    )
+    platform.async_register_entity_service(
+        SERVICE_SET_OCCUPANCY_MODES,
+        SET_OCCUPANCY_MODES_SCHEMA,
+        "async_set_occupancy_modes",
+    )
+    platform.async_register_entity_service(
+        SERVICE_SET_SENSORS_USED_IN_CLIMATE,
+        SET_SENSORS_USED_IN_CLIMATE_SCHEMA,
+        "async_set_sensors_used_in_climate",
     )
 
 
@@ -364,6 +459,159 @@ class EcobeeUnifiedClimate(ClimateEntity):
             self._mapping.mapping_id, self._context
         )
 
+    async def async_create_vacation(
+        self,
+        vacation_name: str,
+        cool_temp: float,
+        heat_temp: float,
+        start_date: str | None = None,
+        start_time: str | None = None,
+        end_date: str | None = None,
+        end_time: str | None = None,
+        fan_mode: str = "auto",
+        fan_min_on_time: int = 0,
+    ) -> None:
+        """Create one mapped Ecobee vacation without claiming confirmation."""
+
+        name = vacation_name.strip()
+        if not name or len(name) > 12:
+            self._raise_validation("invalid_vacation_name")
+        cool = self._validated_vacation_temperature(cool_temp)
+        heat = self._validated_vacation_temperature(heat_temp)
+        if heat > cool:
+            self._raise_validation("invalid_vacation_temperature_range")
+        if fan_mode not in {"auto", "on"} or isinstance(fan_min_on_time, bool):
+            self._raise_validation("invalid_vacation_options")
+        if not isinstance(fan_min_on_time, int) or not 0 <= fan_min_on_time <= 60:
+            self._raise_validation("invalid_vacation_options")
+        if (start_date is None) != (start_time is None) or (end_date is None) != (
+            end_time is None
+        ):
+            self._raise_validation("invalid_vacation_period")
+        try:
+            if start_date is not None and start_time is not None:
+                _date_string(start_date)
+                _time_string(start_time)
+            if end_date is not None and end_time is not None:
+                _date_string(end_date)
+                _time_string(end_time)
+        except vol.Invalid:
+            self._raise_validation("invalid_vacation_period")
+        if all(
+            value is not None for value in (start_date, start_time, end_date, end_time)
+        ):
+            assert start_date is not None
+            assert start_time is not None
+            assert end_date is not None
+            assert end_time is not None
+            start = (
+                dt_date.fromisoformat(start_date),
+                dt_time.fromisoformat(start_time),
+            )
+            end = (dt_date.fromisoformat(end_date), dt_time.fromisoformat(end_time))
+            if end <= start:
+                self._raise_validation("invalid_vacation_period")
+        service_data: dict[str, Any] = {
+            ATTR_VACATION_NAME: name,
+            ATTR_COOL_TEMP: cool,
+            ATTR_HEAT_TEMP: heat,
+            ATTR_FAN_MODE: fan_mode,
+            ATTR_FAN_MIN_ON_TIME: fan_min_on_time,
+        }
+        service_data.update(
+            {
+                key: value
+                for key, value in (
+                    (ATTR_START_DATE, start_date),
+                    (ATTR_START_TIME, start_time),
+                    (ATTR_END_DATE, end_date),
+                    (ATTR_END_TIME, end_time),
+                )
+                if value is not None
+            }
+        )
+        await self._manager.async_vendor_action(
+            self._mapping.mapping_id,
+            SERVICE_CREATE_VACATION,
+            service_data,
+            self._context,
+        )
+
+    async def async_delete_vacation(self, vacation_name: str) -> None:
+        """Delete one named mapped Ecobee vacation exactly once."""
+
+        name = vacation_name.strip()
+        if not name or len(name) > 12:
+            self._raise_validation("invalid_vacation_name")
+        await self._manager.async_vendor_action(
+            self._mapping.mapping_id,
+            SERVICE_DELETE_VACATION,
+            {ATTR_VACATION_NAME: name},
+            self._context,
+        )
+
+    async def async_set_occupancy_modes(
+        self,
+        auto_away: bool | None = None,
+        follow_me: bool | None = None,
+    ) -> None:
+        """Set at least one mapped Ecobee occupancy policy exactly once."""
+
+        if auto_away is None and follow_me is None:
+            self._raise_validation("invalid_occupancy_modes")
+        if any(
+            value is not None and not isinstance(value, bool)
+            for value in (auto_away, follow_me)
+        ):
+            self._raise_validation("invalid_occupancy_modes")
+        service_data = {
+            key: value
+            for key, value in (
+                (ATTR_AUTO_AWAY, auto_away),
+                (ATTR_FOLLOW_ME, follow_me),
+            )
+            if value is not None
+        }
+        await self._manager.async_vendor_action(
+            self._mapping.mapping_id,
+            SERVICE_SET_OCCUPANCY_MODES,
+            service_data,
+            self._context,
+        )
+
+    async def async_set_sensors_used_in_climate(
+        self,
+        device_ids: list[str],
+        preset_mode: str | None = None,
+    ) -> None:
+        """Set explicit Ecobee sensor participation exactly once."""
+
+        if (
+            not 1 <= len(device_ids) <= 32
+            or len(device_ids) != len(set(device_ids))
+            or any(not item for item in device_ids)
+        ):
+            self._raise_validation("invalid_sensor_selection")
+        registry = dr.async_get(self.hass)
+        if any(
+            (device := registry.async_get(device_id)) is None
+            or not any(domain == "ecobee" for domain, _value in device.identifiers)
+            for device_id in device_ids
+        ):
+            self._raise_validation("invalid_sensor_selection")
+        service_data: dict[str, Any] = {ATTR_DEVICE_IDS: list(device_ids)}
+        if preset_mode is not None:
+            normalized_preset = preset_mode.strip()
+            if not normalized_preset or len(normalized_preset) > 64:
+                self._raise_validation("invalid_sensor_selection")
+            service_data[ATTR_PRESET_MODE] = normalized_preset
+        await self._manager.async_vendor_action(
+            self._mapping.mapping_id,
+            SERVICE_SET_SENSORS_USED_IN_CLIMATE,
+            service_data,
+            self._context,
+        )
+
     def _require_feature(self, feature: ClimateEntityFeature) -> None:
         if not self.supported_features & feature:
             self._raise_validation("unsupported_command")
@@ -398,6 +646,14 @@ class EcobeeUnifiedClimate(ClimateEntity):
         ):
             self._raise_validation("invalid_humidity")
         return int(humidity)
+
+    def _validated_vacation_temperature(self, value: Any) -> float:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            self._raise_validation("invalid_vacation_temperature")
+        temperature = float(value)
+        if not isfinite(temperature) or not 7 <= temperature <= 95:
+            self._raise_validation("invalid_vacation_temperature")
+        return temperature
 
     @staticmethod
     def _raise_validation(translation_key: str) -> None:

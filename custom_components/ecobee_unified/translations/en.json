@@ -71,6 +71,7 @@
   },
   "entity": {
     "climate": {"thermostat": {"name": "Unified climate"}},
+    "button": {"resume_program": {"name": "Resume program"}},
     "notify": {"notification": {"name": "Thermostat notification"}},
     "number": {"minimum_fan_runtime": {"name": "Minimum fan runtime"}},
     "sensor": {

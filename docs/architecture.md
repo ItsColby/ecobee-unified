@@ -152,12 +152,14 @@ guard.
 Source candidate per thermostat:
 
 1. One unified climate with optional HomeKit preset support.
-2. One Ecobee minimum-fan-runtime number.
-3. One bounded equipment-stage sensor.
-4. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
-5. An optional thermostat-display notification entity backed by one explicitly
+2. An optional Unified resume-program button backed by one explicitly mapped
+   HomeKit Clear Hold writer.
+3. One Ecobee minimum-fan-runtime number.
+4. One bounded equipment-stage sensor.
+5. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
+6. An optional thermostat-display notification entity backed by one explicitly
    mapped Ecobee writer.
-6. Existing Beestat schedule/filter/alert entities linked independently to the
+7. Existing Beestat schedule/filter/alert entities linked independently to the
    same device; no re-export or Recorder ownership transfer.
 
 Unified climate actions also expose bounded vacation creation/deletion,

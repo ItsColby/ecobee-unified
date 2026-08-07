@@ -51,6 +51,7 @@ from .const import (
     SUFFIX_EQUIPMENT_STAGE,
     SUFFIX_MINIMUM_FAN_RUNTIME,
     SUFFIX_NOTIFICATION,
+    SUFFIX_RESUME_PROGRAM,
     SUFFIX_VOC,
 )
 from .models import (
@@ -734,6 +735,7 @@ class MappingManager:
             for mapping in self.mappings
             for unique_id in (
                 mapping.mapping_id,
+                f"{mapping.mapping_id}_{SUFFIX_RESUME_PROGRAM}",
                 f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}",
                 f"{mapping.mapping_id}_{SUFFIX_NOTIFICATION}",
                 f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}",

@@ -22,7 +22,7 @@ gates.
 | Standard climate state/control | Ecobee Unified climate | HomeKit Controller | HomeKit climate |
 | Precise current temperature | Ecobee Unified climate | Explicit same-device HomeKit sensor | Read-only |
 | Preset/current mode | Ecobee Unified climate | HomeKit Controller | Explicit HomeKit select |
-| Clear hold/resume | Ecobee Unified climate action | HomeKit Controller | Explicit HomeKit button |
+| Clear hold/resume | Ecobee Unified climate action and device button | HomeKit Controller | Explicit HomeKit button |
 | Minimum fan runtime | Ecobee Unified number | Ecobee integration | Ecobee action |
 | Equipment stage | Ecobee Unified sensor | Ecobee integration | Read-only |
 | AQI, CO2, VOC | Optional Ecobee Unified sensors | Ecobee integration | Read-only |
@@ -48,10 +48,11 @@ dashboards, and consumer migration provide the singular experience.
    adds equivalent cached-runtime registry reconciliation with ownership proof
    and unload cleanup.
 3. **Canonical climate completion:** optional HomeKit Current Mode becomes
-   climate preset support; optional Clear Hold becomes the local resume path.
+   climate preset support; optional Clear Hold becomes the local resume path
+   through both the climate action and a discoverable Unified device button.
    An optional same-device HomeKit temperature sensor preserves honest local
-   decimals in the climate state. Each action has exactly one writer and
-   revision-scoped observation.
+   decimals in the serialized climate state. Each action has exactly one writer
+   and revision-scoped observation.
 4. **Cloud-only projections:** minimum fan runtime, bounded equipment stage,
    explicitly mapped AQI/CO2/VOC, and an optional thermostat-display
    notification facade are sibling platforms. Duplicate local and weather

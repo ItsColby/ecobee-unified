@@ -98,11 +98,14 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
-    """Load the notify component only when a mapping exposes that capability."""
+    """Load optional platforms only when a mapping exposes their capability."""
 
+    enabled_optional_platforms = {
+        "button": any(mapping.homekit_clear_hold_entity for mapping in mappings),
+        "notify": any(mapping.ecobee_notify_entity for mapping in mappings),
+    }
     return [
         platform
         for platform in PLATFORMS
-        if platform != "notify"
-        or any(mapping.ecobee_notify_entity for mapping in mappings)
+        if enabled_optional_platforms.get(platform, True)
     ]

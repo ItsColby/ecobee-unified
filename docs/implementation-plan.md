@@ -61,7 +61,9 @@ Exit: mappings survive reload and rename; loss/recovery is tested.
 - Preserve honest primary precision and HomeKit-writer-owned unit/min/max. When
   explicitly selected, validate and unit-normalize a same-device HomeKit
   temperature sensor before using its unrounded value as the unified climate's
-  current temperature; otherwise retain the documented climate fallback chain.
+  current temperature, and advertise tenths precision while a fractional source
+  is selected so Core preserves the value in climate state; otherwise retain
+  the documented climate fallback chain and whole-degree presentation.
 - Add the explicit same-device target-step fusion only when the HomeKit adapter
   omits its independently proven writer granularity and units/bounds reconcile.
 - Add bounded provenance and degradation attributes.
@@ -73,7 +75,8 @@ Exit: the complete availability matrix and field-selection tests pass.
 
 - Route standard climate operations only to HomeKit.
 - Route preset selection and clear-hold only to explicitly mapped HomeKit
-  select/button entities.
+  select/button entities, exposing clear-hold through both the Unified climate
+  action and a native Unified resume-program button without adding a writer.
 - Route standard target humidity only to the capability-advertised HomeKit
   climate, validate its writer-owned bounds, and confirm from HomeKit reports.
 - Expose minimum fan runtime as the sole Ecobee-backed number writer.

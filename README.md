@@ -71,6 +71,10 @@ AQI/CO2/VOC sensors/notification entity are optional explicit same-device
 selections. Reconfiguration supports explicit add, edit, and remove operations.
 Editing physical association or command routing requires a second confirmation.
 
+When the explicit HomeKit temperature sensor is selected, the Unified climate
+also advertises tenths precision so Home Assistant preserves the source's honest
+fractional value in climate state instead of rounding it back to whole degrees.
+
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. HomeKit push/event silence remains diagnostic age;
 only actual source unavailability changes HomeKit health or read ownership.
@@ -82,6 +86,10 @@ once and only for an advertised option.
 
 `ecobee_unified.resume_program` targets a unified climate entity and presses the
 mapped local HomeKit Clear Hold button exactly once.
+
+The same operation is available as an optional **Resume program** button on the
+Unified thermostat device, so dashboards do not need to expose or target the
+raw HomeKit button.
 
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once.

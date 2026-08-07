@@ -16,19 +16,30 @@ from homeassistant import loader
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import SOURCE_USER, ConfigEntries
-from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified import (
     async_migrate_entry,
     async_remove_entry,
     async_setup_entry,
+)
+from custom_components.ecobee_unified.button import (
+    EcobeeUnifiedResumeProgramButton,
+)
+from custom_components.ecobee_unified.button import (
+    async_setup_entry as async_setup_button_entry,
 )
 from custom_components.ecobee_unified.climate import (
     EcobeeUnifiedClimate,
@@ -37,6 +48,7 @@ from custom_components.ecobee_unified.climate import (
     async_setup_entry as async_setup_climate_entry,
 )
 from custom_components.ecobee_unified.config_flow import (
+    EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
     _validate_no_duplicate_sources,
@@ -625,6 +637,126 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await manager.async_stop()
 
+    async def test_precise_temperature_survives_climate_state_serialization(
+        self,
+    ) -> None:
+        """Core must not round an honest fractional source back to whole Fahrenheit."""
+
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        homekit_attributes = self._attributes(75.0) | {
+            "temperature": 72.0,
+            "min_temp": 45.0,
+            "max_temp": 92.0,
+            "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+        }
+        homekit_attributes.pop("target_temp_step")
+        self.hass.states.async_set(
+            self.homekit.entity_id,
+            "heat",
+            homekit_attributes,
+        )
+        self.hass.states.async_set(
+            self.homekit_temperature.entity_id,
+            "75.38",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT,
+            },
+        )
+        ecobee_attributes = self._attributes(75.5) | {
+            "temperature": 72.0,
+            "min_temp": 44.6,
+            "max_temp": 95.0,
+            "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+        }
+        self.hass.states.async_set(self.ecobee.entity_id, "heat", ecobee_attributes)
+        await self.hass.async_block_till_done()
+
+        mapping = MappingConfig(
+            "mapping_precision_state",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_precision_state", (mapping,), {})
+        await manager.async_start()
+        try:
+            entity = EcobeeUnifiedClimate(manager, mapping)
+            entity.hass = self.hass
+            self.assertEqual(0.1, entity.precision)
+            self.assertEqual(75.4, entity.state_attributes["current_temperature"])
+
+            self.hass.states.async_set(
+                self.homekit_temperature.entity_id,
+                "unavailable",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT,
+                },
+            )
+            await self.hass.async_block_till_done()
+            self.assertEqual(1.0, entity.precision)
+            self.assertEqual(75.0, entity.state_attributes["current_temperature"])
+
+            self.hass.states.async_set(self.homekit.entity_id, "unavailable", {})
+            await self.hass.async_block_till_done()
+            self.assertEqual(0.1, entity.precision)
+            self.assertEqual(75.5, entity.state_attributes["current_temperature"])
+        finally:
+            await manager.async_stop()
+
+    async def test_resume_button_projects_one_explicit_local_writer(self) -> None:
+        """Expose clear-hold as a discoverable Unified button without dual writes."""
+
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("button", "press", capture)
+        entity = EcobeeUnifiedResumeProgramButton(self.manager, self.mapping)
+        self.assertEqual(self.homekit.device_id, entity.device_entry.id)
+        self.assertTrue(entity.available)
+        await entity.async_press()
+        self.assertEqual(1, len(calls))
+        self.assertEqual("button", calls[0].domain)
+        self.assertEqual("press", calls[0].service)
+        self.assertEqual(
+            {"entity_id": self.homekit_clear_hold.entity_id},
+            dict(calls[0].data),
+        )
+
+        self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unavailable")
+        await self.hass.async_block_till_done()
+        self.assertFalse(entity.available)
+        with self.assertRaises(ServiceValidationError):
+            await entity.async_press()
+
+    async def test_button_platform_creates_only_explicitly_mapped_entities(
+        self,
+    ) -> None:
+        mapped = self.mapping
+        unmapped = MappingConfig(
+            "mapping_without_clear_hold",
+            "Zone B",
+            self.homekit.id,
+            self.ecobee.id,
+        )
+        manager = MappingManager(
+            self.hass, "entry_button_platform", (mapped, unmapped), {}
+        )
+        await manager.async_start()
+        entities: list[EcobeeUnifiedResumeProgramButton] = []
+        entry = SimpleNamespace(runtime_data=EcobeeUnifiedRuntime(manager=manager))
+        try:
+            await async_setup_button_entry(self.hass, entry, entities.extend)
+            self.assertEqual(1, len(entities))
+            self.assertEqual(self.homekit.device_id, entities[0].device_entry.id)
+            self.assertEqual("mapping_a_resume_program", entities[0].unique_id)
+        finally:
+            await manager.async_stop()
+
     async def test_mapped_notification_uses_exactly_one_ecobee_notify_writer(
         self,
     ) -> None:
@@ -1009,6 +1141,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
 
     async def test_minor_schema_migration_normalizes_mapping_data(self) -> None:
+        self.assertEqual(3, EcobeeUnifiedConfigFlow.MINOR_VERSION)
         legacy = self.mapping.as_dict() | {
             "scheduled_profile_entity": "",
             "next_transition_entity": "",
@@ -2139,7 +2272,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             item.entity_id
             for item in er.async_entries_for_config_entry(registry, entry.entry_id)
         }
-        self.assertEqual(4, len(unified_entity_ids))
+        self.assertEqual(5, len(unified_entity_ids))
 
         def linked_device_ids() -> set[str | None]:
             return {

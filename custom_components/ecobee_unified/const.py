@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "ecobee_unified"
 NAME: Final = "Ecobee Unified"
-PLATFORMS: Final = ["climate", "notify", "number", "sensor"]
+PLATFORMS: Final = ["button", "climate", "notify", "number", "sensor"]
 
 CONF_MAPPINGS: Final = "mappings"
 CONF_MAPPING_ID: Final = "mapping_id"
@@ -39,6 +39,7 @@ SOURCE_ECOBEE: Final = "ecobee"
 SIGNAL_SNAPSHOT_UPDATED: Final = f"{DOMAIN}_snapshot_updated"
 
 SUFFIX_MINIMUM_FAN_RUNTIME: Final = "minimum_fan_runtime"
+SUFFIX_RESUME_PROGRAM: Final = "resume_program"
 SUFFIX_NOTIFICATION: Final = "notification"
 SUFFIX_EQUIPMENT_STAGE: Final = "equipment_stage"
 SUFFIX_AIR_QUALITY_INDEX: Final = "air_quality_index"

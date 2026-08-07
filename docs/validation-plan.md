@@ -29,7 +29,8 @@ For every standard and vendor field, test:
   same-device step fusion and rejection when proof/unit reconciliation is absent;
 - explicit same-device HomeKit temperature selection, unit conversion,
   malformed/non-finite rejection, climate fallback, cloud fallback, quiet-source
-  health, rename, move/detach, disappearance, and recovery;
+  health, source-dependent climate-state precision/rounding, rename,
+  move/detach, disappearance, and recovery;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, and recovery.
 
@@ -42,7 +43,8 @@ decimal places or a newer timestamp.
 ### Commands
 
 - each standard climate method makes exactly one HomeKit service call;
-- preset and clear-hold each make exactly one mapped HomeKit service call;
+- preset and both Unified clear-hold entry points each make exactly one mapped
+  HomeKit service call; the native button exists only for an explicit mapping;
 - minimum fan runtime makes exactly one Ecobee action call;
 - thermostat-display notification makes exactly one mapped Ecobee notification
   call, rejects empty/unavailable/misassociated writers before any effect, and

@@ -1,5 +1,10 @@
 {
   "entity": {
+    "button": {
+      "resume_program": {
+        "default": "mdi:play"
+      }
+    },
     "number": {
       "minimum_fan_runtime": {
         "default": "mdi:fan-clock"

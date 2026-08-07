@@ -14,7 +14,7 @@ from homeassistant.components.climate.const import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
@@ -228,6 +228,18 @@ class EcobeeUnifiedClimate(ClimateEntity):
     @override
     def current_temperature(self) -> float | None:
         return self._snapshot.current_temperature
+
+    @property
+    @override
+    def precision(self) -> float:
+        """Preserve fractional precision from an explicitly selected source."""
+
+        if self._snapshot.provenance.get("current_temperature") in {
+            "homekit_temperature",
+            "ecobee",
+        }:
+            return PRECISION_TENTHS
+        return super().precision
 
     @property
     @override

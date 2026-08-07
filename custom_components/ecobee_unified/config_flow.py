@@ -67,7 +67,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Create the single multi-thermostat Ecobee Unified entry."""
 
     VERSION = 1
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         self._pending_mappings: list[dict[str, str]] = []

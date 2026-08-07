@@ -60,6 +60,7 @@ class EcobeeMinimumFanRuntimeNumber(EcobeeUnifiedEntity, NumberEntity):
         return self._snapshot.minimum_fan_runtime
 
     async def async_set_native_value(self, value: float) -> None:
+        aligned_value = int(round(value / 5) * 5)
         await self._manager.async_set_minimum_fan_runtime(
-            self._mapping.mapping_id, int(value), self._context
+            self._mapping.mapping_id, aligned_value, self._context
         )

@@ -242,6 +242,28 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(("sensor_a",), snapshot.active_sensors)
         self.assertEqual({}, snapshot.confirmation_values)
 
+    def test_negative_cloud_metrics_and_fractional_fan_runtime_are_rejected(
+        self,
+    ) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("heat", {"current_temperature": 20.0}),
+            source(
+                "heat",
+                {
+                    "current_temperature": 21.0,
+                    "fan_min_on_time": 15.5,
+                },
+            ),
+            air_quality_index=RawSource("-1", health=SourceHealth.HEALTHY),
+            co2=RawSource("-2", health=SourceHealth.HEALTHY),
+            voc=RawSource("-3", health=SourceHealth.HEALTHY),
+        )
+        self.assertIsNone(snapshot.minimum_fan_runtime)
+        self.assertIsNone(snapshot.air_quality_index)
+        self.assertIsNone(snapshot.co2)
+        self.assertIsNone(snapshot.voc)
+
     def test_current_temperature_never_uses_similar_raw_sensor_field(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",

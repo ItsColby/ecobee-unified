@@ -36,7 +36,7 @@ async def async_get_config_entry_diagnostics(
                     and snapshot.target_temperature_high is not None,
                     "fan_mode": snapshot.fan_mode is not None,
                     "preset_control": snapshot.homekit_preset_writable,
-                    "clear_hold": mapping.homekit_clear_hold_entity is not None,
+                    "clear_hold": snapshot.homekit_clear_hold_writable,
                     "vendor_context": snapshot.ecobee_preset_mode is not None
                     or snapshot.climate_mode is not None,
                     "equipment_stage": snapshot.equipment_running is not None,

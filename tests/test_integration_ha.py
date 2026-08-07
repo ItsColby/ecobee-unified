@@ -174,6 +174,7 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
     preset = _register_sibling(hass, hk, "select", "hk_a_current_mode")
     clear_hold = _register_sibling(hass, hk, "button", "hk_a_clear_hold")
     hass.states.async_set(preset.entity_id, "Home", {"options": ["Home", "Away"]})
+    hass.states.async_set(clear_hold.entity_id, "unknown")
     mapping = MappingConfig(
         "mapping_a",
         "Zone A",

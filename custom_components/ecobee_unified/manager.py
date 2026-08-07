@@ -144,6 +144,8 @@ class MappingManager:
         ecobee_stale_seconds = int(
             self._options.get(CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS)
         )
+        homekit_device_id = self._source_device_id(mapping.homekit_entity)
+        ecobee_device_id = self._source_device_id(mapping.ecobee_entity)
         homekit = self._raw_source(
             mapping.homekit_entity,
             homekit_stale_seconds,
@@ -162,6 +164,8 @@ class MappingManager:
             homekit_stale_seconds,
             now=now,
             report_times=report_times,
+            required_device_id=homekit_device_id,
+            require_matching_device=True,
         )
         cloud_sensors = tuple(
             self._optional_raw_source(
@@ -169,6 +173,8 @@ class MappingManager:
                 ecobee_stale_seconds,
                 now=now,
                 report_times=report_times,
+                required_device_id=ecobee_device_id,
+                require_matching_device=True,
             )
             for reference in (
                 mapping.ecobee_aqi_entity,
@@ -185,11 +191,16 @@ class MappingManager:
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
             command=self._tracker.summary(mapping_id),
+            homekit_clear_hold_writable=self._writer_available(
+                mapping.homekit_clear_hold_entity,
+                required_device_id=homekit_device_id,
+            ),
         )
         if observation_revision is not None and self._tracker.observe(
             mapping_id, observation_revision, snapshot
         ):
             self._cancel_timeout(mapping_id)
+            self._subscribe_state_reports()
             snapshot = build_snapshot(
                 mapping_id,
                 homekit,
@@ -199,6 +210,10 @@ class MappingManager:
                 co2=cloud_sensors[1],
                 voc=cloud_sensors[2],
                 command=self._tracker.summary(mapping_id),
+                homekit_clear_hold_writable=self._writer_available(
+                    mapping.homekit_clear_hold_entity,
+                    required_device_id=homekit_device_id,
+                ),
             )
         self._snapshots[mapping_id] = snapshot
         stale_inputs = [
@@ -236,6 +251,7 @@ class MappingManager:
             )
 
         revision = self._tracker.begin(mapping_id, service, expected)
+        self._subscribe_state_reports()
         self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
         try:
@@ -249,6 +265,7 @@ class MappingManager:
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
             if self._tracker.fail(mapping_id, revision):
                 self._cancel_timeout(mapping_id)
+                self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -281,6 +298,7 @@ class MappingManager:
                 translation_key="ecobee_writer_unavailable",
             )
         revision = self._tracker.begin(mapping_id, service, expected)
+        self._subscribe_state_reports()
         self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
         try:
@@ -294,6 +312,7 @@ class MappingManager:
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
             if self._tracker.fail(mapping_id, revision):
                 self._cancel_timeout(mapping_id)
+                self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -315,6 +334,8 @@ class MappingManager:
             ),
             now=dt_util.utcnow(),
             report_times=None,
+            required_device_id=self._source_device_id(mapping.homekit_entity),
+            require_matching_device=True,
         )
         button_id = (
             self.resolve_entity_id(mapping.homekit_clear_hold_entity)
@@ -327,6 +348,10 @@ class MappingManager:
         if (
             preset is None
             or not preset.usable
+            or not self._writer_available(
+                mapping.homekit_clear_hold_entity,
+                required_device_id=self._source_device_id(mapping.homekit_entity),
+            )
             or button_entry is None
             or button_entry.disabled
         ):
@@ -337,6 +362,7 @@ class MappingManager:
         revision = self._tracker.begin(
             mapping_id, "clear_hold", {"preset_mode": "__reported__"}
         )
+        self._subscribe_state_reports()
         self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
         try:
@@ -350,6 +376,7 @@ class MappingManager:
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
             if self._tracker.fail(mapping_id, revision):
                 self._cancel_timeout(mapping_id)
+                self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -380,6 +407,7 @@ class MappingManager:
         revision = self._tracker.begin(
             mapping_id, "set_preset_mode", {"preset_mode": preset_mode}
         )
+        self._subscribe_state_reports()
         self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
         try:
@@ -393,6 +421,7 @@ class MappingManager:
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
             if self._tracker.fail(mapping_id, revision):
                 self._cancel_timeout(mapping_id)
+                self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -426,6 +455,7 @@ class MappingManager:
                 mapping.homekit_entity,
                 mapping.ecobee_entity,
                 mapping.homekit_preset_entity,
+                mapping.homekit_clear_hold_entity,
                 mapping.ecobee_aqi_entity,
                 mapping.ecobee_co2_entity,
                 mapping.ecobee_voc_entity,
@@ -504,6 +534,7 @@ class MappingManager:
     def _handle_timeout(self, mapping_id: str, revision: int) -> None:
         self._unsub_timeouts.pop(mapping_id, None)
         if self._tracker.timeout(mapping_id, revision):
+            self._subscribe_state_reports()
             self.refresh_mapping(mapping_id)
 
     def _replace_timeout(self, mapping_id: str, revision: int) -> None:
@@ -548,8 +579,6 @@ class MappingManager:
     def _subscribe_states(self) -> None:
         if self._unsub_state:
             self._unsub_state()
-        if self._unsub_state_report:
-            self._unsub_state_report()
         entity_ids = {
             resolved
             for mapping in self.mappings
@@ -557,6 +586,7 @@ class MappingManager:
                 mapping.homekit_entity,
                 mapping.ecobee_entity,
                 mapping.homekit_preset_entity,
+                mapping.homekit_clear_hold_entity,
                 mapping.ecobee_aqi_entity,
                 mapping.ecobee_co2_entity,
                 mapping.ecobee_voc_entity,
@@ -570,17 +600,29 @@ class MappingManager:
             if entity_ids
             else None
         )
-        ecobee_entity_ids = {
-            resolved
-            for mapping in self.mappings
-            for reference in (mapping.ecobee_entity, mapping.homekit_preset_entity)
-            if reference and (resolved := self.resolve_entity_id(reference))
-        }
+        self._subscribe_state_reports()
+
+    def _subscribe_state_reports(self) -> None:
+        if self._unsub_state_report:
+            self._unsub_state_report()
+            self._unsub_state_report = None
+        observed_entity_ids: set[str] = set()
+        for mapping in self.mappings:
+            operation = self._tracker.pending_operation(mapping.mapping_id)
+            if operation is None:
+                continue
+            reference = (
+                mapping.homekit_preset_entity
+                if operation in {"set_preset_mode", "clear_hold"}
+                else mapping.ecobee_entity
+            )
+            if reference and (resolved := self.resolve_entity_id(reference)):
+                observed_entity_ids.add(resolved)
         self._unsub_state_report = (
             async_track_state_report_event(
-                self.hass, ecobee_entity_ids, self._handle_state_report_event
+                self.hass, observed_entity_ids, self._handle_state_report_event
             )
-            if ecobee_entity_ids
+            if observed_entity_ids
             else None
         )
 
@@ -632,6 +674,8 @@ class MappingManager:
         *,
         now: datetime,
         report_times: Mapping[str, datetime] | None,
+        required_device_id: str | None = None,
+        require_matching_device: bool = False,
     ) -> RawSource | None:
         return (
             self._raw_source(
@@ -639,6 +683,8 @@ class MappingManager:
                 stale_seconds,
                 now=now,
                 report_times=report_times,
+                required_device_id=required_device_id,
+                require_matching_device=require_matching_device,
             )
             if entity_reference
             else None
@@ -652,6 +698,8 @@ class MappingManager:
         require_device: bool = False,
         now: datetime | None = None,
         report_times: Mapping[str, datetime] | None = None,
+        required_device_id: str | None = None,
+        require_matching_device: bool = False,
     ) -> RawSource:
         registry = er.async_get(self.hass)
         entity_id = er.async_resolve_entity_id(registry, entity_reference)
@@ -661,6 +709,10 @@ class MappingManager:
         assert entity_id is not None
         if registry_entry.disabled:
             return RawSource(None, health=SourceHealth.UNAVAILABLE)
+        if require_matching_device and (
+            required_device_id is None or registry_entry.device_id != required_device_id
+        ):
+            return RawSource(None, health=SourceHealth.MISSING)
         if require_device and (
             registry_entry.device_id is None
             or dr.async_get(self.hass).async_get(registry_entry.device_id) is None
@@ -688,12 +740,46 @@ class MappingManager:
             health=health,
         )
 
+    def _source_device_id(self, entity_reference: str) -> str | None:
+        registry = er.async_get(self.hass)
+        entity_id = er.async_resolve_entity_id(registry, entity_reference)
+        registry_entry = registry.async_get(entity_id) if entity_id else None
+        if (
+            registry_entry is None
+            or registry_entry.device_id is None
+            or dr.async_get(self.hass).async_get(registry_entry.device_id) is None
+        ):
+            return None
+        return registry_entry.device_id
+
+    def _writer_available(
+        self,
+        entity_reference: str | None,
+        *,
+        required_device_id: str | None,
+    ) -> bool:
+        if entity_reference is None or required_device_id is None:
+            return False
+        registry = er.async_get(self.hass)
+        entity_id = er.async_resolve_entity_id(registry, entity_reference)
+        registry_entry = registry.async_get(entity_id) if entity_id else None
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return bool(
+            registry_entry is not None
+            and not registry_entry.disabled
+            and registry_entry.device_id == required_device_id
+            and state is not None
+            and state.state != "unavailable"
+        )
+
     def _refresh_mapping_issue(self, mapping: MappingConfig) -> None:
         registry = er.async_get(self.hass)
         homekit_entity_id = er.async_resolve_entity_id(registry, mapping.homekit_entity)
         homekit_entry = (
             registry.async_get(homekit_entity_id) if homekit_entity_id else None
         )
+        homekit_device_id = self._source_device_id(mapping.homekit_entity)
+        ecobee_device_id = self._source_device_id(mapping.ecobee_entity)
         invalid = []
         if homekit_entry is None:
             invalid.append("homekit")
@@ -702,17 +788,46 @@ class MappingManager:
             or dr.async_get(self.hass).async_get(homekit_entry.device_id) is None
         ):
             invalid.append("homekit device")
-        if er.async_resolve_entity_id(registry, mapping.ecobee_entity) is None:
+        ecobee_entity_id = er.async_resolve_entity_id(registry, mapping.ecobee_entity)
+        if ecobee_entity_id is None:
             invalid.append("ecobee")
-        for label, reference in (
-            ("HomeKit preset", mapping.homekit_preset_entity),
-            ("HomeKit clear hold", mapping.homekit_clear_hold_entity),
-            ("Ecobee air quality", mapping.ecobee_aqi_entity),
-            ("Ecobee carbon dioxide", mapping.ecobee_co2_entity),
-            ("Ecobee volatile organic compounds", mapping.ecobee_voc_entity),
+        ecobee_siblings = (
+            mapping.ecobee_aqi_entity,
+            mapping.ecobee_co2_entity,
+            mapping.ecobee_voc_entity,
+        )
+        if (
+            ecobee_entity_id is not None
+            and any(ecobee_siblings)
+            and ecobee_device_id is None
         ):
-            if reference and er.async_resolve_entity_id(registry, reference) is None:
+            invalid.append("ecobee device")
+        optional_sources = (
+            ("HomeKit preset", mapping.homekit_preset_entity, homekit_device_id),
+            (
+                "HomeKit clear hold",
+                mapping.homekit_clear_hold_entity,
+                homekit_device_id,
+            ),
+            ("Ecobee air quality", mapping.ecobee_aqi_entity, ecobee_device_id),
+            ("Ecobee carbon dioxide", mapping.ecobee_co2_entity, ecobee_device_id),
+            (
+                "Ecobee volatile organic compounds",
+                mapping.ecobee_voc_entity,
+                ecobee_device_id,
+            ),
+        )
+        for label, reference, required_device_id in optional_sources:
+            if not reference:
+                continue
+            entity_id = er.async_resolve_entity_id(registry, reference)
+            entry = registry.async_get(entity_id) if entity_id else None
+            if entry is None:
                 invalid.append(label)
+            elif (
+                required_device_id is not None and entry.device_id != required_device_id
+            ):
+                invalid.append(f"{label} association")
         issue_id = f"mapping_{mapping.mapping_id}"
         if invalid:
             ir.async_create_issue(

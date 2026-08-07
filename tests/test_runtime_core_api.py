@@ -99,6 +99,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             device_id=self.homekit.device_id,
             suggested_object_id="hk_a_clear_hold",
         )
+        self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unknown")
         self.hass.states.async_set(
             self.homekit_preset.entity_id, "Home", {"options": ["Home", "Away"]}
         )
@@ -702,6 +703,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
         calls.clear()
+        number = EcobeeMinimumFanRuntimeNumber(self.manager, self.mapping)
+        await number.async_set_native_value(7.5)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            {"entity_id": self.ecobee.entity_id, "fan_min_on_time": 10},
+            dict(calls[0].data),
+        )
+
+        calls.clear()
         await self.manager.async_resume_program("mapping_a", None)
         self.assertEqual(1, len(calls))
         self.assertEqual("button", calls[0].domain)
@@ -748,6 +758,70 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual([], calls)
 
+    async def test_optional_sibling_device_drift_degrades_and_recovers(self) -> None:
+        registry = er.async_get(self.hass)
+        devices = dr.async_get(self.hass)
+        wrong_homekit_device = devices.async_get_or_create(
+            config_entry_id=self.homekit.config_entry_id,
+            identifiers={("homekit_controller", "wrong_homekit_device")},
+        )
+        wrong_ecobee_device = devices.async_get_or_create(
+            config_entry_id=self.ecobee.config_entry_id,
+            identifiers={("ecobee", "wrong_ecobee_device")},
+        )
+
+        registry.async_update_entity(
+            self.homekit_preset.entity_id, device_id=wrong_homekit_device.id
+        )
+        registry.async_update_entity(
+            self.homekit_clear_hold.entity_id, device_id=wrong_homekit_device.id
+        )
+        registry.async_update_entity(
+            self.ecobee_aqi.entity_id, device_id=wrong_ecobee_device.id
+        )
+        await self.hass.async_block_till_done()
+
+        degraded = self.manager.snapshot("mapping_a")
+        self.assertTrue(degraded.available)
+        self.assertTrue(degraded.homekit_writable)
+        self.assertFalse(degraded.homekit_preset_writable)
+        self.assertFalse(degraded.homekit_clear_hold_writable)
+        self.assertIsNone(degraded.air_quality_index)
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        self.assertIsNotNone(issue)
+
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("select", "select_option", capture)
+        self.hass.services.async_register("button", "press", capture)
+        with self.assertRaises(ServiceValidationError):
+            await self.manager.async_set_preset_mode("mapping_a", "Away", None)
+        with self.assertRaises(ServiceValidationError):
+            await self.manager.async_resume_program("mapping_a", None)
+        self.assertEqual([], calls)
+
+        registry.async_update_entity(
+            self.homekit_preset.entity_id, device_id=self.homekit.device_id
+        )
+        registry.async_update_entity(
+            self.homekit_clear_hold.entity_id, device_id=self.homekit.device_id
+        )
+        registry.async_update_entity(
+            self.ecobee_aqi.entity_id, device_id=self.ecobee.device_id
+        )
+        await self.hass.async_block_till_done()
+
+        recovered = self.manager.snapshot("mapping_a")
+        self.assertTrue(recovered.homekit_preset_writable)
+        self.assertTrue(recovered.homekit_clear_hold_writable)
+        self.assertEqual(42.0, recovered.air_quality_index)
+        self.assertIsNone(
+            ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        )
+
     async def test_command_timeout_reports_unconfirmed_without_retry(self) -> None:
         calls: list[ServiceCall] = []
 
@@ -768,6 +842,28 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("unconfirmed", timed_out.status.value)
         self.assertEqual(1, len(calls))
         self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
+
+    async def test_unchanged_report_subscription_exists_only_while_pending(
+        self,
+    ) -> None:
+        self.assertIsNone(self.manager._unsub_state_report)
+
+        async def capture(_call: ServiceCall) -> None:
+            return None
+
+        self.hass.services.async_register("climate", "set_temperature", capture)
+        await self.manager.async_standard_command(
+            "mapping_a",
+            "set_temperature",
+            {"temperature": 22.0},
+            {"target_temperature": 22.0},
+            None,
+        )
+        self.assertIsNotNone(self.manager._unsub_state_report)
+
+        revision = self.manager.snapshot("mapping_a").command.revision
+        self.manager._handle_timeout("mapping_a", revision)
+        self.assertIsNone(self.manager._unsub_state_report)
 
     async def test_report_handler_uses_stable_event_timestamp(self) -> None:
         state = self.hass.states.get(self.ecobee.entity_id)
@@ -1216,6 +1312,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             identifiers={("homekit_controller", "replacement_device")},
         )
         registry.async_update_entity(self.homekit.entity_id, device_id=replacement.id)
+        registry.async_update_entity(
+            self.homekit_preset.entity_id, device_id=replacement.id
+        )
+        registry.async_update_entity(
+            self.homekit_clear_hold.entity_id, device_id=replacement.id
+        )
         await self.hass.async_block_till_done()
         self.assertIs(entry, self.hass.config_entries.async_get_entry(entry.entry_id))
         self.assertEqual(

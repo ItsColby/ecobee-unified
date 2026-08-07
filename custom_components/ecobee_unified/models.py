@@ -133,6 +133,7 @@ class NormalizedSnapshot:
     available: bool
     homekit_writable: bool
     homekit_preset_writable: bool
+    homekit_clear_hold_writable: bool
     ecobee_writable: bool
     hvac_mode: str | None
     hvac_action: str | None
@@ -191,6 +192,7 @@ def build_snapshot(
     co2: RawSource | None = None,
     voc: RawSource | None = None,
     command: CommandSummary | None = None,
+    homekit_clear_hold_writable: bool = False,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
 
@@ -267,6 +269,7 @@ def build_snapshot(
         available=available,
         homekit_writable=homekit.usable,
         homekit_preset_writable=bool(homekit_preset and homekit_preset.usable),
+        homekit_clear_hold_writable=homekit_clear_hold_writable,
         ecobee_writable=ecobee.usable,
         hvac_mode=hvac_mode,
         hvac_action=values["hvac_action"],
@@ -462,7 +465,10 @@ def _integer(value: Any) -> int:
 def _bounded_integer(value: Any, minimum: int, maximum: int) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    number = int(value)
+    numeric_value = float(value)
+    if not isfinite(numeric_value) or not numeric_value.is_integer():
+        return None
+    number = int(numeric_value)
     return number if minimum <= number <= maximum else None
 
 
@@ -490,7 +496,7 @@ def _optional_source_number(source: RawSource | None) -> float | None:
         value = float(source.state)
     except ValueError:
         return None
-    return value if isfinite(value) else None
+    return value if isfinite(value) and value >= 0 else None
 
 
 def _optional_health(source: RawSource | None) -> SourceHealth:

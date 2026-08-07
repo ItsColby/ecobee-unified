@@ -5,13 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import isclose
+from math import isclose, isfinite
 from types import MappingProxyType
 from typing import Any
 
 from .const import MAX_ATTRIBUTE_ITEMS, MAX_ATTRIBUTE_TEXT
 
 UNAVAILABLE_STATES = frozenset({"unknown", "unavailable"})
+HVAC_MODES = frozenset({"off", "heat", "cool", "heat_cool", "auto", "dry", "fan_only"})
+HVAC_ACTIONS = frozenset(
+    {"cooling", "defrosting", "drying", "fan", "heating", "idle", "off", "preheating"}
+)
+TEMPERATURE_UNITS = frozenset({"°C", "°F", "K"})
 
 
 class SourceHealth(StrEnum):
@@ -128,6 +133,7 @@ class NormalizedSnapshot:
     target_temperature_step: float | None
     temperature_unit: str | None
     preset_mode: str | None
+    climate_mode: str | None
     equipment_running: str | None
     active_sensors: tuple[str, ...]
     minimum_fan_runtime: int | None
@@ -141,18 +147,18 @@ class NormalizedSnapshot:
     command: CommandSummary
 
 
-STANDARD_FIELDS: tuple[tuple[str, str], ...] = (
-    ("hvac_action", "hvac_action"),
-    ("current_temperature", "current_temperature"),
-    ("current_humidity", "current_humidity"),
-    ("target_temperature", "temperature"),
-    ("target_temperature_low", "target_temp_low"),
-    ("target_temperature_high", "target_temp_high"),
-    ("fan_mode", "fan_mode"),
-    ("min_temp", "min_temp"),
-    ("max_temp", "max_temp"),
-    ("target_temperature_step", "target_temp_step"),
-    ("temperature_unit", "unit_of_measurement"),
+STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("hvac_action", "hvac_action", "hvac_action"),
+    ("current_temperature", "current_temperature", "number"),
+    ("current_humidity", "current_humidity", "humidity"),
+    ("target_temperature", "temperature", "number"),
+    ("target_temperature_low", "target_temp_low", "number"),
+    ("target_temperature_high", "target_temp_high", "number"),
+    ("fan_mode", "fan_mode", "text"),
+    ("min_temp", "min_temp", "number"),
+    ("max_temp", "max_temp", "number"),
+    ("target_temperature_step", "target_temp_step", "positive_number"),
+    ("temperature_unit", "unit_of_measurement", "temperature_unit"),
 )
 
 
@@ -179,15 +185,15 @@ def build_snapshot(
     else:
         degradation.add("hvac_mode_unavailable")
 
-    for target, attribute in STANDARD_FIELDS:
-        value, owner = _select_attribute(homekit, ecobee, attribute)
+    for target, attribute, value_type in STANDARD_FIELDS:
+        value, owner = _select_attribute(homekit, ecobee, attribute, value_type)
         values[target] = value
         if owner:
             provenance[target] = owner
             if owner == "ecobee":
                 degradation.add("homekit_read_fallback")
 
-    current_temperature = _number(values["current_temperature"])
+    current_temperature = values["current_temperature"]
     if current_temperature is None:
         degradation.add("current_temperature_unavailable")
 
@@ -202,16 +208,25 @@ def build_snapshot(
         {
             "homekit": homekit.health,
             "ecobee": ecobee.health,
-            "beestat": _combined_optional_health(scheduled_profile, next_transition),
+            "scheduled_profile": _optional_health(scheduled_profile),
+            "next_transition": _optional_health(next_transition),
         }
     )
     source_ages = MappingProxyType(
         {
             "homekit": homekit.age_seconds,
             "ecobee": ecobee.age_seconds,
-            "beestat": _youngest_age(scheduled_profile, next_transition),
+            "scheduled_profile": _optional_age(scheduled_profile),
+            "next_transition": _optional_age(next_transition),
         }
     )
+
+    if not ecobee.usable:
+        degradation.add("ecobee_vendor_context_unavailable")
+    if scheduled_profile is not None and not scheduled_profile.usable:
+        degradation.add("scheduled_profile_unavailable")
+    if next_transition is not None and not next_transition.usable:
+        degradation.add("next_transition_unavailable")
 
     available = hvac_mode is not None and current_temperature is not None
     if not available:
@@ -222,21 +237,24 @@ def build_snapshot(
         available=available,
         homekit_writable=homekit.usable,
         hvac_mode=hvac_mode,
-        hvac_action=_text(values["hvac_action"]),
+        hvac_action=values["hvac_action"],
         current_temperature=current_temperature,
-        current_humidity=_number(values["current_humidity"]),
-        target_temperature=_number(values["target_temperature"]),
-        target_temperature_low=_number(values["target_temperature_low"]),
-        target_temperature_high=_number(values["target_temperature_high"]),
-        fan_mode=_text(values["fan_mode"]),
+        current_humidity=values["current_humidity"],
+        target_temperature=values["target_temperature"],
+        target_temperature_low=values["target_temperature_low"],
+        target_temperature_high=values["target_temperature_high"],
+        fan_mode=values["fan_mode"],
         hvac_modes=hvac_modes,
         fan_modes=fan_modes,
         supported_features=supported_features,
-        min_temp=_number(values["min_temp"]),
-        max_temp=_number(values["max_temp"]),
-        target_temperature_step=_number(values["target_temperature_step"]),
-        temperature_unit=_text(values["temperature_unit"]),
-        preset_mode=_text(ecobee.attributes.get("preset_mode"))
+        min_temp=values["min_temp"],
+        max_temp=values["max_temp"],
+        target_temperature_step=values["target_temperature_step"],
+        temperature_unit=values["temperature_unit"],
+        preset_mode=_bounded_text(ecobee.attributes.get("preset_mode"))
+        if ecobee.usable
+        else None,
+        climate_mode=_bounded_text(ecobee.attributes.get("climate_mode"))
         if ecobee.usable
         else None,
         equipment_running=_bounded_text(ecobee.attributes.get("equipment_running"))
@@ -248,7 +266,9 @@ def build_snapshot(
         )
         if ecobee.usable
         else (),
-        minimum_fan_runtime=_integer(ecobee.attributes.get("fan_min_on_time"))
+        minimum_fan_runtime=_bounded_integer(
+            ecobee.attributes.get("fan_min_on_time"), 0, 60
+        )
         if ecobee.usable
         else None,
         scheduled_profile=_optional_source_state(scheduled_profile),
@@ -283,41 +303,79 @@ def _confirmation_values(ecobee: RawSource) -> dict[str, Any]:
 
     if not ecobee.usable:
         return {}
-    return {
-        "hvac_mode": ecobee.state,
+    values = {
+        "hvac_mode": _hvac_mode(ecobee.state),
         "target_temperature": _number(ecobee.attributes.get("temperature")),
         "target_temperature_low": _number(ecobee.attributes.get("target_temp_low")),
         "target_temperature_high": _number(ecobee.attributes.get("target_temp_high")),
-        "fan_mode": _text(ecobee.attributes.get("fan_mode")),
+        "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
     }
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def _select_state(
     primary: RawSource, fallback: RawSource
 ) -> tuple[str | None, str | None]:
-    if primary.usable:
-        return primary.state, "homekit"
-    if fallback.usable:
-        return fallback.state, "ecobee"
+    primary_value = _hvac_mode(primary.state) if primary.usable else None
+    if primary_value is not None:
+        return primary_value, "homekit"
+    fallback_value = _hvac_mode(fallback.state) if fallback.usable else None
+    if fallback_value is not None:
+        return fallback_value, "ecobee"
     return None, None
 
 
 def _select_attribute(
-    primary: RawSource, fallback: RawSource, key: str
+    primary: RawSource, fallback: RawSource, key: str, value_type: str
 ) -> tuple[Any, str | None]:
-    if primary.usable and _present(primary.attributes.get(key)):
-        return primary.attributes[key], "homekit"
-    if fallback.usable and _present(fallback.attributes.get(key)):
-        return fallback.attributes[key], "ecobee"
+    primary_value = (
+        _normalize_field(primary.attributes.get(key), value_type)
+        if primary.usable
+        else None
+    )
+    if primary_value is not None:
+        return primary_value, "homekit"
+    fallback_value = (
+        _normalize_field(fallback.attributes.get(key), value_type)
+        if fallback.usable
+        else None
+    )
+    if fallback_value is not None:
+        return fallback_value, "ecobee"
     return None, None
 
 
-def _present(value: Any) -> bool:
-    return value is not None and value not in UNAVAILABLE_STATES
+def _normalize_field(value: Any, value_type: str) -> Any:
+    if value_type == "number":
+        return _number(value)
+    if value_type == "positive_number":
+        number = _number(value)
+        return number if number is not None and number > 0 else None
+    if value_type == "humidity":
+        number = _number(value)
+        return number if number is not None and 0 <= number <= 100 else None
+    if value_type == "hvac_action":
+        text = _text(value)
+        return text if text in HVAC_ACTIONS else None
+    if value_type == "temperature_unit":
+        text = _text(value)
+        return text if text in TEMPERATURE_UNITS else None
+    if value_type == "text":
+        return _bounded_text(value)
+    raise ValueError(f"Unknown field normalizer: {value_type}")
+
+
+def _hvac_mode(value: Any) -> str | None:
+    text = _text(value)
+    return text if text in HVAC_MODES else None
 
 
 def _text(value: Any) -> str | None:
-    return value if isinstance(value, str) and value not in UNAVAILABLE_STATES else None
+    return (
+        value
+        if isinstance(value, str) and value and value not in UNAVAILABLE_STATES
+        else None
+    )
 
 
 def _optional_text(value: Any) -> str | None:
@@ -332,7 +390,8 @@ def _bounded_text(value: Any) -> str | None:
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    number = float(value)
+    return number if isfinite(number) else None
 
 
 def _integer(value: Any) -> int:
@@ -341,39 +400,33 @@ def _integer(value: Any) -> int:
     return int(value)
 
 
+def _bounded_integer(value: Any, minimum: int, maximum: int) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = int(value)
+    return number if minimum <= number <= maximum else None
+
+
 def _bounded_strings(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):
         return ()
-    return tuple(
-        item[:MAX_ATTRIBUTE_TEXT]
-        for item in value[:MAX_ATTRIBUTE_ITEMS]
-        if isinstance(item, str)
-    )
+    result: list[str] = []
+    for item in value:
+        text = _bounded_text(item)
+        if text and text not in result:
+            result.append(text)
+        if len(result) == MAX_ATTRIBUTE_ITEMS:
+            break
+    return tuple(result)
 
 
 def _optional_source_state(source: RawSource | None) -> str | None:
     return _bounded_text(source.state) if source and source.usable else None
 
 
-def _combined_optional_health(
-    first: RawSource | None, second: RawSource | None
-) -> SourceHealth:
-    selected = [source for source in (first, second) if source is not None]
-    if not selected:
-        return SourceHealth.MISSING
-    if any(source.health is SourceHealth.HEALTHY for source in selected):
-        return SourceHealth.HEALTHY
-    if any(source.health is SourceHealth.STALE for source in selected):
-        return SourceHealth.STALE
-    if any(source.health is SourceHealth.UNAVAILABLE for source in selected):
-        return SourceHealth.UNAVAILABLE
-    return SourceHealth.MISSING
+def _optional_health(source: RawSource | None) -> SourceHealth:
+    return source.health if source is not None else SourceHealth.MISSING
 
 
-def _youngest_age(first: RawSource | None, second: RawSource | None) -> int | None:
-    ages = [
-        source.age_seconds
-        for source in (first, second)
-        if source is not None and source.age_seconds is not None
-    ]
-    return min(ages) if ages else None
+def _optional_age(source: RawSource | None) -> int | None:
+    return source.age_seconds if source is not None else None

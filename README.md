@@ -65,7 +65,7 @@ call only the selected HomeKit climate.
 The local, dependency-light tier is:
 
 ```text
-python -m unittest tests.test_models tests.test_commands tests.test_public_safety
+python -m unittest tests.test_public_safety
 python -m compileall -q custom_components/ecobee_unified tests scripts
 python -m ruff format --check custom_components tests scripts
 python -m ruff check custom_components tests scripts
@@ -80,10 +80,10 @@ environment before tests:
 ```text
 python -m pip install "pytest-homeassistant-custom-component==0.13.354"
 python -m pip install --upgrade -r requirements-ha-test.txt
-python -m pip install --upgrade mypy
+python -m pip install "mypy==2.3.0"
 python -m pip check
 python -m mypy --strict custom_components/ecobee_unified
-pytest tests/test_integration_ha.py tests/test_runtime_core_api.py -q
+pytest tests -q
 ```
 
 The Home Assistant test surface is Linux-owned because Core imports POSIX-only

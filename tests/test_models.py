@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from math import inf, nan
 
 from custom_components.ecobee_unified.models import (
     CommandStatus,
@@ -115,6 +116,7 @@ class SnapshotTests(unittest.TestCase):
                     "temperature": 18.0,
                     "hvac_action": "cooling",
                     "preset_mode": "home",
+                    "climate_mode": "Home",
                 },
             ),
         )
@@ -124,6 +126,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual("homekit", snapshot.provenance["current_temperature"])
         self.assertNotEqual(24.0, snapshot.current_temperature)
         self.assertEqual("home", snapshot.preset_mode)
+        self.assertEqual("Home", snapshot.climate_mode)
 
     def test_ecobee_fallback_is_read_only_and_explicit(self) -> None:
         snapshot = build_snapshot(
@@ -163,6 +166,81 @@ class SnapshotTests(unittest.TestCase):
         self.assertIsNone(snapshot.hvac_mode)
         self.assertIn("required_climate_semantics_unavailable", snapshot.degradation)
 
+    def test_malformed_primary_fields_use_valid_typed_fallbacks(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source(
+                "invalid_mode",
+                {
+                    "current_temperature": "twenty",
+                    "current_humidity": 101,
+                    "temperature": nan,
+                    "target_temp_low": inf,
+                    "target_temp_high": True,
+                    "hvac_action": "invalid_action",
+                    "fan_mode": "",
+                    "min_temp": object(),
+                    "max_temp": "thirty-five",
+                    "target_temp_step": 0,
+                    "unit_of_measurement": "invalid_unit",
+                },
+            ),
+            source(
+                "heat",
+                {
+                    "current_temperature": 20.0,
+                    "current_humidity": 40.0,
+                    "temperature": 21.0,
+                    "target_temp_low": 18.0,
+                    "target_temp_high": 24.0,
+                    "hvac_action": "heating",
+                    "fan_mode": "auto",
+                    "min_temp": 7.0,
+                    "max_temp": 35.0,
+                    "target_temp_step": 0.5,
+                    "unit_of_measurement": "°C",
+                },
+            ),
+        )
+        expected = {
+            "hvac_mode": "heat",
+            "current_temperature": 20.0,
+            "current_humidity": 40.0,
+            "target_temperature": 21.0,
+            "target_temperature_low": 18.0,
+            "target_temperature_high": 24.0,
+            "hvac_action": "heating",
+            "fan_mode": "auto",
+            "min_temp": 7.0,
+            "max_temp": 35.0,
+            "target_temperature_step": 0.5,
+            "temperature_unit": "°C",
+        }
+        for field_name, value in expected.items():
+            with self.subTest(field=field_name):
+                self.assertEqual(value, getattr(snapshot, field_name))
+                self.assertEqual("ecobee", snapshot.provenance[field_name])
+
+    def test_malformed_values_are_not_published_or_confirmed(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("invalid", {"current_temperature": nan}),
+            source(
+                "invalid",
+                {
+                    "current_temperature": inf,
+                    "temperature": True,
+                    "fan_min_on_time": 61,
+                    "active_sensors": ["", "sensor_a", "sensor_a"],
+                },
+            ),
+        )
+        self.assertFalse(snapshot.available)
+        self.assertIsNone(snapshot.current_temperature)
+        self.assertIsNone(snapshot.minimum_fan_runtime)
+        self.assertEqual(("sensor_a",), snapshot.active_sensors)
+        self.assertEqual({}, snapshot.confirmation_values)
+
     def test_current_temperature_never_uses_similar_raw_sensor_field(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",
@@ -195,6 +273,14 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(snapshot.available)
         self.assertEqual(8, len(snapshot.active_sensors))
         self.assertIsNone(snapshot.scheduled_profile)
+        self.assertIn("scheduled_profile_unavailable", snapshot.degradation)
+        self.assertEqual(
+            SourceHealth.UNAVAILABLE,
+            snapshot.source_health["scheduled_profile"],
+        )
+        self.assertEqual(
+            SourceHealth.MISSING, snapshot.source_health["next_transition"]
+        )
         self.assertEqual(CommandStatus.PENDING, snapshot.command.status)
 
 

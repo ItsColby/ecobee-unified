@@ -6,8 +6,9 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
-from .const import CONF_MAPPINGS, PLATFORMS
+from .const import CONF_MAPPINGS, DOMAIN, PLATFORMS
 from .manager import MappingManager
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
@@ -30,7 +31,11 @@ async def async_setup_entry(
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     entry.runtime_data = EcobeeUnifiedRuntime(manager)
     await manager.async_start()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        await manager.async_stop()
+        raise
     return True
 
 
@@ -63,3 +68,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         minor_version=1,
     )
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove any Repair still owned by a deleted config entry."""
+
+    for item in entry.data.get(CONF_MAPPINGS, []):
+        mapping_id = item.get("mapping_id")
+        if mapping_id:
+            ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")

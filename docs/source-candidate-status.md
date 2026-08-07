@@ -46,7 +46,7 @@ consumer migration, outbound effects, or rollback.
 | Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, registry rename, capability loss/recovery, removal Repair creation, preserved missing selection, and Repair deletion after restoration. |
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry test verifies `device_entry` linkage and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus full-tree/history public-safety scan. |
-| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Twenty-six local tests, strict mypy, Ruff, compile, JSON/YAML parsing, actionlint/ShellCheck integration, dependency closure, and a 38-file/history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
+| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Forty-five local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 38-file working-tree/tracked-archive/history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
@@ -69,6 +69,51 @@ coordinator should separately update the Home registry to `active_unreleased`,
 installed-Core support metadata, and observed capability evidence, then rerun
 the auditor. This task did not auto-apply the finding or edit Home.
 
+## Home registry handoff
+
+The final product lifecycle stage is `active_unreleased`. The repository has no
+configured remote, so `repository.public_url` remains `null`.
+
+Exact support owners for portfolio schema v2:
+
+| Field | Final value |
+|---|---|
+| `policy` | `installed_only` |
+| `hacs_metadata` | `hacs.json` |
+| `core_requirements` | `requirements-ha-test.txt` |
+| `minimum_core_requirements` | `null` |
+| `test_workflow` | `.github/workflows/validate.yaml` |
+| `broader_support_reason` | `null` |
+
+All controlled capability dispositions and product-relative evidence paths:
+
+| Capability | Applicability / status | Evidence or reason |
+|---|---|---|
+| `typed-runtime` | required / observed | `custom_components/ecobee_unified/runtime.py`; `custom_components/ecobee_unified/__init__.py` |
+| `config-entry-lifecycle` | required / observed | `custom_components/ecobee_unified/config_flow.py`; `custom_components/ecobee_unified/__init__.py`; `tests/test_runtime_core_api.py` |
+| `config-entry-migrations` | required / observed | `custom_components/ecobee_unified/__init__.py`; `tests/test_runtime_core_api.py` |
+| `bounded-source-boundary` | required / observed | `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/models.py`; `tests/test_runtime_core_api.py` |
+| `normalized-model` | required / observed | `custom_components/ecobee_unified/models.py`; `custom_components/ecobee_unified/manager.py`; `tests/test_models.py` |
+| `dynamic-discovery` | not applicable / not applicable | `docs/architecture.md`; thermostat mappings are explicitly selected rather than discovered. |
+| `helper-device-linking` | required / observed | `custom_components/ecobee_unified/climate.py`; `tests/test_runtime_core_api.py` |
+| `recorder-import` | not applicable / not applicable | `docs/architecture.md`; historical import remains owned by Beestat Statistics. |
+| `diagnostics-privacy` | required / observed | `custom_components/ecobee_unified/diagnostics.py`; `scripts/check_public_safety.py`; `tests/test_public_safety.py`; `tests/test_runtime_core_api.py` |
+| `repairs` | required / observed | `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/strings.json`; `tests/test_runtime_core_api.py` |
+| `reauth` | not applicable / not applicable | `docs/architecture.md`; the helper consumes Home Assistant-owned sources and stores no upstream credential. |
+| `account-continuity` | not applicable / not applicable | `docs/architecture.md`; the helper owns mappings rather than an authenticated upstream account. |
+| `single-writer-actions` | required / observed | `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/climate.py`; `tests/test_commands.py`; `tests/test_runtime_core_api.py` |
+| `response-producing-actions` | not applicable / not applicable | `docs/architecture.md`; the integration routes climate commands and does not own delivered content. |
+| `capability-route` | not applicable / not applicable | `docs/architecture.md`; the integration exposes no unauthenticated subscription or capability route. |
+| `health-projection` | required / observed | `custom_components/ecobee_unified/models.py`; `custom_components/ecobee_unified/climate.py`; `custom_components/ecobee_unified/diagnostics.py`; `tests/test_models.py`; `tests/test_runtime_core_api.py` |
+| `temporary-artifacts` | not applicable / not applicable | `docs/architecture.md`; the integration runtime produces no temporary files or attachments. |
+| `dependency-closure` | required / observed | `.github/workflows/validate.yaml`; `requirements-ha-test.txt`; `tests/test_public_safety.py` |
+| `installed-core-test` | required / observed | `hacs.json`; `requirements-ha-test.txt`; `.github/workflows/validate.yaml`; `tests/test_runtime_core_api.py`; `docs/upstream-contracts.md` |
+
+A read-only in-memory audit of this exact proposed registry declaration passes
+all nine implemented-product checks with zero failures, warnings, or
+unavailable results. Home remains the owner of applying and committing the
+registry transition.
+
 ## Learning classification
 
 - **Portfolio invariant already present:** do not make independent sources
@@ -80,8 +125,16 @@ the auditor. This task did not auto-apply the finding or edit Home.
 - **Product-specific verified consequence:** Core 2026.8 helper-device linkage
   uses `device_entry`; foreign identifiers/connections and cross-entry device
   ownership are prohibited.
-- **No shared-contract change proposed:** the observations instantiate existing
-  source-boundary and helper-device-linking rules rather than changing them.
+- **Shared contract absorbed during implementation:** elapsed-time-dependent
+  availability, fallback, or degradation needs bounded coordinator- or
+  lifecycle-owned reevaluation plus a no-new-source-event test.
+- **Shared contract absorbed during implementation:** dependency-light tiers
+  must collect genuinely dependency-light tests; modules that import Home
+  Assistant belong in the exact installed-Core HA lane.
+- **Existing shared clauses were sufficient:** the late awaited-failure revision
+  race is covered by command lifecycle rules, and temporarily missing saved
+  selections are covered by config-entry lifecycle rules. They required product
+  fixes and tests, not new capability IDs or another shared-contract change.
 
 ## Closed gates
 

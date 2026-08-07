@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.check_public_safety import _text_failures, run_guard
+from scripts.check_public_safety import _text_failures, run_archive_guard, run_guard
 
 
 class PublicSafetyTests(unittest.TestCase):
@@ -33,6 +33,12 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
 
+    def test_tracked_source_archive_is_public_safe(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        count, failures = run_archive_guard(root)
+        self.assertGreater(count, 20)
+        self.assertEqual([], failures)
+
     def test_support_and_ci_have_one_exact_core_lane(self) -> None:
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/validate.yaml").read_text(
@@ -50,8 +56,11 @@ class PublicSafetyTests(unittest.TestCase):
         )
         core = "python -m pip install --upgrade -r requirements-ha-test.txt"
         dependency_check = "python -m pip check"
+        all_tests = "pytest tests -q"
         self.assertLess(workflow.index(harness), workflow.index(core))
         self.assertLess(workflow.index(core), workflow.index(dependency_check))
+        self.assertLess(workflow.index(dependency_check), workflow.index(all_tests))
+        self.assertNotIn("python -m unittest tests.test_models", workflow)
 
 
 if __name__ == "__main__":

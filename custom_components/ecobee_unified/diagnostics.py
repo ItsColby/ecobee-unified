@@ -35,7 +35,8 @@ async def async_get_config_entry_diagnostics(
                     "target_range": snapshot.target_temperature_low is not None
                     and snapshot.target_temperature_high is not None,
                     "fan_mode": snapshot.fan_mode is not None,
-                    "vendor_context": snapshot.preset_mode is not None,
+                    "vendor_context": snapshot.preset_mode is not None
+                    or snapshot.climate_mode is not None,
                     "schedule_context": snapshot.scheduled_profile is not None
                     or snapshot.next_transition is not None,
                 },

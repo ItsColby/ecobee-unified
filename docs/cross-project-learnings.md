@@ -107,9 +107,10 @@ routing, command confirmation, and the canonical presentation surface.
   proportionate strict typing, compile/JSON/translation/privacy checks,
   Hassfest, HACS validation, actionlint/ShellCheck, bounded workflows,
   credential-free checkout, and a terminal release gate.
-- CodeQL, zizmor, generic security scanners, action SHA pinning, and additional
-  dependency automation remain conditional on concrete risk or maintenance
-  value; the design-only repository does not need CI before implementation.
+- Immutable action pins are part of the implemented public-source baseline.
+  CodeQL, zizmor, generic security scanners, and additional dependency
+  automation remain conditional on concrete risk or maintenance value; the
+  design-only repository did not need CI before implementation.
 
 ## Applicability Exclusions
 

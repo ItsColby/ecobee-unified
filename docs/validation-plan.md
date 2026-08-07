@@ -59,10 +59,11 @@ climate semantic, never the raw sensor by apparent similarity.
   with ShellCheck, explicit job timeouts/concurrency, side-effect-free checkout
   without persisted credentials, and a terminal release gate.
 
-CodeQL, zizmor, generic dependency/security scanners, action SHA pinning, and
-additional Dependabot coverage remain deferred until a concrete defect class,
-repository risk, or publication requirement makes them worthwhile. The
-design-only repository does not need CI before implementation begins.
+Immutable action pins are part of the implemented public-source baseline.
+CodeQL, zizmor, generic dependency/security scanners, and additional Dependabot
+coverage remain deferred until a concrete defect class, repository risk, or
+publication requirement makes them worthwhile. The design-only repository did
+not need CI before implementation began.
 
 ## Privacy Gate
 

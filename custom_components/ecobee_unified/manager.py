@@ -63,6 +63,7 @@ class MappingManager:
         self._unsub_registry: Callable[[], None] | None = None
         self._unsub_device_registry: Callable[[], None] | None = None
         self._unsub_timeouts: dict[str, Callable[[], None]] = {}
+        self._unsub_stale_refreshes: dict[str, Callable[[], None]] = {}
 
     async def async_start(self) -> None:
         """Start subscriptions and build initial snapshots."""
@@ -91,6 +92,11 @@ class MappingManager:
         for unsubscribe in self._unsub_timeouts.values():
             unsubscribe()
         self._unsub_timeouts.clear()
+        for unsubscribe in self._unsub_stale_refreshes.values():
+            unsubscribe()
+        self._unsub_stale_refreshes.clear()
+        for mapping in self.mappings:
+            ir.async_delete_issue(self.hass, DOMAIN, f"mapping_{mapping.mapping_id}")
 
     def snapshot(self, mapping_id: str) -> NormalizedSnapshot:
         """Return the current immutable snapshot."""
@@ -114,92 +120,58 @@ class MappingManager:
         """Normalize mapped states once and publish every projection from it."""
 
         mapping = self._mapping_by_id[mapping_id]
+        homekit_stale_seconds = int(
+            self._options.get(CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS)
+        )
+        ecobee_stale_seconds = int(
+            self._options.get(CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS)
+        )
+        beestat_stale_seconds = int(
+            self._options.get(CONF_BEESTAT_STALE_SECONDS, DEFAULT_BEESTAT_STALE_SECONDS)
+        )
+        homekit = self._raw_source(
+            mapping.homekit_entity,
+            homekit_stale_seconds,
+            require_device=True,
+        )
+        ecobee = self._raw_source(mapping.ecobee_entity, ecobee_stale_seconds)
+        scheduled_profile = self._optional_raw_source(
+            mapping.scheduled_profile_entity, beestat_stale_seconds
+        )
+        next_transition = self._optional_raw_source(
+            mapping.next_transition_entity, beestat_stale_seconds
+        )
         snapshot = build_snapshot(
             mapping_id,
-            self._raw_source(
-                mapping.homekit_entity,
-                int(
-                    self._options.get(
-                        CONF_HOMEKIT_STALE_SECONDS,
-                        DEFAULT_HOMEKIT_STALE_SECONDS,
-                    )
-                ),
-                require_device=True,
-            ),
-            self._raw_source(
-                mapping.ecobee_entity,
-                int(
-                    self._options.get(
-                        CONF_ECOBEE_STALE_SECONDS,
-                        DEFAULT_ECOBEE_STALE_SECONDS,
-                    )
-                ),
-            ),
-            self._optional_raw_source(
-                mapping.scheduled_profile_entity,
-                int(
-                    self._options.get(
-                        CONF_BEESTAT_STALE_SECONDS,
-                        DEFAULT_BEESTAT_STALE_SECONDS,
-                    )
-                ),
-            ),
-            self._optional_raw_source(
-                mapping.next_transition_entity,
-                int(
-                    self._options.get(
-                        CONF_BEESTAT_STALE_SECONDS,
-                        DEFAULT_BEESTAT_STALE_SECONDS,
-                    )
-                ),
-            ),
+            homekit,
+            ecobee,
+            scheduled_profile,
+            next_transition,
             self._tracker.summary(mapping_id),
         )
         if observation_revision is not None and self._tracker.observe(
             mapping_id, observation_revision, snapshot
         ):
+            self._cancel_timeout(mapping_id)
             snapshot = build_snapshot(
                 mapping_id,
-                self._raw_source(
-                    mapping.homekit_entity,
-                    int(
-                        self._options.get(
-                            CONF_HOMEKIT_STALE_SECONDS,
-                            DEFAULT_HOMEKIT_STALE_SECONDS,
-                        )
-                    ),
-                    require_device=True,
-                ),
-                self._raw_source(
-                    mapping.ecobee_entity,
-                    int(
-                        self._options.get(
-                            CONF_ECOBEE_STALE_SECONDS,
-                            DEFAULT_ECOBEE_STALE_SECONDS,
-                        )
-                    ),
-                ),
-                self._optional_raw_source(
-                    mapping.scheduled_profile_entity,
-                    int(
-                        self._options.get(
-                            CONF_BEESTAT_STALE_SECONDS,
-                            DEFAULT_BEESTAT_STALE_SECONDS,
-                        )
-                    ),
-                ),
-                self._optional_raw_source(
-                    mapping.next_transition_entity,
-                    int(
-                        self._options.get(
-                            CONF_BEESTAT_STALE_SECONDS,
-                            DEFAULT_BEESTAT_STALE_SECONDS,
-                        )
-                    ),
-                ),
+                homekit,
+                ecobee,
+                scheduled_profile,
+                next_transition,
                 self._tracker.summary(mapping_id),
             )
         self._snapshots[mapping_id] = snapshot
+        stale_inputs = [
+            (homekit, homekit_stale_seconds),
+            (ecobee, ecobee_stale_seconds),
+        ]
+        stale_inputs.extend(
+            (source, beestat_stale_seconds)
+            for source in (scheduled_profile, next_transition)
+            if source is not None
+        )
+        self._schedule_stale_refresh(mapping_id, stale_inputs)
         self._refresh_mapping_issue(mapping)
         async_dispatcher_send(self.hass, f"{SIGNAL_SNAPSHOT_UPDATED}_{mapping_id}")
 
@@ -233,9 +205,10 @@ class MappingManager:
                 blocking=True,
                 context=context,
             )
-        except HomeAssistantError:
-            self._tracker.fail(mapping_id, revision)
-            self.refresh_mapping(mapping_id)
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._cancel_timeout(mapping_id)
+                self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="homekit_command_failed",
@@ -273,7 +246,7 @@ class MappingManager:
                 blocking=True,
                 context=context,
             )
-        except HomeAssistantError:
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="ecobee_command_failed",
@@ -346,8 +319,7 @@ class MappingManager:
             self.refresh_mapping(mapping_id)
 
     def _replace_timeout(self, mapping_id: str, revision: int) -> None:
-        if unsubscribe := self._unsub_timeouts.pop(mapping_id, None):
-            unsubscribe()
+        self._cancel_timeout(mapping_id)
         seconds = int(
             self._options.get(CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS)
         )
@@ -356,6 +328,34 @@ class MappingManager:
             seconds,
             lambda _now: self._handle_timeout(mapping_id, revision),
         )
+
+    def _cancel_timeout(self, mapping_id: str) -> None:
+        if unsubscribe := self._unsub_timeouts.pop(mapping_id, None):
+            unsubscribe()
+
+    @callback
+    def _handle_stale_refresh(self, mapping_id: str) -> None:
+        self._unsub_stale_refreshes.pop(mapping_id, None)
+        self.refresh_mapping(mapping_id)
+
+    def _schedule_stale_refresh(
+        self,
+        mapping_id: str,
+        sources: list[tuple[RawSource, int]],
+    ) -> None:
+        if unsubscribe := self._unsub_stale_refreshes.pop(mapping_id, None):
+            unsubscribe()
+        delays = [
+            max(1, stale_seconds - source.age_seconds + 1)
+            for source, stale_seconds in sources
+            if source.health is SourceHealth.HEALTHY and source.age_seconds is not None
+        ]
+        if delays:
+            self._unsub_stale_refreshes[mapping_id] = async_call_later(
+                self.hass,
+                min(delays),
+                lambda _now: self._handle_stale_refresh(mapping_id),
+            )
 
     def _subscribe_states(self) -> None:
         if self._unsub_state:

@@ -48,7 +48,7 @@ from .const import (
 from .models import MappingConfig
 
 CLIMATE_SELECTOR = EntitySelector(EntitySelectorConfig(domain="climate"))
-ENTITY_SELECTOR = EntitySelector(EntitySelectorConfig())
+SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
 BOOLEAN_SELECTOR = BooleanSelector()
 
 
@@ -176,24 +176,28 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         defaults = _mapping_form_defaults(self.hass, current)
         errors: dict[str, str] = {}
         if user_input is not None:
-            if not user_input.get(CONF_CONFIRM_CHANGE, False):
-                errors["base"] = "confirmation_required"
+            try:
+                updated = _mapping_from_input(
+                    self.hass,
+                    user_input,
+                    mapping_id=str(current[CONF_MAPPING_ID]),
+                    preserved=MappingConfig.from_dict(current),
+                )
+                others = [
+                    mapping
+                    for mapping in self._pending_mappings
+                    if mapping[CONF_MAPPING_ID] != current[CONF_MAPPING_ID]
+                ]
+                _validate_no_duplicate_sources(others, updated)
+            except vol.Invalid as err:
+                errors["base"] = str(err)
             else:
-                try:
-                    updated = _mapping_from_input(
-                        self.hass,
-                        user_input,
-                        mapping_id=str(current[CONF_MAPPING_ID]),
-                        preserved=MappingConfig.from_dict(current),
-                    )
-                    others = [
-                        mapping
-                        for mapping in self._pending_mappings
-                        if mapping[CONF_MAPPING_ID] != current[CONF_MAPPING_ID]
-                    ]
-                    _validate_no_duplicate_sources(others, updated)
-                except vol.Invalid as err:
-                    errors["base"] = str(err)
+                changes_writer = any(
+                    current[key] != updated[key]
+                    for key in (CONF_HOMEKIT_ENTITY, CONF_ECOBEE_ENTITY)
+                )
+                if changes_writer and not user_input.get(CONF_CONFIRM_CHANGE, False):
+                    errors["base"] = "confirmation_required"
                 else:
                     self._pending_mappings = [
                         updated
@@ -332,11 +336,11 @@ def _mapping_schema(
             description={
                 "suggested_value": defaults.get(CONF_SCHEDULED_PROFILE_ENTITY)
             },
-        ): ENTITY_SELECTOR,
+        ): SENSOR_SELECTOR,
         vol.Optional(
             CONF_NEXT_TRANSITION_ENTITY,
             description={"suggested_value": defaults.get(CONF_NEXT_TRANSITION_ENTITY)},
-        ): ENTITY_SELECTOR,
+        ): SENSOR_SELECTOR,
     }
     if include_add:
         schema[vol.Required(CONF_ADD_ANOTHER, default=False)] = BOOLEAN_SELECTOR
@@ -361,27 +365,36 @@ def _mapping_from_input(
             hass,
             str(user_input[CONF_HOMEKIT_ENTITY]),
             "homekit_controller",
+            "climate",
             preserved.homekit_entity if preserved else None,
         ),
         ecobee_entity=_entity_reference(
             hass,
             str(user_input[CONF_ECOBEE_ENTITY]),
             "ecobee",
+            "climate",
             preserved.ecobee_entity if preserved else None,
         ),
         scheduled_profile_entity=_optional_entity_reference(
             hass,
             user_input.get(CONF_SCHEDULED_PROFILE_ENTITY),
             "beestat_statistics",
+            "sensor",
             preserved.scheduled_profile_entity if preserved else None,
         ),
         next_transition_entity=_optional_entity_reference(
             hass,
             user_input.get(CONF_NEXT_TRANSITION_ENTITY),
             "beestat_statistics",
+            "sensor",
             preserved.next_transition_entity if preserved else None,
         ),
     )
+    if (
+        mapping.scheduled_profile_entity
+        and mapping.scheduled_profile_entity == mapping.next_transition_entity
+    ):
+        raise vol.Invalid("duplicate_beestat_source")
     return mapping.as_dict()
 
 
@@ -389,6 +402,7 @@ def _entity_reference(
     hass: Any,
     entity_id: str,
     platform: str,
+    domain: str,
     preserve_reference: str | None = None,
 ) -> str:
     registry = er.async_get(hass)
@@ -396,7 +410,7 @@ def _entity_reference(
     entry = registry.async_get(resolved_id) if resolved_id else None
     if entry is None and preserve_reference and entity_id == preserve_reference:
         return preserve_reference
-    if entry is None or entry.platform != platform:
+    if entry is None or entry.platform != platform or entry.domain != domain:
         raise vol.Invalid(f"invalid_{platform}_source")
     if platform == "homekit_controller" and (
         entry.device_id is None or dr.async_get(hass).async_get(entry.device_id) is None
@@ -409,21 +423,34 @@ def _optional_entity_reference(
     hass: Any,
     entity_id: Any,
     platform: str,
+    domain: str,
     preserve_reference: str | None = None,
 ) -> str | None:
     if not entity_id:
         return None
-    return _entity_reference(hass, str(entity_id), platform, preserve_reference)
+    return _entity_reference(hass, str(entity_id), platform, domain, preserve_reference)
 
 
 def _validate_no_duplicate_sources(
     existing: list[dict[str, str]], candidate: dict[str, str]
 ) -> None:
+    candidate_beestat = {
+        reference
+        for key in (CONF_SCHEDULED_PROFILE_ENTITY, CONF_NEXT_TRANSITION_ENTITY)
+        if (reference := candidate.get(key))
+    }
     for mapping in existing:
         if mapping[CONF_HOMEKIT_ENTITY] == candidate[CONF_HOMEKIT_ENTITY]:
             raise vol.Invalid("duplicate_homekit_source")
         if mapping[CONF_ECOBEE_ENTITY] == candidate[CONF_ECOBEE_ENTITY]:
             raise vol.Invalid("duplicate_ecobee_source")
+        existing_beestat = {
+            reference
+            for key in (CONF_SCHEDULED_PROFILE_ENTITY, CONF_NEXT_TRANSITION_ENTITY)
+            if (reference := mapping.get(key))
+        }
+        if candidate_beestat & existing_beestat:
+            raise vol.Invalid("duplicate_beestat_source")
 
 
 def _mapping_selector(mappings: list[dict[str, str]]) -> SelectSelector:
@@ -451,17 +478,21 @@ def _mapping_form_defaults(hass: Any, mapping: dict[str, str]) -> dict[str, Any]
             registry, mapping[CONF_ECOBEE_ENTITY]
         )
         or mapping[CONF_ECOBEE_ENTITY],
-        CONF_SCHEDULED_PROFILE_ENTITY: er.async_resolve_entity_id(
-            registry, mapping.get(CONF_SCHEDULED_PROFILE_ENTITY, "")
-        )
-        if mapping.get(CONF_SCHEDULED_PROFILE_ENTITY)
-        else None,
-        CONF_NEXT_TRANSITION_ENTITY: er.async_resolve_entity_id(
-            registry, mapping.get(CONF_NEXT_TRANSITION_ENTITY, "")
-        )
-        if mapping.get(CONF_NEXT_TRANSITION_ENTITY)
-        else None,
+        CONF_SCHEDULED_PROFILE_ENTITY: _resolved_or_reference(
+            registry, mapping.get(CONF_SCHEDULED_PROFILE_ENTITY)
+        ),
+        CONF_NEXT_TRANSITION_ENTITY: _resolved_or_reference(
+            registry, mapping.get(CONF_NEXT_TRANSITION_ENTITY)
+        ),
     }
+
+
+def _resolved_or_reference(
+    registry: er.EntityRegistry, reference: str | None
+) -> str | None:
+    if reference is None:
+        return None
+    return er.async_resolve_entity_id(registry, reference) or reference
 
 
 def _options_schema(defaults: dict[str, Any]) -> vol.Schema:

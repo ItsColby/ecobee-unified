@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
 
 IGNORED_PARTS = {
@@ -25,6 +27,7 @@ TEXT_SUFFIXES = {
     ".yml",
 }
 PATTERNS = {
+    "absolute Windows path": re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:\\"),
     "absolute Windows user path": re.compile(
         r"[A-Za-z]:\\Users\\[^\\\s]+", re.IGNORECASE
     ),
@@ -63,6 +66,10 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
         if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
             continue
         relative = path.relative_to(root)
+        failures.extend(
+            f"{relative}: filename {failure}"
+            for failure in sorted(_text_failures(str(relative)))
+        )
         if path.suffix.lower() not in TEXT_SUFFIXES:
             failures.append(f"{relative}: unreviewed binary content")
             continue
@@ -76,6 +83,50 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
             f"{relative}: {failure}" for failure in sorted(_text_failures(text))
         )
     return count, failures
+
+
+def run_archive_guard(root: Path) -> tuple[int, list[str]]:
+    """Build and inspect the exact tracked source archive in temporary storage."""
+
+    result = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    tracked = [
+        Path(item.decode("utf-8")) for item in result.stdout.split(b"\0") if item
+    ]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        archive_path = Path(temporary_directory) / "ecobee_unified_source.zip"
+        with zipfile.ZipFile(
+            archive_path, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            for relative in tracked:
+                path = root / relative
+                if path.is_file():
+                    archive.write(path, relative.as_posix())
+        with zipfile.ZipFile(archive_path) as archive:
+            for name in archive.namelist():
+                failures.extend(
+                    f"Source archive {name}: filename {failure}"
+                    for failure in sorted(_text_failures(name))
+                )
+                suffix = Path(name).suffix.lower()
+                if suffix not in TEXT_SUFFIXES:
+                    failures.append(f"Source archive {name}: unreviewed binary content")
+                    continue
+                try:
+                    text = archive.read(name).decode("utf-8")
+                except UnicodeDecodeError:
+                    failures.append(f"Source archive {name}: non-UTF-8 content")
+                    continue
+                failures.extend(
+                    f"Source archive {name}: {failure}"
+                    for failure in sorted(_text_failures(text))
+                )
+    return len(tracked), failures
 
 
 def _history_failures(root: Path) -> list[str]:
@@ -95,12 +146,18 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     count, failures = run_guard(root)
     failures.extend(_history_failures(root))
+    archive_count, archive_failures = run_archive_guard(root)
+    failures.extend(archive_failures)
     if failures:
         print("Public-safety failures:")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print(f"Public-safety guard passed for {count} files and Git history.")
+    print(
+        "Public-safety guard passed for "
+        f"{count} working-tree files, {archive_count} tracked archive files, "
+        "and Git history."
+    )
     return 0
 
 

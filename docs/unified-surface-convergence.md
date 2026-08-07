@@ -59,9 +59,10 @@ and consumer migration provide the singular experience.
 ## Home Control-plane Disposition
 
 - **Product boundary:** the canonical wording is “canonical user-facing Ecobee
-  thermostat device and climate aggregation” over Home Assistant-owned sources,
-  excluding source authentication/transport, raw device ownership, Beestat
-  history/import and Recorder storage, and duplicate backend entities.
+  thermostat device and climate aggregation” over Home Assistant-owned HomeKit
+  and Ecobee source entities, excluding source authentication/transport, raw
+  device ownership, Beestat schedule/filter/alert/history/import and Recorder
+  ownership, and duplicate backend entities.
 - **Capabilities:** no new capability ID is justified. `helper-device-linking`,
   `normalized-model`, `single-writer-actions`, `health-projection`, migrations,
   and installed-Core evidence remain applicable; their evidence paths expand to

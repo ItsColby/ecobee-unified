@@ -5,9 +5,10 @@ one canonical user-facing device surface for each explicitly mapped physical
 thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
 
-The source candidate targets Home Assistant Core 2026.8.0. It is not a release,
-has not been deployed, and is not yet offered through a public repository or
-HACS.
+The locally validated and committed candidate source targets Home Assistant
+Core 2026.8.0. A local candidate commit is not remote Git integration,
+publication, release, deployment, or HACS availability; none of those later
+states is claimed here.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).

@@ -59,6 +59,9 @@ The link follows the selected source entity rather than only its setup-time
 device. Entity/device registry changes reconcile all owned entity-registry
 records in place; moving, detaching, removing, or restoring the HomeKit source
 does not recreate or reload the config entry and never mutates foreign records.
+Optional HomeKit and Ecobee sibling capabilities remain valid only while their
+registry entities stay on the selected source device; association drift
+degrades only the affected capability and blocks its writer before effects.
 
 ## Deterministic Field Ownership
 
@@ -94,7 +97,8 @@ capability-aware:
 
 - HomeKit available: canonical local climate state and standard control work.
 - Ecobee available: vendor detail/actions work.
-- Beestat available: schedule/history context works.
+- Beestat independently available: its sibling schedule/history context works;
+  Ecobee Unified does not consume it as a mapped source.
 - A missing optional source removes only its capabilities.
 - A missing primary may activate the documented read fallback, accompanied by
   degraded status and provenance.

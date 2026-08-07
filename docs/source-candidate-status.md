@@ -2,10 +2,11 @@
 
 Date: 2026-08-07
 
-Ecobee Unified is implemented as an unreleased, public-safe local source
-candidate for Home Assistant Core 2026.8.0. This status does not authorize or
-claim publication, release, installation, reload/restart, live validation,
-consumer migration, outbound effects, or rollback.
+Ecobee Unified is implemented, locally validated, and locally committed as an
+unreleased, public-safe source candidate for Home Assistant Core 2026.8.0. A
+local candidate commit is not remote Git integration. This status does not
+authorize or claim publication, release, installation, reload/restart, live
+validation, consumer migration, outbound effects, or rollback.
 
 ## Implemented product surface
 
@@ -56,7 +57,7 @@ consumer migration, outbound effects, or rollback.
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Fifty-three local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 43-file working-tree/38-file tracked-archive plus complete reachable-history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
+| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Fifty-six local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 43-file working-tree/43-file tracked-archive plus complete reachable-history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
@@ -77,15 +78,18 @@ support owners and all 19 capability dispositions below; the then-current
 portfolio auditor passed 27 checks and the published skill passed source/runtime
 parity. That is preserved as historical provenance, not a current portfolio
 green claim. The later shared-contract convergence identified a Beestat
-`helper-device-linking` gap. This convergence batch implements its product
-remediation in the separately owned Beestat repository; the Home coordinator
-still owns registry disposition, so the historical portfolio-green statement
-is not promoted here.
+`helper-device-linking` gap. Beestat product commit
+`532462a295b2b3f5c01bf474bdabab8471df9c7e` completes that remediation, and
+the current Home registry records its evidence as observed. That separate
+product and Home integration state does not turn either product into an
+Ecobee Unified runtime dependency or establish publication/release/live state.
 
 ## Home registry handoff
 
-The final product lifecycle stage is `active_unreleased`. The repository has no
-configured remote, so `repository.public_url` remains `null`.
+The current Home registry lifecycle classification is `active_unreleased`.
+The product repository still has no configured remote, so
+`repository.public_url` remains `null`; the Home registry record is not remote
+Git integration or product publication.
 
 Exact support owners for portfolio schema v2:
 
@@ -122,15 +126,11 @@ All controlled capability dispositions and product-relative evidence paths:
 | `dependency-closure` | required / observed | `.github/workflows/validate.yaml`; `requirements-ha-test.txt`; `tests/test_public_safety.py` |
 | `installed-core-test` | required / observed | `hacs.json`; `requirements-ha-test.txt`; `.github/workflows/validate.yaml`; `tests/test_runtime_core_api.py`; `docs/upstream-contracts.md` |
 
-A read-only in-memory audit of this exact proposed registry declaration passes
-all nine implemented-product checks with zero failures, warnings, or
-unavailable results. Home subsequently applied that exact declaration in the
-integrated control-plane commit identified above.
-
-The current owner-runtime portfolio audit at Home commit
-`a06c8548fea8c7599e64b822c6c4493cf32460d1` reports 27 passes and one failure,
-with zero warnings or unavailable checks. All nine Ecobee checks pass; the sole
-portfolio failure is the separately owned Beestat `helper-device-linking` gap.
+The current owner-runtime structural audit at Home commit
+`c4970174b62a66eaf144017c6dbb3cd5baf8b5a5` reports 30 passes with zero
+failures, warnings, or unavailable checks. Its candidate posture explicitly
+does not prove remote Git freshness/integration, publication, release, or live
+instance state.
 
 ## Learning classification
 
@@ -147,7 +147,7 @@ portfolio failure is the separately owned Beestat `helper-device-linking` gap.
   foreign source device must react when that source moves, detaches, disappears,
   or returns. Ecobee now reconciles the entity registry and uses the supported
   in-place registry path without recreating or reloading the config entry; the
-  Home coordinator owns portfolio promotion under `helper-device-linking`.
+  current Home registry records this under `helper-device-linking`.
 - **Product-specific Core consequence:** health cadence uses `last_reported`,
   unchanged Ecobee reports can confirm only a pending current revision, and
   elapsed-time degradation still has a no-new-event boundary test.

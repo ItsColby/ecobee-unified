@@ -30,7 +30,7 @@ justify ambiguous values or dual writes.
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
 | F-12 | Preserve unit conversion, target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
-| F-14 | Operate without Beestat, and fail honestly if the required climate semantics cannot be supplied. |
+| F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
 | F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |
 | F-16 | Revision-guard pending commands so stale observations cannot update a superseded command. |
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |

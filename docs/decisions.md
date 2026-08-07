@@ -9,7 +9,7 @@
 | D-003 | Do not call the Ecobee or Beestat APIs. | Existing integrations already own authentication, transport, throttling, and data acquisition. Reuse avoids another fragile owner. |
 | D-004 | HomeKit owns standard climate control and normal live climate state. | It is local and event-driven, while the cloud integration adds detail on a slower cadence. |
 | D-005 | Ecobee owns vendor-specific detail/actions. | It exposes holds/program mode, equipment detail, fan minimum, active sensors, vacations, and Ecobee policy actions that HomeKit does not. |
-| D-006 | Beestat-derived entities are optional read-only enrichment. | Their value is schedule/history context, not live control or current-state authority. |
+| D-006 | Beestat contributes independently owned sibling entities on the same HomeKit device; Ecobee Unified does not consume Beestat source entities. | Beestat's value is schedule/history/filter/alert context, while its transport, entities, import, and Recorder ownership remain separate from unified live climate state and control. |
 | D-007 | One deterministic source per semantic; no averaging and no freshest-wins. | Equivalent-looking source fields can differ in meaning, aggregation, calibration, and cadence. |
 | D-008 | Read fallback is allowed; automatic write fallback is initially disabled. | Read continuity is useful. Retrying a command through another path risks duplicate or conflicting holds. |
 | D-009 | Link every unified entity to the existing physical HomeKit device. | This gives a native single-device presentation without creating a counterfeit hardware identity or co-owning the source device. |

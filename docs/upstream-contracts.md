@@ -32,13 +32,21 @@ Verified for the initial Home Assistant Core 2026.8.0 source candidate on
    removals, and restorations, preserving stable config-entry/entity identity.
 7. **Unchanged source reports:** Core advances `State.last_reported` and emits
    `EVENT_STATE_REPORTED` when an entity reports unchanged state and attributes.
-   Source health therefore ages from `last_reported`, report handlers use the
-   event-owned stable timestamp rather than the mutable `State` field, and
-   matching Ecobee reports can confirm only the current pending command revision.
+   Cadence-backed Ecobee health therefore ages from `last_reported`; HomeKit
+   push/event silence does not imply unavailability without a heartbeat
+   contract. Report handlers use the event-owned stable timestamp rather than
+   the mutable `State` field, and matching operation-owned reports can confirm
+   only the current pending command revision.
+8. **HomeKit humidity and temperature metadata:** Core 2026.8 exposes the
+   standard target-humidity feature and writer-owned humidity bounds. The
+   Ecobee HomeKit accessory's native temperature granularity is honored by the
+   writer even though its HA climate adapter omits `target_temp_step`; the
+   mapped same-device Ecobee step is therefore an explicit static presentation
+   fusion, not read fallback or a precision substitution.
 
 ## Still deployment- or publication-gated
 
-- Source-staleness and command-confirmation defaults remain documented,
+- Ecobee cadence-staleness and command-confirmation defaults remain documented,
   configurable starting values until private shadow evidence measures actual
   cadence.
 - The proposed public repository metadata must be rechecked before any public

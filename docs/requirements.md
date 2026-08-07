@@ -28,7 +28,7 @@ justify ambiguous values or dual writes.
 | F-09 | Expose compact provenance, source age/health, and command-confirmation status. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, and recent command state. |
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
-| F-12 | Preserve unit conversion, target bounds, feature flags, and unavailable/unknown semantics. |
+| F-12 | Preserve honest primary-source precision, writer-owned unit/target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
 | F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |
@@ -37,6 +37,9 @@ justify ambiguous values or dual writes.
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
 | F-19 | When explicitly mapped and capability-advertised, expose HomeKit current-mode presets and local clear-hold/resume with exactly one local writer. |
 | F-20 | Project only justified Ecobee-only detail: minimum fan runtime, bounded equipment stage, and explicitly selected AQI/CO2/VOC sensors; do not duplicate temperature, humidity, occupancy, weather, schedule, or history. |
+| F-21 | Treat quiet HomeKit push/event observation age as diagnostic rather than unavailability; only cadence-backed sources may become stale by elapsed time. |
+| F-22 | Expose standard target humidity only through capability-advertised HomeKit bounds, one HomeKit writer, and revision-guarded HomeKit confirmation. |
+| F-23 | Permit target-temperature step fusion only as an explicit same-physical-device metadata exception with proven HomeKit writer granularity and reconciled units/bounds; never as generic freshness fallback. |
 
 ## Non-functional Requirements
 

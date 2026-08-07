@@ -68,9 +68,10 @@ degrades only the affected capability and blocks its writer before effects.
 | Semantic | Primary | Read fallback | Notes |
 |---|---|---|---|
 | HVAC mode and action | HomeKit climate | Ecobee climate | Local state is canonical for normal operation. |
-| Target temperature/range | HomeKit climate | Ecobee climate | Preserve source-supported unit, bounds, and precision. |
+| Target temperature/range | HomeKit climate | Ecobee climate | Reads may fall back, but unit and safety bounds remain HomeKit-writer-owned. The Ecobee target step is an explicit same-device metadata fusion only when Core writer granularity is independently proven and the HomeKit adapter omits the step. |
 | Current temperature | HomeKit climate `current_temperature` | Ecobee climate `current_temperature` | Never substitute a raw thermostat-local sensor; it can represent a different semantic. |
 | Current humidity | HomeKit climate | Ecobee climate | Expose only when valid. |
+| Target humidity and bounds | HomeKit climate | none | Advertise and write only when the mapped HomeKit writer exposes the capability and valid bounds; confirm from its report. |
 | Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
 | Preset/current mode | HomeKit current-mode select | none | Capability-advertised climate preset; local writer only. |
 | Ecobee preset/climate context | Ecobee climate | none | Bounded vendor diagnostic context, not the preset writer. |
@@ -105,14 +106,15 @@ capability-aware:
 - If neither climate source can provide a required state, the unified climate
   becomes unavailable rather than inventing state.
 
-Source staleness thresholds must reflect backend cadence and be configurable or
-well-documented. Freshness uses Home Assistant's `last_reported` timestamp so a
-healthy unchanged report remains fresh; `last_updated` would incorrectly age a
-stable value merely because its semantics did not change. Lifecycle-owned
-timers reevaluate at stale boundaries even when no new state-change event
-arrives. Event handlers use the event-owned stable report/change timestamp
-rather than relying on Core's intentionally mutable `State.last_reported`
-field. These are health signals, not a reason to reinterpret fields.
+Source availability and observation age are independent. HomeKit is a local
+push/event source without a heartbeat contract, so a quiet but available state
+remains healthy regardless of `last_reported` age; its age is diagnostic and
+command-observation evidence only. Ecobee cloud sources have a cadence contract,
+so their freshness uses `last_reported` and lifecycle-owned timers reevaluate
+their stale boundaries even when no new state-change event arrives. Event
+handlers use the event-owned stable timestamp rather than Core's intentionally
+mutable `State.last_reported` field. Age never makes a source look more precise
+or changes deterministic ownership by itself.
 
 ## Command Policy
 

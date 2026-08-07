@@ -34,6 +34,9 @@ async def async_get_config_entry_diagnostics(
                     "target_temperature": snapshot.target_temperature is not None,
                     "target_range": snapshot.target_temperature_low is not None
                     and snapshot.target_temperature_high is not None,
+                    "target_humidity": snapshot.min_humidity is not None
+                    and snapshot.max_humidity is not None,
+                    "temperature_step": snapshot.target_temperature_step is not None,
                     "fan_mode": snapshot.fan_mode is not None,
                     "preset_control": snapshot.homekit_preset_writable,
                     "clear_hold": snapshot.homekit_clear_hold_writable,

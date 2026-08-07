@@ -17,7 +17,8 @@ validation, consumer migration, outbound effects, or rollback.
   changes.
 - One normalized immutable snapshot per mapping owns field selection,
   provenance, source age/health, capability-aware degradation, explicit local
-  preset plus vendor-only projections, and recent command status. Source freshness uses Core's
+  preset plus vendor-only projections, and recent command status. Quiet HomeKit
+  push/event age remains diagnostic; cadence-backed Ecobee freshness uses Core's
   `last_reported` semantics and lifecycle-owned stale-boundary reevaluation.
 - One climate, minimum-fan number, bounded equipment-stage sensor, and optional
   AQI/CO2/VOC sensors project the snapshot without property I/O and link to the
@@ -29,7 +30,7 @@ validation, consumer migration, outbound effects, or rollback.
 - Beestat retains first-class schedule/transition/filter/alert entities plus
   history import and Recorder ownership; Ecobee Unified does not duplicate
   schedule/transition or vendor sibling state in climate attributes.
-- Confirmation observes normalized Ecobee state, uses monotonically increasing
+- Confirmation observes the operation-owned normalized source, uses monotonically increasing
   revisions, and guards observation, timeout, and failure updates against
   superseded commands. A fresh matching unchanged Ecobee report can confirm
   only the current pending revision.
@@ -48,7 +49,9 @@ validation, consumer migration, outbound effects, or rollback.
 | Item | Disposition | Evidence |
 |---|---|---|
 | Multiple mappings in one entry | Proven locally | Real Core flow manager creates two registry-ID mappings in one entry. |
-| Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, no averaging, and semantic current temperature. |
+| Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, honest primary precision, no averaging, and semantic current temperature. |
+| Quiet-source health and recovery | Proven locally | Exact-Core manager tests keep quiet HomeKit push/event state healthy across multiple elapsed/cloud boundaries, degrade only on actual unavailable/missing state, recover ownership, and prevent oscillation. |
+| Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, writer-owned temperature unit/bounds, and explicit same-device step fusion without freshness or precision substitution. |
 | Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover preset capability, local clear hold, minimum fan number, bounded equipment stage, optional AQI/CO2/VOC, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
 | Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; full climate method matrix is in the Linux HA test suite. |
 | Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one HomeKit clear-hold button press, and one Ecobee `set_fan_min_on_time` call. |
@@ -57,7 +60,7 @@ validation, consumer migration, outbound effects, or rollback.
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Fifty-six local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 43-file working-tree/43-file tracked-archive plus complete reachable-history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
+| Repository and HA workflows terminal green | Local subset green; hosted gate closed | Sixty-three local tests, strict mypy, Ruff, compile, actionlint, dependency closure, and a 43-file working-tree/43-file tracked-archive plus complete reachable-history privacy scan pass. Linux pytest, Hassfest, and HACS jobs are defined but cannot be claimed terminal green before an authorized public repository run. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
@@ -148,9 +151,10 @@ instance state.
   or returns. Ecobee now reconciles the entity registry and uses the supported
   in-place registry path without recreating or reloading the config entry; the
   current Home registry records this under `helper-device-linking`.
-- **Product-specific Core consequence:** health cadence uses `last_reported`,
-  unchanged Ecobee reports can confirm only a pending current revision, and
-  elapsed-time degradation still has a no-new-event boundary test.
+- **Product-specific Core consequence:** cadence-backed Ecobee health uses
+  `last_reported`, while quiet HomeKit age remains diagnostic; unchanged reports
+  can confirm only the operation-owned pending revision, and elapsed-time cloud
+  degradation still has a no-new-event boundary test.
 - **Product-specific Recorder consequence:** volatile source-age,
   active-sensor, and command-confirmation attributes are visible live but
   unrecorded; diagnostics retain bounded redacted evidence.

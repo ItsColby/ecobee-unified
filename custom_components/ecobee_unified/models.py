@@ -17,6 +17,9 @@ HVAC_ACTIONS = frozenset(
     {"cooling", "defrosting", "drying", "fan", "heating", "idle", "off", "preheating"}
 )
 TEMPERATURE_UNITS = frozenset({"°C", "°F", "K"})
+TARGET_TEMPERATURE_FEATURE = 1
+TARGET_TEMPERATURE_RANGE_FEATURE = 2
+TARGET_HUMIDITY_FEATURE = 4
 
 
 class SourceHealth(StrEnum):
@@ -139,6 +142,9 @@ class NormalizedSnapshot:
     hvac_action: str | None
     current_temperature: float | None
     current_humidity: float | None
+    target_humidity: float | None
+    min_humidity: float | None
+    max_humidity: float | None
     target_temperature: float | None
     target_temperature_low: float | None
     target_temperature_high: float | None
@@ -176,10 +182,6 @@ STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("target_temperature_low", "target_temp_low", "number"),
     ("target_temperature_high", "target_temp_high", "number"),
     ("fan_mode", "fan_mode", "text"),
-    ("min_temp", "min_temp", "number"),
-    ("max_temp", "max_temp", "number"),
-    ("target_temperature_step", "target_temp_step", "positive_number"),
-    ("temperature_unit", "unit_of_measurement", "temperature_unit"),
 )
 
 
@@ -193,6 +195,7 @@ def build_snapshot(
     voc: RawSource | None = None,
     command: CommandSummary | None = None,
     homekit_clear_hold_writable: bool = False,
+    temperature_step_fusion_proven: bool = False,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
 
@@ -227,6 +230,25 @@ def build_snapshot(
     supported_features = _integer(
         homekit.attributes.get("supported_features") if homekit.usable else 0
     )
+
+    (
+        supported_features,
+        temperature_values,
+        metadata_provenance,
+        metadata_degradation,
+    ) = _temperature_metadata(
+        homekit,
+        ecobee,
+        supported_features,
+        temperature_step_fusion_proven,
+    )
+    provenance.update(metadata_provenance)
+    degradation.update(metadata_degradation)
+    supported_features, humidity_values, metadata_provenance, metadata_degradation = (
+        _humidity_metadata(homekit, supported_features)
+    )
+    provenance.update(metadata_provenance)
+    degradation.update(metadata_degradation)
 
     source_health = MappingProxyType(
         {
@@ -275,6 +297,9 @@ def build_snapshot(
         hvac_action=values["hvac_action"],
         current_temperature=current_temperature,
         current_humidity=values["current_humidity"],
+        target_humidity=humidity_values["target_humidity"],
+        min_humidity=humidity_values["min_humidity"],
+        max_humidity=humidity_values["max_humidity"],
         target_temperature=values["target_temperature"],
         target_temperature_low=values["target_temperature_low"],
         target_temperature_high=values["target_temperature_high"],
@@ -282,10 +307,10 @@ def build_snapshot(
         hvac_modes=hvac_modes,
         fan_modes=fan_modes,
         supported_features=supported_features,
-        min_temp=values["min_temp"],
-        max_temp=values["max_temp"],
-        target_temperature_step=values["target_temperature_step"],
-        temperature_unit=values["temperature_unit"],
+        min_temp=temperature_values["min_temp"],
+        max_temp=temperature_values["max_temp"],
+        target_temperature_step=temperature_values["target_temperature_step"],
+        temperature_unit=temperature_values["temperature_unit"],
         preset_mode=_optional_source_state(homekit_preset),
         preset_modes=(
             _bounded_strings(homekit_preset.attributes.get("options"))
@@ -321,7 +346,7 @@ def build_snapshot(
         source_ages=source_ages,
         provenance=MappingProxyType(provenance),
         confirmation_values=MappingProxyType(
-            _confirmation_values(ecobee, homekit_preset)
+            _confirmation_values(homekit, ecobee, homekit_preset)
         ),
         degradation=tuple(sorted(degradation)),
         command=command or CommandSummary(),
@@ -348,7 +373,7 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
 
 
 def _confirmation_values(
-    ecobee: RawSource, homekit_preset: RawSource | None
+    homekit: RawSource, ecobee: RawSource, homekit_preset: RawSource | None
 ) -> dict[str, Any]:
     """Normalize only fields used to observe a current command revision."""
 
@@ -370,9 +395,137 @@ def _confirmation_values(
                 ),
             }
         )
+    if homekit.usable:
+        target_humidity = _normalize_field(
+            homekit.attributes.get("humidity"), "humidity"
+        )
+        if target_humidity is not None:
+            values["target_humidity"] = target_humidity
     if homekit_preset is not None and homekit_preset.usable:
         values["preset_mode"] = _bounded_text(homekit_preset.state)
     return {key: value for key, value in values.items() if value is not None}
+
+
+def _writer_attribute(source: RawSource, key: str, value_type: str) -> Any:
+    """Normalize metadata only from the mapped command writer."""
+
+    return (
+        _normalize_field(source.attributes.get(key), value_type)
+        if source.usable
+        else None
+    )
+
+
+def _temperature_metadata(
+    homekit: RawSource,
+    ecobee: RawSource,
+    supported_features: int,
+    fusion_proven: bool,
+) -> tuple[int, dict[str, Any], dict[str, str], set[str]]:
+    """Project writer-owned temperature metadata and one explicit step fusion."""
+
+    min_temp = _writer_attribute(homekit, "min_temp", "number")
+    max_temp = _writer_attribute(homekit, "max_temp", "number")
+    unit = _writer_attribute(homekit, "unit_of_measurement", "temperature_unit")
+    valid = (
+        min_temp is not None
+        and max_temp is not None
+        and min_temp <= max_temp
+        and unit is not None
+    )
+    provenance: dict[str, str] = {}
+    degradation: set[str] = set()
+    temperature_features = TARGET_TEMPERATURE_FEATURE | TARGET_TEMPERATURE_RANGE_FEATURE
+    if supported_features & temperature_features and not valid:
+        supported_features &= ~temperature_features
+        degradation.add("homekit_temperature_metadata_unavailable")
+    if not valid:
+        return (
+            supported_features,
+            {
+                "min_temp": None,
+                "max_temp": None,
+                "target_temperature_step": None,
+                "temperature_unit": None,
+            },
+            provenance,
+            degradation,
+        )
+
+    provenance.update(
+        {"min_temp": "homekit", "max_temp": "homekit", "temperature_unit": "homekit"}
+    )
+    step = _writer_attribute(homekit, "target_temp_step", "positive_number")
+    if step is not None:
+        provenance["target_temperature_step"] = "homekit"
+    elif fusion_proven:
+        ecobee_step = _source_metadata_attribute(
+            ecobee, "target_temp_step", "positive_number"
+        )
+        ecobee_unit = _source_metadata_attribute(
+            ecobee, "unit_of_measurement", "temperature_unit"
+        )
+        if (
+            ecobee_step is not None
+            and ecobee_unit == unit
+            and ecobee_step <= max_temp - min_temp
+        ):
+            step = ecobee_step
+            provenance["target_temperature_step"] = "ecobee_same_device_fusion"
+    return (
+        supported_features,
+        {
+            "min_temp": min_temp,
+            "max_temp": max_temp,
+            "target_temperature_step": step,
+            "temperature_unit": unit,
+        },
+        provenance,
+        degradation,
+    )
+
+
+def _humidity_metadata(
+    homekit: RawSource, supported_features: int
+) -> tuple[int, dict[str, float | None], dict[str, str], set[str]]:
+    """Project target humidity only when the writer advertises valid bounds."""
+
+    values: dict[str, float | None] = {
+        "target_humidity": None,
+        "min_humidity": None,
+        "max_humidity": None,
+    }
+    if not supported_features & TARGET_HUMIDITY_FEATURE:
+        return supported_features, values, {}, set()
+    minimum = _writer_attribute(homekit, "min_humidity", "humidity")
+    maximum = _writer_attribute(homekit, "max_humidity", "humidity")
+    if minimum is None or maximum is None or minimum > maximum:
+        return (
+            supported_features & ~TARGET_HUMIDITY_FEATURE,
+            values,
+            {},
+            {"homekit_humidity_bounds_unavailable"},
+        )
+    target = _writer_attribute(homekit, "humidity", "humidity")
+    values.update(
+        {"target_humidity": target, "min_humidity": minimum, "max_humidity": maximum}
+    )
+    provenance = {"min_humidity": "homekit", "max_humidity": "homekit"}
+    if target is not None:
+        provenance["target_humidity"] = "homekit"
+    return supported_features, values, provenance, set()
+
+
+def _source_metadata_attribute(source: RawSource, key: str, value_type: str) -> Any:
+    """Read stable capability metadata without treating observation age as loss."""
+
+    return (
+        _normalize_field(source.attributes.get(key), value_type)
+        if source.health in {SourceHealth.HEALTHY, SourceHealth.STALE}
+        and source.state is not None
+        and source.state not in UNAVAILABLE_STATES
+        else None
+    )
 
 
 def _select_state(

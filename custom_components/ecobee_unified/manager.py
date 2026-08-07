@@ -30,10 +30,8 @@ from .commands import CommandTracker
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
-    CONF_HOMEKIT_STALE_SECONDS,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
-    DEFAULT_HOMEKIT_STALE_SECONDS,
     DOMAIN,
     SIGNAL_SNAPSHOT_UPDATED,
     SUFFIX_AIR_QUALITY_INDEX,
@@ -49,6 +47,11 @@ from .models import (
     SourceHealth,
     build_snapshot,
 )
+
+# An explicit mapping asserts the HomeKit and Ecobee climates represent the same
+# physical Ecobee. Core 2026.8's HomeKit writer honors the accessory's native
+# granularity even though its climate adapter omits target_temp_step.
+TEMPERATURE_STEP_FUSION_PROVEN = True
 
 
 class MappingManager:
@@ -138,9 +141,6 @@ class MappingManager:
 
         mapping = self._mapping_by_id[mapping_id]
         now = dt_util.utcnow()
-        homekit_stale_seconds = int(
-            self._options.get(CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS)
-        )
         ecobee_stale_seconds = int(
             self._options.get(CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS)
         )
@@ -148,7 +148,7 @@ class MappingManager:
         ecobee_device_id = self._source_device_id(mapping.ecobee_entity)
         homekit = self._raw_source(
             mapping.homekit_entity,
-            homekit_stale_seconds,
+            None,
             require_device=True,
             now=now,
             report_times=report_times,
@@ -161,7 +161,7 @@ class MappingManager:
         )
         homekit_preset = self._optional_raw_source(
             mapping.homekit_preset_entity,
-            homekit_stale_seconds,
+            None,
             now=now,
             report_times=report_times,
             required_device_id=homekit_device_id,
@@ -195,6 +195,7 @@ class MappingManager:
                 mapping.homekit_clear_hold_entity,
                 required_device_id=homekit_device_id,
             ),
+            temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
         )
         if observation_revision is not None and self._tracker.observe(
             mapping_id, observation_revision, snapshot
@@ -214,14 +215,10 @@ class MappingManager:
                     mapping.homekit_clear_hold_entity,
                     required_device_id=homekit_device_id,
                 ),
+                temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
             )
         self._snapshots[mapping_id] = snapshot
-        stale_inputs = [
-            (homekit, homekit_stale_seconds),
-            (ecobee, ecobee_stale_seconds),
-        ]
-        if homekit_preset is not None:
-            stale_inputs.append((homekit_preset, homekit_stale_seconds))
+        stale_inputs = [(ecobee, ecobee_stale_seconds)]
         stale_inputs.extend(
             (source, ecobee_stale_seconds)
             for source in cloud_sensors
@@ -327,11 +324,7 @@ class MappingManager:
         mapping = self._mapping_by_id[mapping_id]
         preset = self._optional_raw_source(
             mapping.homekit_preset_entity,
-            int(
-                self._options.get(
-                    CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS
-                )
-            ),
+            None,
             now=dt_util.utcnow(),
             report_times=None,
             required_device_id=self._source_device_id(mapping.homekit_entity),
@@ -450,7 +443,6 @@ class MappingManager:
     def _handle_state_event(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
-            ecobee_id = self.resolve_entity_id(mapping.ecobee_entity)
             references = (
                 mapping.homekit_entity,
                 mapping.ecobee_entity,
@@ -466,16 +458,12 @@ class MappingManager:
                 if reference and (resolved := self.resolve_entity_id(reference))
             }:
                 continue
-            preset_id = (
-                self.resolve_entity_id(mapping.homekit_preset_entity)
-                if mapping.homekit_preset_entity
-                else None
-            )
             operation = self._tracker.pending_operation(mapping.mapping_id)
+            expected_reference = self._confirmation_reference(mapping, operation)
             expected_observer = (
-                preset_id
-                if operation in {"set_preset_mode", "clear_hold"}
-                else ecobee_id
+                self.resolve_entity_id(expected_reference)
+                if expected_reference
+                else None
             )
             observation_revision = (
                 self._tracker.current_revision(mapping.mapping_id)
@@ -498,21 +486,12 @@ class MappingManager:
 
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
-            observed_ids = {self.resolve_entity_id(mapping.ecobee_entity)}
-            if mapping.homekit_preset_entity:
-                observed_ids.add(self.resolve_entity_id(mapping.homekit_preset_entity))
-            if entity_id not in observed_ids:
-                continue
             operation = self._tracker.pending_operation(mapping.mapping_id)
-            preset_id = (
-                self.resolve_entity_id(mapping.homekit_preset_entity)
-                if mapping.homekit_preset_entity
-                else None
-            )
+            expected_reference = self._confirmation_reference(mapping, operation)
             expected_observer = (
-                preset_id
-                if operation in {"set_preset_mode", "clear_hold"}
-                else self.resolve_entity_id(mapping.ecobee_entity)
+                self.resolve_entity_id(expected_reference)
+                if expected_reference
+                else None
             )
             if operation is None or entity_id != expected_observer:
                 continue
@@ -611,11 +590,7 @@ class MappingManager:
             operation = self._tracker.pending_operation(mapping.mapping_id)
             if operation is None:
                 continue
-            reference = (
-                mapping.homekit_preset_entity
-                if operation in {"set_preset_mode", "clear_hold"}
-                else mapping.ecobee_entity
-            )
+            reference = self._confirmation_reference(mapping, operation)
             if reference and (resolved := self.resolve_entity_id(reference)):
                 observed_entity_ids.add(resolved)
         self._unsub_state_report = (
@@ -670,7 +645,7 @@ class MappingManager:
     def _optional_raw_source(
         self,
         entity_reference: str | None,
-        stale_seconds: int,
+        stale_seconds: int | None,
         *,
         now: datetime,
         report_times: Mapping[str, datetime] | None,
@@ -693,7 +668,7 @@ class MappingManager:
     def _raw_source(
         self,
         entity_reference: str,
-        stale_seconds: int,
+        stale_seconds: int | None,
         *,
         require_device: bool = False,
         now: datetime | None = None,
@@ -729,7 +704,7 @@ class MappingManager:
         age = _state_age_seconds(observed_at, now or dt_util.utcnow())
         if state.state in {"unknown", "unavailable"}:
             health = SourceHealth.UNAVAILABLE
-        elif age > stale_seconds:
+        elif stale_seconds is not None and age > stale_seconds:
             health = SourceHealth.STALE
         else:
             health = SourceHealth.HEALTHY
@@ -739,6 +714,18 @@ class MappingManager:
             age_seconds=age,
             health=health,
         )
+
+    @staticmethod
+    def _confirmation_reference(
+        mapping: MappingConfig, operation: str | None
+    ) -> str | None:
+        """Return the one source allowed to confirm the pending operation."""
+
+        if operation in {"set_preset_mode", "clear_hold"}:
+            return mapping.homekit_preset_entity
+        if operation == "set_humidity":
+            return mapping.homekit_entity
+        return mapping.ecobee_entity if operation is not None else None
 
     def _source_device_id(self, entity_reference: str) -> str | None:
         registry = er.async_get(self.hass)

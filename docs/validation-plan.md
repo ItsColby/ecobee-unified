@@ -25,7 +25,10 @@ For every standard and vendor field, test:
 - source field absent or malformed;
 - both unavailable;
 - unequal values that prove no averaging/freshest-wins behavior;
-- temperature units, precision, range targets, bounds, and feature flags.
+- honest primary precision, writer-owned temperature units/bounds, explicit
+  same-device step fusion and rejection when proof/unit reconciliation is absent;
+- target humidity capability, bounds, exactly one HomeKit write, HomeKit report
+  confirmation, invalid input, source loss, and recovery.
 
 Include a fixture where climate `current_temperature` intentionally differs
 from a raw thermostat-local temperature sensor. The unified climate must use the
@@ -37,7 +40,9 @@ climate semantic, never the raw sensor by apparent similarity.
 - preset and clear-hold each make exactly one mapped HomeKit service call;
 - minimum fan runtime makes exactly one Ecobee action call;
 - writer unavailable fails clearly without fallback;
-- confirmation observes Ecobee state without issuing another call;
+- confirmation observes the operation-owned source without issuing another
+  call: Ecobee for cloud-observed standard operations, HomeKit for target
+  humidity, and the HomeKit select for preset/resume;
 - confirmation success, mismatch, timeout, reload, and source loss;
 - confirmation from a fresh matching report whose state and attributes are
   unchanged;
@@ -56,8 +61,11 @@ climate semantic, never the raw sensor by apparent similarity.
 - translations and config-flow strings;
 - diagnostics privacy;
 - bounded diagnostics and no raw backend response/exception leakage;
-- `last_reported` freshness across unchanged reports plus stale-boundary
-  reevaluation without another source-change event;
+- quiet HomeKit push/event sources remain healthy across elapsed-age and cloud
+  stale-boundary reevaluations, while actual unavailable state degrades and
+  recovery restores ownership without oscillation;
+- `last_reported` freshness across unchanged cadence-backed reports plus
+  stale-boundary reevaluation without another source-change event;
 - volatile source-age, active-sensor, and command-confirmation attributes are
   excluded from Recorder;
 - schedule/transition and vendor control/detail are not duplicated in climate

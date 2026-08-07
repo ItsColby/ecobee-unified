@@ -11,7 +11,6 @@ from homeassistant.helpers import issue_registry as ir
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
-    CONF_HOMEKIT_STALE_SECONDS,
     CONF_MAPPINGS,
     DOMAIN,
     PLATFORMS,
@@ -76,7 +75,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for key, value in entry.options.items()
             if key
             in {
-                CONF_HOMEKIT_STALE_SECONDS,
                 CONF_ECOBEE_STALE_SECONDS,
                 CONF_CONFIRMATION_SECONDS,
             }

@@ -96,6 +96,9 @@ non-duplicate vendor projections on the same user-facing device.
   failures; use the stable timestamp carried by the event rather than its
   mutable `State` object, and retain bounded timer-owned reevaluation when no
   event arrives.
+- Do not generalize cadence health to quiet push/event sources. Without a
+  heartbeat contract, HomeKit observation age is diagnostic and command
+  evidence; only actual source availability changes health or read ownership.
 - Use Repairs only for persistent, actionable mapping faults such as a removed
   required entity, an invalid domain, or an internally inconsistent mapping.
   Clear the issue promptly on recovery. Transient source loss, cloud lag, and

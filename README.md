@@ -35,8 +35,9 @@ reconfiguration; replacements are never guessed.
 Each mapping creates one climate, one minimum-fan-runtime number, one bounded
 equipment-stage sensor, and optional explicitly mapped AQI/CO2/VOC sensors,
 all linked to the selected HomeKit device using the Core 2026.8 helper pattern.
-Temperature, humidity, occupancy, weather, schedule, and transition are not
-duplicated. Entity properties project one immutable normalized snapshot and
+Separate temperature/current-humidity, occupancy, weather, schedule, and
+transition entities are not duplicated. The canonical climate does expose the
+mapped HomeKit target-humidity capability. Entity properties project one immutable normalized snapshot and
 perform no I/O. Compact climate attributes expose field provenance, source
 age/health, degradation, bounded Ecobee context, and revision-guarded command confirmation. Volatile
 source-age, active-sensor, and command-confirmation attributes remain visible
@@ -56,8 +57,9 @@ optional explicit same-device selections. Reconfiguration supports explicit
 add, edit, and remove operations. Editing physical association or command
 routing requires a second confirmation.
 
-Options expose documented freshness thresholds and the command-confirmation
-window. Freshness affects health and read fallback only.
+Options expose the cadence-backed Ecobee freshness threshold and the
+command-confirmation window. HomeKit push/event silence remains diagnostic age;
+only actual source unavailability changes HomeKit health or read ownership.
 
 ## Actions
 
@@ -70,8 +72,11 @@ mapped local HomeKit Clear Hold button exactly once.
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once.
 
-Standard HVAC mode, temperature/range, fan, turn-on, and turn-off operations
-call only the selected HomeKit climate.
+Standard HVAC mode, temperature/range, target-humidity, fan, turn-on, and
+turn-off operations call only the selected HomeKit climate. Temperature unit
+and safety bounds remain writer-owned. When the mapped HomeKit adapter omits
+its proven native step, the matching Ecobee climate may supply only that static
+same-device presentation metadata; it never replaces the primary reading.
 
 ## Validation
 
@@ -105,8 +110,8 @@ green until a separately authorized public repository runs them.
 
 ## Known limits
 
-- The source-health and confirmation defaults need private shadow-deployment
-  measurement before a release.
+- The Ecobee cadence-health and confirmation defaults need private
+  shadow-deployment measurement before a release.
 - No automatic write failover exists.
 - Raw source entities remain required and recoverable.
 - No historical series, Beestat schedule/transition, raw diagnostics,

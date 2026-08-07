@@ -31,6 +31,7 @@ from .runtime import EcobeeUnifiedConfigEntry
 SUPPORTED_CONTROL_FEATURES = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+    | ClimateEntityFeature.TARGET_HUMIDITY
     | ClimateEntityFeature.FAN_MODE
     | ClimateEntityFeature.TURN_OFF
     | ClimateEntityFeature.TURN_ON
@@ -137,6 +138,29 @@ class EcobeeUnifiedClimate(ClimateEntity):
     @override
     def current_humidity(self) -> float | None:
         return self._snapshot.current_humidity
+
+    @property
+    @override
+    def target_humidity(self) -> float | None:
+        return self._snapshot.target_humidity
+
+    @property
+    @override
+    def min_humidity(self) -> float:
+        return (
+            self._snapshot.min_humidity
+            if self._snapshot.min_humidity is not None
+            else super().min_humidity
+        )
+
+    @property
+    @override
+    def max_humidity(self) -> float:
+        return (
+            self._snapshot.max_humidity
+            if self._snapshot.max_humidity is not None
+            else super().max_humidity
+        )
 
     @property
     @override
@@ -296,6 +320,17 @@ class EcobeeUnifiedClimate(ClimateEntity):
             self._context,
         )
 
+    async def async_set_humidity(self, humidity: int) -> None:
+        self._require_feature(ClimateEntityFeature.TARGET_HUMIDITY)
+        target_humidity = self._validated_humidity(humidity)
+        await self._manager.async_standard_command(
+            self._mapping.mapping_id,
+            "set_humidity",
+            {"humidity": target_humidity},
+            {"target_humidity": target_humidity},
+            self._context,
+        )
+
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         self._require_feature(ClimateEntityFeature.PRESET_MODE)
         if preset_mode not in self._snapshot.preset_modes:
@@ -348,6 +383,21 @@ class EcobeeUnifiedClimate(ClimateEntity):
         ):
             self._raise_validation("invalid_temperature")
         return temperature
+
+    def _validated_humidity(self, value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            self._raise_validation("invalid_humidity")
+        humidity = float(value)
+        if not isfinite(humidity) or not humidity.is_integer():
+            self._raise_validation("invalid_humidity")
+        if (
+            self._snapshot.min_humidity is None
+            or self._snapshot.max_humidity is None
+            or humidity < self._snapshot.min_humidity
+            or humidity > self._snapshot.max_humidity
+        ):
+            self._raise_validation("invalid_humidity")
+        return int(humidity)
 
     @staticmethod
     def _raise_validation(translation_key: str) -> None:

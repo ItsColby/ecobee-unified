@@ -36,13 +36,11 @@ from .const import (
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
-    CONF_HOMEKIT_STALE_SECONDS,
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
-    DEFAULT_HOMEKIT_STALE_SECONDS,
     DOMAIN,
     NAME,
 )
@@ -294,7 +292,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
-    """Manage documented freshness and confirmation thresholds."""
+    """Manage cadence-backed freshness and confirmation thresholds."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -302,9 +300,6 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
         defaults = {
-            CONF_HOMEKIT_STALE_SECONDS: self.config_entry.options.get(
-                CONF_HOMEKIT_STALE_SECONDS, DEFAULT_HOMEKIT_STALE_SECONDS
-            ),
             CONF_ECOBEE_STALE_SECONDS: self.config_entry.options.get(
                 CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS
             ),
@@ -580,10 +575,6 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
 
     return vol.Schema(
         {
-            vol.Required(
-                CONF_HOMEKIT_STALE_SECONDS,
-                default=defaults[CONF_HOMEKIT_STALE_SECONDS],
-            ): selector(60, 3600, 30),
             vol.Required(
                 CONF_ECOBEE_STALE_SECONDS,
                 default=defaults[CONF_ECOBEE_STALE_SECONDS],

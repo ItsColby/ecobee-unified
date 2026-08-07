@@ -27,6 +27,9 @@ class SnapshotTests(unittest.TestCase):
         homekit_attributes = {
             "current_temperature": 20.0,
             "current_humidity": 41.0,
+            "humidity": 36.0,
+            "min_humidity": 20.0,
+            "max_humidity": 50.0,
             "temperature": 21.0,
             "target_temp_low": 19.0,
             "target_temp_high": 24.0,
@@ -38,7 +41,7 @@ class SnapshotTests(unittest.TestCase):
             "unit_of_measurement": "°C",
             "hvac_modes": ["off", "heat", "cool", "heat_cool"],
             "fan_modes": ["auto", "on"],
-            "supported_features": 385,
+            "supported_features": 389,
         }
         ecobee_attributes = {
             key: 99.0 if isinstance(value, float) else "ecobee_value"
@@ -55,6 +58,9 @@ class SnapshotTests(unittest.TestCase):
             "hvac_action": "heating",
             "current_temperature": 20.0,
             "current_humidity": 41.0,
+            "target_humidity": 36.0,
+            "min_humidity": 20.0,
+            "max_humidity": 50.0,
             "target_temperature": 21.0,
             "target_temperature_low": 19.0,
             "target_temperature_high": 24.0,
@@ -77,10 +83,6 @@ class SnapshotTests(unittest.TestCase):
             "target_temperature_low": ("target_temp_low", 19.0),
             "target_temperature_high": ("target_temp_high", 24.0),
             "fan_mode": ("fan_mode", "auto"),
-            "min_temp": ("min_temp", 7.0),
-            "max_temp": ("max_temp", 35.0),
-            "target_temperature_step": ("target_temp_step", 0.5),
-            "temperature_unit": ("unit_of_measurement", "°C"),
         }
         for field_name, (attribute, value) in fields.items():
             with self.subTest(field=field_name):
@@ -94,6 +96,40 @@ class SnapshotTests(unittest.TestCase):
                 )
                 self.assertEqual(value, getattr(snapshot, field_name))
                 self.assertEqual("ecobee", snapshot.provenance[field_name])
+
+    def test_writer_metadata_never_uses_generic_ecobee_fallback(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source(
+                "heat",
+                {
+                    "current_temperature": 20.0,
+                    "supported_features": 389,
+                },
+            ),
+            source(
+                "heat",
+                {
+                    "current_temperature": 21.0,
+                    "min_temp": 7.0,
+                    "max_temp": 35.0,
+                    "target_temp_step": 0.5,
+                    "unit_of_measurement": "°C",
+                    "humidity": 36.0,
+                    "min_humidity": 20.0,
+                    "max_humidity": 50.0,
+                },
+            ),
+            temperature_step_fusion_proven=True,
+        )
+        self.assertIsNone(snapshot.min_temp)
+        self.assertIsNone(snapshot.max_temp)
+        self.assertIsNone(snapshot.target_temperature_step)
+        self.assertIsNone(snapshot.temperature_unit)
+        self.assertIsNone(snapshot.target_humidity)
+        self.assertEqual(384, snapshot.supported_features)
+        self.assertIn("homekit_temperature_metadata_unavailable", snapshot.degradation)
+        self.assertIn("homekit_humidity_bounds_unavailable", snapshot.degradation)
 
     def test_primary_owns_standard_fields_even_when_values_disagree(self) -> None:
         snapshot = build_snapshot(
@@ -212,15 +248,88 @@ class SnapshotTests(unittest.TestCase):
             "target_temperature_high": 24.0,
             "hvac_action": "heating",
             "fan_mode": "auto",
-            "min_temp": 7.0,
-            "max_temp": 35.0,
-            "target_temperature_step": 0.5,
-            "temperature_unit": "°C",
         }
         for field_name, value in expected.items():
             with self.subTest(field=field_name):
                 self.assertEqual(value, getattr(snapshot, field_name))
                 self.assertEqual("ecobee", snapshot.provenance[field_name])
+        self.assertIsNone(snapshot.min_temp)
+        self.assertIsNone(snapshot.max_temp)
+        self.assertIsNone(snapshot.target_temperature_step)
+        self.assertIsNone(snapshot.temperature_unit)
+
+    def test_same_device_step_fusion_requires_explicit_proof_and_matching_unit(
+        self,
+    ) -> None:
+        homekit = source(
+            "heat",
+            {
+                "current_temperature": 20.0,
+                "min_temp": 7.0,
+                "max_temp": 35.0,
+                "unit_of_measurement": "°C",
+            },
+        )
+        ecobee = source(
+            "heat",
+            {
+                "current_temperature": 20.6,
+                "target_temp_step": 0.5,
+                "unit_of_measurement": "°C",
+            },
+        )
+        unproven = build_snapshot("mapping_a", homekit, ecobee)
+        self.assertIsNone(unproven.target_temperature_step)
+        fused = build_snapshot(
+            "mapping_a", homekit, ecobee, temperature_step_fusion_proven=True
+        )
+        self.assertEqual(0.5, fused.target_temperature_step)
+        self.assertEqual(
+            "ecobee_same_device_fusion",
+            fused.provenance["target_temperature_step"],
+        )
+        stale_metadata = build_snapshot(
+            "mapping_a",
+            homekit,
+            source(
+                "heat",
+                {
+                    "current_temperature": 20.6,
+                    "target_temp_step": 0.5,
+                    "unit_of_measurement": "°C",
+                },
+                SourceHealth.STALE,
+            ),
+            temperature_step_fusion_proven=True,
+        )
+        self.assertEqual(0.5, stale_metadata.target_temperature_step)
+        self.assertEqual(
+            "ecobee_same_device_fusion",
+            stale_metadata.provenance["target_temperature_step"],
+        )
+        mismatched = build_snapshot(
+            "mapping_a",
+            homekit,
+            source(
+                "heat",
+                {
+                    "current_temperature": 20.6,
+                    "target_temp_step": 0.5,
+                    "unit_of_measurement": "°F",
+                },
+            ),
+            temperature_step_fusion_proven=True,
+        )
+        self.assertIsNone(mismatched.target_temperature_step)
+
+    def test_primary_precision_is_not_replaced_by_more_precise_fallback(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("heat", {"current_temperature": 20.0}),
+            source("heat", {"current_temperature": 20.63}),
+        )
+        self.assertEqual(20.0, snapshot.current_temperature)
+        self.assertEqual("homekit", snapshot.provenance["current_temperature"])
 
     def test_malformed_values_are_not_published_or_confirmed(self) -> None:
         snapshot = build_snapshot(

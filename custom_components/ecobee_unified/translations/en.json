@@ -78,6 +78,7 @@
     "homekit_command_failed": {"message": "The HomeKit command failed."},
     "homekit_writer_unavailable": {"message": "The mapped HomeKit writer is unavailable; no fallback write was attempted."},
     "invalid_fan_runtime": {"message": "Minimum fan runtime must be between 0 and 60 minutes."},
+    "invalid_humidity": {"message": "The requested humidity is outside the mapped HomeKit climate's supported bounds."},
     "invalid_temperature": {"message": "The requested temperature is outside the mapped HomeKit climate's supported bounds."},
     "invalid_temperature_range": {"message": "The requested low temperature must not exceed the high temperature."},
     "unsupported_command": {"message": "The mapped HomeKit climate does not support this command."},
@@ -96,8 +97,7 @@
       "init": {
         "data": {
           "confirmation_seconds": "Command confirmation window (seconds)",
-          "ecobee_stale_seconds": "Ecobee stale after (seconds)",
-          "homekit_stale_seconds": "HomeKit stale after (seconds)"
+          "ecobee_stale_seconds": "Ecobee stale after (seconds)"
         },
         "description": "Freshness affects health and read fallback only. It never changes the command writer.",
         "title": "Source timing"

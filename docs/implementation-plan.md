@@ -46,7 +46,9 @@ Exit: the empty integration configures/unloads cleanly and all CI is green.
 - Use typed mapping and snapshot models.
 - Track source entity changes through supported registry/event APIs.
 - Validate domains/integrations and reject loops/duplicates.
-- Implement source health, age, availability, and redacted diagnostics.
+- Implement source availability separately from observation age: quiet HomeKit
+  remains healthy, while cadence-backed Ecobee sources retain bounded stale
+  reevaluation and redacted diagnostics.
 - Build one normalized per-mapping snapshot as the only projection input for
   climate, number, sensor, and diagnostics surfaces.
 
@@ -56,7 +58,9 @@ Exit: mappings survive reload and rename; loss/recovery is tested.
 
 - Implement climate capabilities and the exact field ownership table.
 - Link every unified entity to the physical helper device.
-- Preserve source units, precision, min/max, features, and unknown states.
+- Preserve honest primary precision and HomeKit-writer-owned unit/min/max.
+- Add the explicit same-device target-step fusion only when the HomeKit adapter
+  omits its independently proven writer granularity and units/bounds reconcile.
 - Add bounded provenance and degradation attributes.
 - Implement no control methods yet.
 
@@ -67,6 +71,8 @@ Exit: the complete availability matrix and field-selection tests pass.
 - Route standard climate operations only to HomeKit.
 - Route preset selection and clear-hold only to explicitly mapped HomeKit
   select/button entities.
+- Route standard target humidity only to the capability-advertised HomeKit
+  climate, validate its writer-owned bounds, and confirm from HomeKit reports.
 - Expose minimum fan runtime as the sole Ecobee-backed number writer.
 - Implement revision-guarded pending-command observation, confirmation,
   timeout, supersession, and diagnostics.

@@ -21,6 +21,9 @@
 | D-015 | HomeKit Current Mode and Clear Hold are the canonical preset/resume writers when explicitly mapped. | Core 2026.8 exposes supported local select/button entities; using them avoids a cloud write and preserves one writer. |
 | D-016 | Expose minimum fan runtime, equipment stage, and optional AQI/CO2/VOC as first-class sibling entities. | They add vendor-only semantics without duplicating HomeKit temperature, humidity, occupancy, or weather. |
 | D-017 | Do not copy Beestat schedule/transition into unified climate attributes. | Beestat already owns first-class entities and Recorder/history; colocation supplies one user-facing surface without moving transport or storage ownership. |
+| D-018 | HomeKit observation age is diagnostic, not health, because its push/event contract has no heartbeat. | Quiet healthy thermostats must not oscillate into cloud fallback merely because no value changed. Actual unavailable/unknown/missing state still degrades and recovers normally. |
+| D-019 | Target humidity is a standard HomeKit-owned climate capability. | The HomeKit writer advertises bounds, receives the only write, and supplies confirmation; Ecobee does not become a fallback writer. |
+| D-020 | Ecobee may fill only an omitted target-temperature presentation step after same-device and writer-granularity proof. | This reconciles the local writer's actual granularity with the unified UI without borrowing cloud precision, bounds, units, or read freshness. |
 
 ## Deferred Until Evidence Exists
 
@@ -40,7 +43,7 @@ These are verification tasks, not unresolved product choices:
 - Helper-device linking, config-entry lifecycle, optional-source behavior, and
   public Ecobee action semantics were resolved for Core 2026.8.0 in
   `upstream-contracts.md` before implementation.
-- Measure realistic source-staleness and command-confirmation thresholds in the
-  private shadow deployment.
+- Measure realistic Ecobee cadence-staleness and command-confirmation thresholds
+  in the private shadow deployment.
 - Recheck the integration name/domain and publication destination before any
   public repository is created.

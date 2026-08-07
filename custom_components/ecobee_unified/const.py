@@ -21,11 +21,9 @@ CONF_ECOBEE_VOC_ENTITY: Final = "ecobee_voc_entity"
 CONF_ADD_ANOTHER: Final = "add_another"
 CONF_CONFIRM_CHANGE: Final = "confirm_change"
 
-CONF_HOMEKIT_STALE_SECONDS: Final = "homekit_stale_seconds"
 CONF_ECOBEE_STALE_SECONDS: Final = "ecobee_stale_seconds"
 CONF_CONFIRMATION_SECONDS: Final = "confirmation_seconds"
 
-DEFAULT_HOMEKIT_STALE_SECONDS: Final = 300
 DEFAULT_ECOBEE_STALE_SECONDS: Final = 900
 DEFAULT_CONFIRMATION_SECONDS: Final = 660
 

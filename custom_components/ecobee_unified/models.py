@@ -457,9 +457,15 @@ def _number(value: Any) -> float | None:
 
 
 def _integer(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool):
         return 0
-    return int(value)
+    if isinstance(value, int):
+        return max(value, 0)
+    if isinstance(value, float):
+        return (
+            int(value) if isfinite(value) and value.is_integer() and value >= 0 else 0
+        )
+    return 0
 
 
 def _bounded_integer(value: Any, minimum: int, maximum: int) -> int | None:

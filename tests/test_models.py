@@ -264,6 +264,22 @@ class SnapshotTests(unittest.TestCase):
         self.assertIsNone(snapshot.co2)
         self.assertIsNone(snapshot.voc)
 
+    def test_malformed_supported_features_degrade_to_no_controls(self) -> None:
+        for value in (float("inf"), float("nan"), -1, 1.5):
+            with self.subTest(value=value):
+                snapshot = build_snapshot(
+                    "mapping_a",
+                    source(
+                        "heat",
+                        {
+                            "current_temperature": 20.0,
+                            "supported_features": value,
+                        },
+                    ),
+                    source("heat", {"current_temperature": 21.0}),
+                )
+                self.assertEqual(0, snapshot.supported_features)
+
     def test_current_temperature_never_uses_similar_raw_sensor_field(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",

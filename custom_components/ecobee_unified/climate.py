@@ -166,12 +166,12 @@ class EcobeeUnifiedClimate(ClimateEntity):
     @property
     @override
     def supported_features(self) -> ClimateEntityFeature:
-        if not self._snapshot.homekit_writable:
-            return ClimateEntityFeature(0)
-        features = (
-            ClimateEntityFeature(self._snapshot.supported_features)
-            & SUPPORTED_CONTROL_FEATURES
-        )
+        features = ClimateEntityFeature(0)
+        if self._snapshot.homekit_writable:
+            features = (
+                ClimateEntityFeature(self._snapshot.supported_features)
+                & SUPPORTED_CONTROL_FEATURES
+            )
         if self._snapshot.homekit_preset_writable and self._snapshot.preset_modes:
             features |= ClimateEntityFeature.PRESET_MODE
         return features

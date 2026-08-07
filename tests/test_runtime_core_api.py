@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 import voluptuous as vol
 from homeassistant import loader
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import SOURCE_USER, ConfigEntries
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.data_entry_flow import FlowResultType
@@ -656,6 +656,30 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         await self.hass.async_block_till_done()
         self.assertTrue(self.manager.snapshot("mapping_a").homekit_preset_writable)
+
+    async def test_preset_control_survives_ecobee_read_fallback(self) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("select", "select_option", capture)
+        self.hass.states.async_set(self.homekit.entity_id, "unavailable")
+        await self.hass.async_block_till_done()
+
+        snapshot = self.manager.snapshot("mapping_a")
+        self.assertTrue(snapshot.available)
+        self.assertFalse(snapshot.homekit_writable)
+        self.assertTrue(snapshot.homekit_preset_writable)
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        self.assertEqual(
+            ClimateEntityFeature.PRESET_MODE,
+            entity.supported_features,
+        )
+        await entity.async_set_preset_mode("Away")
+        self.assertEqual(1, len(calls))
+        self.assertEqual("select", calls[0].domain)
+        self.assertEqual(self.homekit_preset.entity_id, calls[0].data["entity_id"])
 
     async def test_exact_single_writer_service_calls(self) -> None:
         calls: list[ServiceCall] = []

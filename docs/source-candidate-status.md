@@ -60,14 +60,13 @@ Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
 and WSL has no installed distribution. The real Core API tests therefore run
 without that plugin, while the complete pytest suite remains Linux/CI-owned.
 
-The read-only portfolio auditor passes four checks and reports one expected
-`lifecycle-stage-consistency` failure: its Home-owned registry still classifies
-Ecobee Unified as `design_only`, while the product repository now correctly
-contains an implemented manifest. `implemented-support` remains not applicable
-under that stale declaration; there are no warnings or unavailable checks. The
-coordinator should separately update the Home registry to `active_unreleased`,
-installed-Core support metadata, and observed capability evidence, then rerun
-the auditor. This task did not auto-apply the finding or edit Home.
+The Home-owned handoff is integrated and privately pushed at Home commit
+`492e00102b76f2f5dd743fcc9ee58bcc34877374`. The registry now classifies
+Ecobee Unified as `active_unreleased` with the installed-Core support owners and
+all 19 capability dispositions below. The read-only portfolio auditor passes
+all 27 checks across the three registered products with no failures, warnings,
+or unavailable checks. The published `maintain-ha-custom-integrations` runtime
+also passes its source/runtime parity validation.
 
 ## Home registry handoff
 
@@ -111,8 +110,8 @@ All controlled capability dispositions and product-relative evidence paths:
 
 A read-only in-memory audit of this exact proposed registry declaration passes
 all nine implemented-product checks with zero failures, warnings, or
-unavailable results. Home remains the owner of applying and committing the
-registry transition.
+unavailable results. Home subsequently applied that exact declaration in the
+integrated control-plane commit identified above.
 
 ## Learning classification
 
@@ -141,5 +140,4 @@ registry transition.
 Still closed: public repository/remote creation, push/publication, manifest
 release-version advancement, tag, GitHub Release, HACS install/update, Home
 Assistant config check, reload/restart, private instance mapping, shadow/live
-validation, consumer migration, outbound effects, rollback, and Home
-control-plane edits.
+validation, consumer migration, outbound effects, and rollback.

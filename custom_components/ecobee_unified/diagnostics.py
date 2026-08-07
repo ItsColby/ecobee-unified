@@ -40,6 +40,11 @@ async def async_get_config_entry_diagnostics(
                     "fan_mode": snapshot.fan_mode is not None,
                     "preset_control": snapshot.homekit_preset_writable,
                     "clear_hold": snapshot.homekit_clear_hold_writable,
+                    "precise_current_temperature": snapshot.provenance.get(
+                        "current_temperature"
+                    )
+                    == "homekit_temperature",
+                    "thermostat_notification": snapshot.ecobee_notify_writable,
                     "vendor_context": snapshot.ecobee_preset_mode is not None
                     or snapshot.climate_mode is not None,
                     "equipment_stage": snapshot.equipment_running is not None,

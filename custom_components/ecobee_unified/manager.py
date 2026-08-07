@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfTemperature,
+)
 from homeassistant.core import (
     Context,
     Event,
@@ -25,6 +32,7 @@ from homeassistant.helpers.event import (
     async_track_state_report_event,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .commands import CommandTracker
 from .const import (
@@ -42,6 +50,7 @@ from .const import (
     SUFFIX_CO2,
     SUFFIX_EQUIPMENT_STAGE,
     SUFFIX_MINIMUM_FAN_RUNTIME,
+    SUFFIX_NOTIFICATION,
     SUFFIX_VOC,
 )
 from .models import (
@@ -179,6 +188,13 @@ class MappingManager:
             required_device_id=homekit_device_id,
             require_matching_device=True,
         )
+        homekit_temperature = self._temperature_raw_source(
+            mapping.homekit_temperature_entity,
+            homekit,
+            now=now,
+            report_times=report_times,
+            required_device_id=homekit_device_id,
+        )
         cloud_sensors = tuple(
             self._optional_raw_source(
                 reference,
@@ -199,6 +215,7 @@ class MappingManager:
             homekit,
             ecobee,
             homekit_preset=homekit_preset,
+            homekit_temperature=homekit_temperature,
             air_quality_index=cloud_sensors[0],
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
@@ -208,6 +225,10 @@ class MappingManager:
                 required_device_id=homekit_device_id,
             ),
             temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
+            ecobee_notify_writable=self._writer_available(
+                mapping.ecobee_notify_entity,
+                required_device_id=ecobee_device_id,
+            ),
         )
         if observation_revision is not None and self._tracker.observe(
             mapping_id, observation_revision, snapshot
@@ -219,6 +240,7 @@ class MappingManager:
                 homekit,
                 ecobee,
                 homekit_preset=homekit_preset,
+                homekit_temperature=homekit_temperature,
                 air_quality_index=cloud_sensors[0],
                 co2=cloud_sensors[1],
                 voc=cloud_sensors[2],
@@ -228,6 +250,10 @@ class MappingManager:
                     required_device_id=homekit_device_id,
                 ),
                 temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
+                ecobee_notify_writable=self._writer_available(
+                    mapping.ecobee_notify_entity,
+                    required_device_id=ecobee_device_id,
+                ),
             )
         self._snapshots[mapping_id] = snapshot
         stale_inputs = [(ecobee, ecobee_stale_seconds)]
@@ -471,6 +497,42 @@ class MappingManager:
             context,
         )
 
+    async def async_send_notification(
+        self, mapping_id: str, message: str, context: Context | None
+    ) -> None:
+        """Forward one message to the explicitly mapped Ecobee notify entity."""
+
+        mapping = self._mapping_by_id[mapping_id]
+        entity_id = (
+            self.resolve_entity_id(mapping.ecobee_notify_entity)
+            if mapping.ecobee_notify_entity
+            else None
+        )
+        if (
+            not message.strip()
+            or entity_id is None
+            or not self.snapshot(mapping_id).ecobee_notify_writable
+            or not self.hass.services.has_service("notify", "send_message")
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="ecobee_notification_unavailable",
+            )
+        try:
+            await self.hass.services.async_call(
+                "notify",
+                "send_message",
+                {"message": message},
+                blocking=True,
+                context=context,
+                target={"entity_id": entity_id},
+            )
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="ecobee_notification_failed",
+            ) from None
+
     def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
         """Resolve one healthy mapped Ecobee writer for a supported action."""
 
@@ -504,9 +566,11 @@ class MappingManager:
                 mapping.ecobee_entity,
                 mapping.homekit_preset_entity,
                 mapping.homekit_clear_hold_entity,
+                mapping.homekit_temperature_entity,
                 mapping.ecobee_aqi_entity,
                 mapping.ecobee_co2_entity,
                 mapping.ecobee_voc_entity,
+                mapping.ecobee_notify_entity,
             )
             if entity_id not in {
                 resolved
@@ -622,9 +686,11 @@ class MappingManager:
                 mapping.ecobee_entity,
                 mapping.homekit_preset_entity,
                 mapping.homekit_clear_hold_entity,
+                mapping.homekit_temperature_entity,
                 mapping.ecobee_aqi_entity,
                 mapping.ecobee_co2_entity,
                 mapping.ecobee_voc_entity,
+                mapping.ecobee_notify_entity,
             )
             if reference and (resolved := self.resolve_entity_id(reference))
         }
@@ -669,6 +735,7 @@ class MappingManager:
             for unique_id in (
                 mapping.mapping_id,
                 f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}",
+                f"{mapping.mapping_id}_{SUFFIX_NOTIFICATION}",
                 f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}",
                 f"{mapping.mapping_id}_{SUFFIX_AIR_QUALITY_INDEX}",
                 f"{mapping.mapping_id}_{SUFFIX_CO2}",
@@ -719,6 +786,65 @@ class MappingManager:
             )
             if entity_reference
             else None
+        )
+
+    def _temperature_raw_source(
+        self,
+        entity_reference: str | None,
+        homekit: RawSource,
+        *,
+        now: datetime,
+        report_times: Mapping[str, datetime] | None,
+        required_device_id: str | None,
+    ) -> RawSource | None:
+        """Read and unit-normalize an explicit same-device temperature sensor."""
+
+        if entity_reference is None:
+            return None
+        source = self._raw_source(
+            entity_reference,
+            None,
+            now=now,
+            report_times=report_times,
+            required_device_id=required_device_id,
+            require_matching_device=True,
+        )
+        if not source.usable:
+            return source
+        entity_id = self.resolve_entity_id(entity_reference)
+        entry = er.async_get(self.hass).async_get(entity_id) if entity_id else None
+        device_class = source.attributes.get(ATTR_DEVICE_CLASS) or (
+            entry.original_device_class if entry else None
+        )
+        source_unit = source.attributes.get(ATTR_UNIT_OF_MEASUREMENT) or (
+            entry.unit_of_measurement if entry else None
+        )
+        target_unit = homekit.attributes.get(
+            ATTR_UNIT_OF_MEASUREMENT, self.hass.config.units.temperature_unit
+        )
+        try:
+            if source.state is None or device_class != SensorDeviceClass.TEMPERATURE:
+                raise ValueError
+            source_unit_enum = UnitOfTemperature(str(source_unit))
+            target_unit_enum = UnitOfTemperature(str(target_unit))
+            value = float(source.state)
+            if not isfinite(value):
+                raise ValueError
+            converted = TemperatureConverter.convert(
+                value, source_unit_enum, target_unit_enum
+            )
+        except TypeError, ValueError:
+            return RawSource(
+                None,
+                source.attributes,
+                age_seconds=source.age_seconds,
+                health=SourceHealth.UNAVAILABLE,
+            )
+        return RawSource(
+            str(converted),
+            source.attributes,
+            age_seconds=source.age_seconds,
+            health=source.health,
         )
 
     def _raw_source(
@@ -840,6 +966,7 @@ class MappingManager:
             mapping.ecobee_aqi_entity,
             mapping.ecobee_co2_entity,
             mapping.ecobee_voc_entity,
+            mapping.ecobee_notify_entity,
         )
         if (
             ecobee_entity_id is not None
@@ -854,6 +981,11 @@ class MappingManager:
                 mapping.homekit_clear_hold_entity,
                 homekit_device_id,
             ),
+            (
+                "HomeKit temperature",
+                mapping.homekit_temperature_entity,
+                homekit_device_id,
+            ),
             ("Ecobee air quality", mapping.ecobee_aqi_entity, ecobee_device_id),
             ("Ecobee carbon dioxide", mapping.ecobee_co2_entity, ecobee_device_id),
             (
@@ -861,6 +993,7 @@ class MappingManager:
                 mapping.ecobee_voc_entity,
                 ecobee_device_id,
             ),
+            ("Ecobee notification", mapping.ecobee_notify_entity, ecobee_device_id),
         )
         for label, reference, required_device_id in optional_sources:
             if not reference:
@@ -873,6 +1006,11 @@ class MappingManager:
                 required_device_id is not None and entry.device_id != required_device_id
             ):
                 invalid.append(f"{label} association")
+            elif (
+                label == "HomeKit temperature"
+                and not self._temperature_contract_valid(reference)
+            ):
+                invalid.append(label)
         issue_id = f"mapping_{mapping.mapping_id}"
         if invalid:
             ir.async_create_issue(
@@ -887,6 +1025,32 @@ class MappingManager:
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def _temperature_contract_valid(self, entity_reference: str) -> bool:
+        registry = er.async_get(self.hass)
+        entity_id = er.async_resolve_entity_id(registry, entity_reference)
+        entry = registry.async_get(entity_id) if entity_id else None
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if entry is None:
+            return False
+        device_class = entry.original_device_class or (
+            state.attributes.get(ATTR_DEVICE_CLASS) if state else None
+        )
+        unit = entry.unit_of_measurement or (
+            state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
+        )
+        try:
+            UnitOfTemperature(str(unit))
+        except ValueError:
+            return False
+        if device_class != SensorDeviceClass.TEMPERATURE:
+            return False
+        if state is None or state.state in {"unknown", "unavailable"}:
+            return True
+        try:
+            return isfinite(float(state.state))
+        except ValueError:
+            return False
 
 
 def _state_age_seconds(last_reported: datetime, now: datetime) -> int:

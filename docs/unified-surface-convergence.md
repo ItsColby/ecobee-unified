@@ -20,19 +20,23 @@ gates.
 | User-facing semantic | Presentation owner | Transport/storage owner | Writer |
 |---|---|---|---|
 | Standard climate state/control | Ecobee Unified climate | HomeKit Controller | HomeKit climate |
+| Precise current temperature | Ecobee Unified climate | Explicit same-device HomeKit sensor | Read-only |
 | Preset/current mode | Ecobee Unified climate | HomeKit Controller | Explicit HomeKit select |
 | Clear hold/resume | Ecobee Unified climate action | HomeKit Controller | Explicit HomeKit button |
 | Minimum fan runtime | Ecobee Unified number | Ecobee integration | Ecobee action |
 | Equipment stage | Ecobee Unified sensor | Ecobee integration | Read-only |
 | AQI, CO2, VOC | Optional Ecobee Unified sensors | Ecobee integration | Read-only |
+| Thermostat-display notification | Optional Ecobee Unified notification | Ecobee integration | Explicit Ecobee notification entity |
 | Schedule and next transition | Beestat entities on the device | Beestat integration | Read-only |
 | Filter, alerts, maintenance | Beestat entities on the device | Beestat integration | Beestat/local helper policy |
 | Historical series | Home Assistant statistics | Beestat importer and Recorder | Import workflow only |
 
 Temperature, humidity, occupancy, motion, weather, battery, schedule, and
-transition are not copied merely to make the Unified integration appear to own
-them. Device colocation, first-class entity naming/category policy, dashboards,
-and consumer migration provide the singular experience.
+transition entities are not copied merely to make the Unified integration
+appear to own them. The one intentional temperature refinement is projected
+inside the canonical climate from an explicitly mapped, capability-valid local
+sensor. Device colocation, first-class entity naming/category policy,
+dashboards, and consumer migration provide the singular experience.
 
 ## Implemented Batches
 
@@ -45,10 +49,13 @@ and consumer migration provide the singular experience.
    and unload cleanup.
 3. **Canonical climate completion:** optional HomeKit Current Mode becomes
    climate preset support; optional Clear Hold becomes the local resume path.
-   Each action has exactly one writer and revision-scoped observation.
+   An optional same-device HomeKit temperature sensor preserves honest local
+   decimals in the climate state. Each action has exactly one writer and
+   revision-scoped observation.
 4. **Cloud-only projections:** minimum fan runtime, bounded equipment stage,
-   and explicitly mapped AQI/CO2/VOC are sibling platforms. Duplicate local and
-   weather semantics are excluded.
+   explicitly mapped AQI/CO2/VOC, and an optional thermostat-display
+   notification facade are sibling platforms. Duplicate local and weather
+   entities are excluded.
 5. **Surface hygiene:** primary Beestat schedule/filter/alert/maintenance
    entities remain normal; freshness and intermediate forecast detail is
    diagnostic; advanced global counters remain disabled by default.
@@ -82,9 +89,9 @@ target only the explicitly mapped Ecobee climate, validate the public Core
 service contract, and issue one call. Source state cannot prove their complete
 effect, so successful dispatch is honestly reported as `submitted`.
 
-Microphone and daylight-saving administration, notifications, derived room
-metrics, and automatic write failover remain deferred. They do not currently
-justify routine Unified-surface ownership.
+Microphone and daylight-saving administration, derived room metrics, and
+automatic write failover remain deferred. They do not currently justify routine
+Unified-surface ownership.
 
 Private shadow deployment, consumer migration, dashboard/exposure changes,
 backend visibility cleanup, release, HACS, restart/reload, and live validation

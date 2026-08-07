@@ -55,6 +55,8 @@ class MappingConfig:
     ecobee_aqi_entity: str | None = None
     ecobee_co2_entity: str | None = None
     ecobee_voc_entity: str | None = None
+    homekit_temperature_entity: str | None = None
+    ecobee_notify_entity: str | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> MappingConfig:
@@ -72,6 +74,10 @@ class MappingConfig:
             ecobee_aqi_entity=_optional_text(value.get("ecobee_aqi_entity")),
             ecobee_co2_entity=_optional_text(value.get("ecobee_co2_entity")),
             ecobee_voc_entity=_optional_text(value.get("ecobee_voc_entity")),
+            homekit_temperature_entity=_optional_text(
+                value.get("homekit_temperature_entity")
+            ),
+            ecobee_notify_entity=_optional_text(value.get("ecobee_notify_entity")),
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -92,6 +98,8 @@ class MappingConfig:
                     ("ecobee_aqi_entity", self.ecobee_aqi_entity),
                     ("ecobee_co2_entity", self.ecobee_co2_entity),
                     ("ecobee_voc_entity", self.ecobee_voc_entity),
+                    ("homekit_temperature_entity", self.homekit_temperature_entity),
+                    ("ecobee_notify_entity", self.ecobee_notify_entity),
                 )
                 if value
             }
@@ -139,6 +147,7 @@ class NormalizedSnapshot:
     homekit_preset_writable: bool
     homekit_clear_hold_writable: bool
     ecobee_writable: bool
+    ecobee_notify_writable: bool
     hvac_mode: str | None
     hvac_action: str | None
     current_temperature: float | None
@@ -177,7 +186,6 @@ class NormalizedSnapshot:
 
 STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("hvac_action", "hvac_action", "hvac_action"),
-    ("current_temperature", "current_temperature", "number"),
     ("current_humidity", "current_humidity", "humidity"),
     ("target_temperature", "temperature", "number"),
     ("target_temperature_low", "target_temp_low", "number"),
@@ -197,6 +205,8 @@ def build_snapshot(
     command: CommandSummary | None = None,
     homekit_clear_hold_writable: bool = False,
     temperature_step_fusion_proven: bool = False,
+    homekit_temperature: RawSource | None = None,
+    ecobee_notify_writable: bool = False,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
 
@@ -221,9 +231,12 @@ def build_snapshot(
             if owner == "ecobee":
                 degradation.add("homekit_read_fallback")
 
-    current_temperature = values["current_temperature"]
-    if current_temperature is None:
-        degradation.add("current_temperature_unavailable")
+    current_temperature, temperature_owner, temperature_degradation = (
+        _select_current_temperature(homekit_temperature, homekit, ecobee)
+    )
+    if temperature_owner:
+        provenance["current_temperature"] = temperature_owner
+    degradation.update(temperature_degradation)
 
     primary_capabilities = homekit if homekit.usable else ecobee
     hvac_modes = _bounded_strings(primary_capabilities.attributes.get("hvac_modes"))
@@ -256,6 +269,7 @@ def build_snapshot(
             "homekit": homekit.health,
             "ecobee": ecobee.health,
             "homekit_preset": _optional_health(homekit_preset),
+            "homekit_temperature": _optional_health(homekit_temperature),
             "air_quality_index": _optional_health(air_quality_index),
             "co2": _optional_health(co2),
             "voc": _optional_health(voc),
@@ -266,6 +280,7 @@ def build_snapshot(
             "homekit": homekit.age_seconds,
             "ecobee": ecobee.age_seconds,
             "homekit_preset": _optional_age(homekit_preset),
+            "homekit_temperature": _optional_age(homekit_temperature),
             "air_quality_index": _optional_age(air_quality_index),
             "co2": _optional_age(co2),
             "voc": _optional_age(voc),
@@ -294,6 +309,7 @@ def build_snapshot(
         homekit_preset_writable=bool(homekit_preset and homekit_preset.usable),
         homekit_clear_hold_writable=homekit_clear_hold_writable,
         ecobee_writable=ecobee.usable,
+        ecobee_notify_writable=ecobee_notify_writable,
         hvac_mode=hvac_mode,
         hvac_action=values["hvac_action"],
         current_temperature=current_temperature,
@@ -352,6 +368,27 @@ def build_snapshot(
         degradation=tuple(sorted(degradation)),
         command=command or CommandSummary(),
     )
+
+
+def _select_current_temperature(
+    homekit_temperature: RawSource | None,
+    homekit: RawSource,
+    ecobee: RawSource,
+) -> tuple[float | None, str | None, set[str]]:
+    """Select an honest temperature without treating precision as freshness."""
+
+    degradation: set[str] = set()
+    value = _optional_source_finite_number(homekit_temperature)
+    if value is not None:
+        return value, "homekit_temperature", degradation
+    if homekit_temperature is not None and not homekit_temperature.usable:
+        degradation.add("homekit_temperature_unavailable")
+    value, owner = _select_attribute(homekit, ecobee, "current_temperature", "number")
+    if owner == "ecobee":
+        degradation.add("homekit_read_fallback")
+    if value is None:
+        degradation.add("current_temperature_unavailable")
+    return value, owner, degradation
 
 
 def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -> bool:
@@ -657,6 +694,16 @@ def _optional_source_number(source: RawSource | None) -> float | None:
     except ValueError:
         return None
     return value if isfinite(value) and value >= 0 else None
+
+
+def _optional_source_finite_number(source: RawSource | None) -> float | None:
+    if source is None or not source.usable or source.state is None:
+        return None
+    try:
+        value = float(source.state)
+    except ValueError:
+        return None
+    return value if isfinite(value) else None
 
 
 def _optional_health(source: RawSource | None) -> SourceHealth:

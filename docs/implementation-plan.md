@@ -58,7 +58,10 @@ Exit: mappings survive reload and rename; loss/recovery is tested.
 
 - Implement climate capabilities and the exact field ownership table.
 - Link every unified entity to the physical helper device.
-- Preserve honest primary precision and HomeKit-writer-owned unit/min/max.
+- Preserve honest primary precision and HomeKit-writer-owned unit/min/max. When
+  explicitly selected, validate and unit-normalize a same-device HomeKit
+  temperature sensor before using its unrounded value as the unified climate's
+  current temperature; otherwise retain the documented climate fallback chain.
 - Add the explicit same-device target-step fusion only when the HomeKit adapter
   omits its independently proven writer granularity and units/bounds reconcile.
 - Add bounded provenance and degradation attributes.
@@ -77,6 +80,8 @@ Exit: the complete availability matrix and field-selection tests pass.
 - Expose bounded Unified-domain vacation, occupancy-policy, and
   comfort-sensor-participation actions through the mapped Ecobee climate. Mark
   successful unprojectable effects submitted rather than confirmed.
+- Expose an optional thermostat-display notification entity through exactly one
+  explicitly mapped same-device Ecobee notification writer.
 - Implement revision-guarded pending-command observation, confirmation,
   timeout, supersession, and diagnostics.
 - Do not retry through another backend.
@@ -88,7 +93,9 @@ unconfirmable vendor action.
 ## Phase 5: Optional Enrichment
 
 - Add a bounded equipment-stage sensor and explicitly mapped AQI/CO2/VOC
-  sensors; do not duplicate HomeKit temperature/humidity/occupancy/weather.
+  sensors; do not create duplicate HomeKit temperature/humidity/occupancy/weather
+  entities. Precise mapped temperature is projected through the canonical
+  climate instead.
 - Rely on Beestat's first-class schedule/filter/alert entities already linked
   to the same device; do not copy their state or move Recorder ownership.
 - Keep all historical, volatile-age, and high-cardinality data out of recorded

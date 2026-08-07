@@ -27,18 +27,26 @@ For every standard and vendor field, test:
 - unequal values that prove no averaging/freshest-wins behavior;
 - honest primary precision, writer-owned temperature units/bounds, explicit
   same-device step fusion and rejection when proof/unit reconciliation is absent;
+- explicit same-device HomeKit temperature selection, unit conversion,
+  malformed/non-finite rejection, climate fallback, cloud fallback, quiet-source
+  health, rename, move/detach, disappearance, and recovery;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, and recovery.
 
-Include a fixture where climate `current_temperature` intentionally differs
-from a raw thermostat-local temperature sensor. The unified climate must use the
-climate semantic, never the raw sensor by apparent similarity.
+Include fixtures where climate `current_temperature` intentionally differs from
+an explicitly mapped same-device HomeKit temperature sensor and an unmapped raw
+sensor. The unified climate uses only the explicit, capability-valid mapping;
+it never guesses a source or substitutes a value merely because it has more
+decimal places or a newer timestamp.
 
 ### Commands
 
 - each standard climate method makes exactly one HomeKit service call;
 - preset and clear-hold each make exactly one mapped HomeKit service call;
 - minimum fan runtime makes exactly one Ecobee action call;
+- thermostat-display notification makes exactly one mapped Ecobee notification
+  call, rejects empty/unavailable/misassociated writers before any effect, and
+  never retries or fails over;
 - vacation create/delete, occupancy policy, and sensor participation each
   inject the mapped Ecobee climate and make exactly one action call;
 - unprojectable vendor effects become `submitted`, never `confirmed`, and a
@@ -62,8 +70,9 @@ climate semantic, never the raw sensor by apparent similarity.
 - no I/O in properties;
 - device linking and no foreign identifiers/connections;
 - stable unique IDs and entity categories;
-- capability-aware creation/projection of equipment stage and optional
-  AQI/CO2/VOC, with no temperature/humidity/occupancy/weather duplicates;
+- capability-aware creation/projection of equipment stage, optional AQI/CO2/VOC,
+  optional precise current temperature, and optional notification, with no
+  duplicate temperature/humidity/occupancy/weather entities;
 - disabled-by-default policy for diagnostic/noisy entities;
 - translations and config-flow strings;
 - diagnostics privacy;

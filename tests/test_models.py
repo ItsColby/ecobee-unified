@@ -331,6 +331,61 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(20.0, snapshot.current_temperature)
         self.assertEqual("homekit", snapshot.provenance["current_temperature"])
 
+    def test_explicit_homekit_temperature_sensor_preserves_local_precision(
+        self,
+    ) -> None:
+        homekit = source("heat", {"current_temperature": 20.0})
+        ecobee = source("heat", {"current_temperature": 20.6})
+        precise = RawSource(
+            "20.63",
+            {"device_class": "temperature", "unit_of_measurement": "°C"},
+            age_seconds=86_400,
+            health=SourceHealth.HEALTHY,
+        )
+
+        snapshot = build_snapshot(
+            "mapping_a",
+            homekit,
+            ecobee,
+            homekit_temperature=precise,
+        )
+
+        self.assertEqual(20.63, snapshot.current_temperature)
+        self.assertEqual(
+            "homekit_temperature", snapshot.provenance["current_temperature"]
+        )
+        self.assertEqual(
+            SourceHealth.HEALTHY, snapshot.source_health["homekit_temperature"]
+        )
+        self.assertNotIn("homekit_temperature_unavailable", snapshot.degradation)
+
+    def test_explicit_temperature_falls_back_only_on_actual_unavailability(
+        self,
+    ) -> None:
+        homekit = source("heat", {"current_temperature": 20.0})
+        ecobee = source("heat", {"current_temperature": 20.6})
+        unavailable = RawSource(None, health=SourceHealth.UNAVAILABLE)
+
+        local_fallback = build_snapshot(
+            "mapping_a",
+            homekit,
+            ecobee,
+            homekit_temperature=unavailable,
+        )
+        self.assertEqual(20.0, local_fallback.current_temperature)
+        self.assertEqual("homekit", local_fallback.provenance["current_temperature"])
+        self.assertIn("homekit_temperature_unavailable", local_fallback.degradation)
+
+        cloud_fallback = build_snapshot(
+            "mapping_a",
+            RawSource(None, health=SourceHealth.UNAVAILABLE),
+            ecobee,
+            homekit_temperature=unavailable,
+        )
+        self.assertEqual(20.6, cloud_fallback.current_temperature)
+        self.assertEqual("ecobee", cloud_fallback.provenance["current_temperature"])
+        self.assertIn("homekit_read_fallback", cloud_fallback.degradation)
+
     def test_malformed_values_are_not_published_or_confirmed(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",

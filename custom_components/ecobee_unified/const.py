@@ -6,7 +6,7 @@ from typing import Final
 
 DOMAIN: Final = "ecobee_unified"
 NAME: Final = "Ecobee Unified"
-PLATFORMS: Final = ["climate", "number", "sensor"]
+PLATFORMS: Final = ["climate", "notify", "number", "sensor"]
 
 CONF_MAPPINGS: Final = "mappings"
 CONF_MAPPING_ID: Final = "mapping_id"
@@ -14,7 +14,9 @@ CONF_NAME: Final = "name"
 CONF_HOMEKIT_ENTITY: Final = "homekit_entity"
 CONF_HOMEKIT_PRESET_ENTITY: Final = "homekit_preset_entity"
 CONF_HOMEKIT_CLEAR_HOLD_ENTITY: Final = "homekit_clear_hold_entity"
+CONF_HOMEKIT_TEMPERATURE_ENTITY: Final = "homekit_temperature_entity"
 CONF_ECOBEE_ENTITY: Final = "ecobee_entity"
+CONF_ECOBEE_NOTIFY_ENTITY: Final = "ecobee_notify_entity"
 CONF_ECOBEE_AQI_ENTITY: Final = "ecobee_aqi_entity"
 CONF_ECOBEE_CO2_ENTITY: Final = "ecobee_co2_entity"
 CONF_ECOBEE_VOC_ENTITY: Final = "ecobee_voc_entity"
@@ -37,6 +39,7 @@ SOURCE_ECOBEE: Final = "ecobee"
 SIGNAL_SNAPSHOT_UPDATED: Final = f"{DOMAIN}_snapshot_updated"
 
 SUFFIX_MINIMUM_FAN_RUNTIME: Final = "minimum_fan_runtime"
+SUFFIX_NOTIFICATION: Final = "notification"
 SUFFIX_EQUIPMENT_STAGE: Final = "equipment_stage"
 SUFFIX_AIR_QUALITY_INDEX: Final = "air_quality_index"
 SUFFIX_CO2: Final = "co2"

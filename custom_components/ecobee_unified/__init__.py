@@ -37,8 +37,9 @@ async def async_setup_entry(
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     entry.runtime_data = EcobeeUnifiedRuntime(manager)
     await manager.async_start()
+    platforms = _platforms_for_mappings(mappings)
     try:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        await hass.config_entries.async_forward_entry_setups(entry, platforms)
     except Exception:
         await manager.async_stop()
         raise
@@ -50,7 +51,9 @@ async def async_unload_entry(
 ) -> bool:
     """Unload entities before releasing manager subscriptions."""
 
-    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    if not await hass.config_entries.async_unload_platforms(
+        entry, _platforms_for_mappings(entry.runtime_data.manager.mappings)
+    ):
         return False
     await entry.runtime_data.manager.async_stop()
     return True
@@ -59,7 +62,7 @@ async def async_unload_entry(
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Normalize supported schema revisions without guessing source identity."""
 
-    if entry.version != 1 or entry.minor_version > 2:
+    if entry.version != 1 or entry.minor_version > 3:
         return False
     normalized = [
         MappingConfig.from_dict(item).as_dict()
@@ -80,7 +83,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
         },
         version=1,
-        minor_version=2,
+        minor_version=3,
     )
     return True
 
@@ -92,3 +95,14 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         mapping_id = item.get("mapping_id")
         if mapping_id:
             ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")
+
+
+def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
+    """Load the notify component only when a mapping exposes that capability."""
+
+    return [
+        platform
+        for platform in PLATFORMS
+        if platform != "notify"
+        or any(mapping.ecobee_notify_entity for mapping in mappings)
+    ]

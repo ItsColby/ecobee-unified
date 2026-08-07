@@ -54,6 +54,21 @@ Verified against installed Home Assistant Core 2026.8.1 on
    unprojectable effects as submitted rather than falsely confirmed. Core
    2026.8.1 introduced no relevant Ecobee or HomeKit contract change from the
    previously validated 2026.8.0 patch baseline.
+10. **Precise local temperature projection:** Home Assistant climate state may
+    present fewer decimal places than a same-accessory HomeKit temperature
+    sensor. Unified may consume that sensor only through an explicit mapping
+    with temperature device class, compatible unit, finite state, and matching
+    HomeKit device. This is a local semantic refinement inside the canonical
+    climate, not a freshest-value or apparent-precision heuristic.
+11. **Notification entity contract:** Core 2026.8's `NotifyEntity` exposes
+    `async_send_message(message, title=None)` and the Ecobee implementation
+    delegates messages to its owned backend while ignoring titles. Unified
+    therefore forwards one non-empty message to one explicitly mapped Ecobee
+    notification entity and lets Core own notification entity state semantics.
+
+Potential improvements to the source integrations are recorded separately in
+`upstream-opportunities.md`; none is required for this candidate and none has
+been selected for upstream work.
 
 ## Still deployment- or publication-gated
 
@@ -72,6 +87,9 @@ Verified against installed Home Assistant Core 2026.8.1 on
 - [Core 2026.8.1 Ecobee climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/climate.py)
 - [Core 2026.8.1 Ecobee action schema](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/services.yaml)
 - [Core 2026.8.1 HomeKit Controller climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/homekit_controller/climate.py)
+- [Core 2026.8.1 notify entity source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/notify/__init__.py)
+- [Core 2026.8.1 Ecobee notify source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/notify.py)
+- [Home Assistant notify entity developer contract](https://developers.home-assistant.io/docs/core/entity/notify/)
 - [Home Assistant config flows and migrations](https://developers.home-assistant.io/docs/core/integration/config_flow/)
 - [Home Assistant diagnostics](https://developers.home-assistant.io/docs/core/integration/diagnostics/)
 - [Home Assistant Repairs](https://developers.home-assistant.io/docs/core/platform/repairs/)

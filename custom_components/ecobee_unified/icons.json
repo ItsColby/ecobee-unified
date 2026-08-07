@@ -4,6 +4,11 @@
       "minimum_fan_runtime": {
         "default": "mdi:fan-clock"
       }
+    },
+    "notify": {
+      "notification": {
+        "default": "mdi:message-alert"
+      }
     }
   },
   "services": {

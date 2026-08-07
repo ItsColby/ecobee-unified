@@ -37,8 +37,10 @@ materially better. A mapping contains:
 
 - required HomeKit climate source;
 - required Ecobee climate source for the intended full feature set;
-- optional HomeKit current-mode select and clear-hold button on that device;
-- optional Ecobee AQI, CO2, and VOC sensors on the Ecobee source device.
+- optional HomeKit current-temperature sensor, current-mode select, and
+  clear-hold button on that device;
+- optional Ecobee AQI, CO2, VOC, and notification entities on the Ecobee source
+  device.
 
 Beestat schedule, transition, filter, alert, and history entities are not
 remapped into this config entry. Beestat owns their transport/storage and links
@@ -49,8 +51,9 @@ renames survive. A missing source must not be replaced using name guesses.
 
 ## Device Model
 
-Every unified climate, number, and sensor entity links to the selected physical HomeKit
-thermostat device using Home Assistant's current helper-device linking pattern.
+Every unified climate, number, sensor, and notification entity links to the
+selected physical HomeKit thermostat device using Home Assistant's current
+helper-device linking pattern.
 The integration must not return foreign identifiers or connections and must not
 claim co-ownership of that device. If the source device is missing, keep the
 entity registered and report degraded/unavailable state.
@@ -69,7 +72,7 @@ degrades only the affected capability and blocks its writer before effects.
 |---|---|---|---|
 | HVAC mode and action | HomeKit climate | Ecobee climate | Local state is canonical for normal operation. |
 | Target temperature/range | HomeKit climate | Ecobee climate | Reads may fall back, but unit and safety bounds remain HomeKit-writer-owned. The Ecobee target step is an explicit same-device metadata fusion only when Core writer granularity is independently proven and the HomeKit adapter omits the step. |
-| Current temperature | HomeKit climate `current_temperature` | Ecobee climate `current_temperature` | Never substitute a raw thermostat-local sensor; it can represent a different semantic. |
+| Current temperature | Explicit same-device HomeKit temperature sensor when mapped and valid; otherwise HomeKit climate | Ecobee climate `current_temperature` only when the local chain is unavailable | The explicit sensor preserves the local accessory's honest precision without creating a duplicate entity. Require the temperature device class, a compatible unit, finite state, and same-device association; never select by apparent precision or freshness. |
 | Current humidity | HomeKit climate | Ecobee climate | Expose only when valid. |
 | Target humidity and bounds | HomeKit climate | none | Advertise and write only when the mapped HomeKit writer exposes the capability and valid bounds; confirm from its report. |
 | Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
@@ -81,6 +84,7 @@ degrades only the affected capability and blocks its writer before effects.
 | Scheduled profile/next transition | Beestat entities on the device | none | First-class Beestat presentation; never duplicate as climate attributes. |
 | Room motion/occupancy/battery | HomeKit sibling entities | none | Keep as linked sibling entities; do not copy into climate attributes. |
 | Air-quality estimates | Ecobee sibling entities | none | Keep separate; they are contextual estimates, not life-safety measurements. |
+| Thermostat-display notification | Ecobee notification entity | none | Optional Unified notification facade; one mapped writer and no delivery failover. |
 | History/filter/alerts | Beestat-derived entities | none | Do not re-export historical series through the climate entity. |
 
 Selection is semantic, not temporal. Do not average duplicate measurements or
@@ -128,6 +132,7 @@ Exactly one backend writes each operation:
 | Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. |
 | Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; confirmation observes the mapped mode source. |
 | Set minimum fan runtime | Ecobee action through unified number | Vendor-specific action exactly once. |
+| Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |
 | Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
 
 After a standard HomeKit command, mark it pending and observe the Ecobee state
@@ -150,7 +155,9 @@ Source candidate per thermostat:
 2. One Ecobee minimum-fan-runtime number.
 3. One bounded equipment-stage sensor.
 4. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
-5. Existing Beestat schedule/filter/alert entities linked independently to the
+5. An optional thermostat-display notification entity backed by one explicitly
+   mapped Ecobee writer.
+6. Existing Beestat schedule/filter/alert entities linked independently to the
    same device; no re-export or Recorder ownership transfer.
 
 Unified climate actions also expose bounded vacation creation/deletion,

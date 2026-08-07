@@ -25,6 +25,8 @@
 | D-019 | Target humidity is a standard HomeKit-owned climate capability. | The HomeKit writer advertises bounds, receives the only write, and supplies confirmation; Ecobee does not become a fallback writer. |
 | D-020 | Ecobee may fill only an omitted target-temperature presentation step after same-device and writer-granularity proof. | This reconciles the local writer's actual granularity with the unified UI without borrowing cloud precision, bounds, units, or read freshness. |
 | D-021 | Expose only vacations, occupancy policy, and comfort-sensor participation as opt-in Unified Ecobee actions. | These complete useful thermostat administration without requiring users to target raw Ecobee entities. The mapped service target is injected exactly once; unprojected effects are reported as submitted rather than falsely confirmed. Microphone and daylight-saving settings remain excluded. |
+| D-022 | Permit an explicitly mapped same-device HomeKit temperature sensor to supply precise unified current temperature. | The HomeKit climate adapter can round its projected value even when a local accessory sensor retains honest decimals. Capability, unit, finite-value, and device-association checks make this a semantic local-source refinement rather than a generic precision/freshness override. |
+| D-023 | Expose an optional Unified notification entity backed only by the mapped Ecobee notification writer. | Thermostat-display messages are a useful non-duplicate Ecobee capability. A single facade removes routine raw-entity targeting while preserving Ecobee transport ownership and exactly-one-write behavior. |
 
 ## Deferred Until Evidence Exists
 

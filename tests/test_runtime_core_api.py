@@ -9,13 +9,15 @@ import unittest
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import voluptuous as vol
 from homeassistant import loader
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import SOURCE_USER, ConfigEntries
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
@@ -44,10 +46,12 @@ from custom_components.ecobee_unified.const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_AQI_ENTITY,
     CONF_ECOBEE_ENTITY,
+    CONF_ECOBEE_NOTIFY_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
+    CONF_HOMEKIT_TEMPERATURE_ENTITY,
     CONF_MAPPINGS,
     CONF_NAME,
     DOMAIN,
@@ -58,6 +62,12 @@ from custom_components.ecobee_unified.diagnostics import (
 )
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus, MappingConfig
+from custom_components.ecobee_unified.notify import (
+    EcobeeUnifiedNotify,
+)
+from custom_components.ecobee_unified.notify import (
+    async_setup_entry as async_setup_notify_entry,
+)
 from custom_components.ecobee_unified.number import EcobeeMinimumFanRuntimeNumber
 from custom_components.ecobee_unified.runtime import EcobeeUnifiedRuntime
 from custom_components.ecobee_unified.sensor import PROJECTIONS, EcobeeCloudSensor
@@ -121,6 +131,33 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             suggested_object_id="ec_a_air_quality_index",
         )
         self.hass.states.async_set(self.ecobee_aqi.entity_id, "42")
+        self.homekit_temperature = registry.async_get_or_create(
+            "sensor",
+            "homekit_controller",
+            "hk_a_current_temperature",
+            config_entry=homekit_entry,
+            device_id=self.homekit.device_id,
+            suggested_object_id="hk_a_current_temperature",
+            original_device_class=SensorDeviceClass.TEMPERATURE,
+            unit_of_measurement="°C",
+        )
+        self.hass.states.async_set(
+            self.homekit_temperature.entity_id,
+            "20.63",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: "°C",
+            },
+        )
+        self.ecobee_notify = registry.async_get_or_create(
+            "notify",
+            "ecobee",
+            "ec_a_notify",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            suggested_object_id="ec_a_notify",
+        )
+        self.hass.states.async_set(self.ecobee_notify.entity_id, "unknown")
         self.mapping = MappingConfig(
             "mapping_a",
             "Zone A",
@@ -435,6 +472,414 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(vol.Invalid, "duplicate_optional_source"):
             _validate_no_duplicate_sources([candidate], duplicate_context)
 
+    async def test_mapping_accepts_only_same_device_temperature_and_notify_sources(
+        self,
+    ) -> None:
+        mapping = _mapping_from_input(
+            self.hass,
+            {
+                CONF_NAME: "Zone A",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_HOMEKIT_TEMPERATURE_ENTITY: self.homekit_temperature.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ECOBEE_NOTIFY_ENTITY: self.ecobee_notify.entity_id,
+            },
+        )
+        self.assertEqual(
+            self.homekit_temperature.id,
+            mapping[CONF_HOMEKIT_TEMPERATURE_ENTITY],
+        )
+        self.assertEqual(self.ecobee_notify.id, mapping[CONF_ECOBEE_NOTIFY_ENTITY])
+
+        wrong_device = self._source(
+            "homekit_controller", "wrong_temperature", device=True, domain="sensor"
+        )
+        self.hass.states.async_set(
+            wrong_device.entity_id,
+            "20.5",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: "°C",
+            },
+        )
+        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_controller_source"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone A",
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_HOMEKIT_TEMPERATURE_ENTITY: wrong_device.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                },
+            )
+
+        non_temperature = er.async_get(self.hass).async_update_entity(
+            self.homekit_temperature.entity_id,
+            original_device_class=SensorDeviceClass.HUMIDITY,
+        )
+        self.assertIs(SensorDeviceClass.HUMIDITY, non_temperature.original_device_class)
+        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone A",
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_HOMEKIT_TEMPERATURE_ENTITY: self.homekit_temperature.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                },
+            )
+
+        er.async_get(self.hass).async_update_entity(
+            self.homekit_temperature.entity_id,
+            original_device_class=SensorDeviceClass.TEMPERATURE,
+            unit_of_measurement="widgets",
+        )
+        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone A",
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_HOMEKIT_TEMPERATURE_ENTITY: self.homekit_temperature.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                },
+            )
+
+        wrong_notify = self._source(
+            "ecobee", "wrong_notify", domain="notify", device=True
+        )
+        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone A",
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                    CONF_ECOBEE_NOTIFY_ENTITY: wrong_notify.entity_id,
+                },
+            )
+
+    async def test_precise_temperature_selection_conversion_and_recovery(self) -> None:
+        mapping = MappingConfig(
+            "mapping_precise",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_precise", (mapping,), {})
+        await manager.async_start()
+        try:
+            precise = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.63, precise.current_temperature)
+            self.assertEqual(
+                "homekit_temperature", precise.provenance["current_temperature"]
+            )
+
+            self.hass.states.async_set(
+                self.homekit_temperature.entity_id,
+                "68",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "°F",
+                },
+            )
+            await self.hass.async_block_till_done()
+            self.assertEqual(
+                20.0, manager.snapshot(mapping.mapping_id).current_temperature
+            )
+
+            self.hass.states.async_set(
+                self.homekit_temperature.entity_id,
+                "unavailable",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "°C",
+                },
+            )
+            await self.hass.async_block_till_done()
+            fallback = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.0, fallback.current_temperature)
+            self.assertEqual("homekit", fallback.provenance["current_temperature"])
+
+            self.hass.states.async_set(self.homekit.entity_id, "unavailable", {})
+            await self.hass.async_block_till_done()
+            cloud = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.0, cloud.current_temperature)
+            self.assertEqual("ecobee", cloud.provenance["current_temperature"])
+
+            self.hass.states.async_set(
+                self.homekit_temperature.entity_id,
+                "19.75",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "°C",
+                },
+            )
+            await self.hass.async_block_till_done()
+            recovered = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(19.75, recovered.current_temperature)
+            self.assertEqual(
+                "homekit_temperature", recovered.provenance["current_temperature"]
+            )
+        finally:
+            await manager.async_stop()
+
+    async def test_mapped_notification_uses_exactly_one_ecobee_notify_writer(
+        self,
+    ) -> None:
+        mapping = MappingConfig(
+            "mapping_notify",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            ecobee_notify_entity=self.ecobee_notify.id,
+        )
+        manager = MappingManager(self.hass, "entry_notify", (mapping,), {})
+        await manager.async_start()
+        entity = EcobeeUnifiedNotify(manager, mapping)
+        try:
+            with self.assertRaises(ServiceValidationError):
+                await entity.async_send_message("No registered service")
+            self.hass.services.async_register("notify", "send_message", AsyncMock())
+            service_call = AsyncMock()
+            with patch.object(ServiceRegistry, "async_call", service_call):
+                with self.assertRaises(ServiceValidationError):
+                    await entity.async_send_message("   ")
+                await entity.async_send_message("Maintenance reminder", title="Ignored")
+            service_call.assert_awaited_once_with(
+                "notify",
+                "send_message",
+                {"message": "Maintenance reminder"},
+                blocking=True,
+                context=None,
+                target={"entity_id": self.ecobee_notify.entity_id},
+            )
+            self.assertTrue(entity.available)
+            with (
+                patch.object(
+                    ServiceRegistry,
+                    "async_call",
+                    AsyncMock(side_effect=RuntimeError("private backend payload")),
+                ),
+                self.assertRaises(HomeAssistantError) as raised,
+            ):
+                await entity.async_send_message("Failure is sanitized")
+            self.assertNotIn("private backend payload", str(raised.exception))
+
+            wrong_device = dr.async_get(self.hass).async_get_or_create(
+                config_entry_id=self.ecobee.config_entry_id,
+                identifiers={("ecobee", "wrong_notify_device")},
+            )
+            er.async_get(self.hass).async_update_entity(
+                self.ecobee_notify.entity_id, device_id=wrong_device.id
+            )
+            await self.hass.async_block_till_done()
+            self.assertFalse(entity.available)
+            with self.assertRaises(ServiceValidationError):
+                await entity.async_send_message("Blocked")
+        finally:
+            await manager.async_stop()
+
+    async def test_notify_platform_creates_only_explicitly_mapped_entities(
+        self,
+    ) -> None:
+        mapped = MappingConfig(
+            "mapping_notify",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            ecobee_notify_entity=self.ecobee_notify.id,
+        )
+        unmapped = MappingConfig(
+            "mapping_without_notify",
+            "Zone B",
+            self.homekit.id,
+            self.ecobee.id,
+        )
+        manager = MappingManager(
+            self.hass, "entry_notify_platform", (mapped, unmapped), {}
+        )
+        await manager.async_start()
+        entities: list[EcobeeUnifiedNotify] = []
+        entry = SimpleNamespace(runtime_data=EcobeeUnifiedRuntime(manager=manager))
+        try:
+            await async_setup_notify_entry(self.hass, entry, entities.extend)
+            self.assertEqual(1, len(entities))
+            self.assertEqual(self.homekit.device_id, entities[0].device_entry.id)
+            self.assertEqual("mapping_notify_notification", entities[0].unique_id)
+        finally:
+            await manager.async_stop()
+
+    async def test_optional_temperature_and_notification_follow_registry_lifecycle(
+        self,
+    ) -> None:
+        mapping = MappingConfig(
+            "mapping_optional_lifecycle",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+            ecobee_notify_entity=self.ecobee_notify.id,
+        )
+        owner_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id="optional_lifecycle",
+            data={CONF_MAPPINGS: [mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        owner_entry.add_to_hass(self.hass)
+        manager = MappingManager(self.hass, owner_entry.entry_id, (mapping,), {})
+        await manager.async_start()
+        notification = EcobeeUnifiedNotify(manager, mapping)
+        registry = er.async_get(self.hass)
+        devices = dr.async_get(self.hass)
+        unified_notification = registry.async_get_or_create(
+            "notify",
+            DOMAIN,
+            "mapping_optional_lifecycle_notification",
+            config_entry=owner_entry,
+            device_id=self.homekit.device_id,
+            suggested_object_id="zone_a_thermostat_notification",
+        )
+        try:
+            initial = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.63, initial.current_temperature)
+            self.assertEqual(
+                "homekit_temperature", initial.provenance["current_temperature"]
+            )
+            self.assertTrue(notification.available)
+
+            moved_homekit_device = devices.async_get_or_create(
+                config_entry_id=self.homekit.config_entry_id,
+                identifiers={("homekit_controller", "moved_homekit_device")},
+            )
+            registry.async_update_entity(
+                self.homekit.entity_id, device_id=moved_homekit_device.id
+            )
+            await self.hass.async_block_till_done()
+            self.assertEqual(
+                moved_homekit_device.id,
+                registry.async_get(unified_notification.entity_id).device_id,
+            )
+            self.assertEqual(
+                "homekit",
+                manager.snapshot(mapping.mapping_id).provenance["current_temperature"],
+            )
+            registry.async_update_entity(
+                self.homekit.entity_id, device_id=self.homekit.device_id
+            )
+            await self.hass.async_block_till_done()
+            self.assertEqual(
+                self.homekit.device_id,
+                registry.async_get(unified_notification.entity_id).device_id,
+            )
+
+            wrong_homekit = devices.async_get_or_create(
+                config_entry_id=self.homekit.config_entry_id,
+                identifiers={("homekit_controller", "wrong_optional_device")},
+            )
+            wrong_ecobee = devices.async_get_or_create(
+                config_entry_id=self.ecobee.config_entry_id,
+                identifiers={("ecobee", "wrong_optional_device")},
+            )
+            registry.async_update_entity(
+                self.homekit_temperature.entity_id, device_id=wrong_homekit.id
+            )
+            registry.async_update_entity(
+                self.ecobee_notify.entity_id, device_id=wrong_ecobee.id
+            )
+            await self.hass.async_block_till_done()
+            moved = manager.snapshot(mapping.mapping_id)
+            self.assertEqual("homekit", moved.provenance["current_temperature"])
+            self.assertFalse(notification.available)
+            self.assertIsNotNone(
+                ir.async_get(self.hass).async_get_issue(
+                    DOMAIN, f"mapping_{mapping.mapping_id}"
+                )
+            )
+
+            registry.async_update_entity(
+                self.homekit_temperature.entity_id, device_id=None
+            )
+            registry.async_update_entity(self.ecobee_notify.entity_id, device_id=None)
+            await self.hass.async_block_till_done()
+            detached = manager.snapshot(mapping.mapping_id)
+            self.assertEqual("homekit", detached.provenance["current_temperature"])
+            self.assertFalse(notification.available)
+
+            registry.async_update_entity(
+                self.homekit_temperature.entity_id, device_id=self.homekit.device_id
+            )
+            registry.async_update_entity(
+                self.ecobee_notify.entity_id, device_id=self.ecobee.device_id
+            )
+            await self.hass.async_block_till_done()
+            recovered = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(
+                "homekit_temperature", recovered.provenance["current_temperature"]
+            )
+            self.assertTrue(notification.available)
+
+            registry.async_update_entity(
+                self.homekit_temperature.entity_id,
+                new_entity_id="sensor.zone_a_precise_temperature",
+            )
+            registry.async_update_entity(
+                self.ecobee_notify.entity_id,
+                new_entity_id="notify.zone_a_thermostat",
+            )
+            self.hass.states.async_set(
+                "sensor.zone_a_precise_temperature",
+                "21.125",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "°C",
+                },
+            )
+            self.hass.states.async_set("notify.zone_a_thermostat", "unknown")
+            await self.hass.async_block_till_done()
+            renamed = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(21.125, renamed.current_temperature)
+            self.assertEqual(
+                "sensor.zone_a_precise_temperature",
+                manager.resolve_entity_id(mapping.homekit_temperature_entity or ""),
+            )
+            self.assertEqual(
+                "notify.zone_a_thermostat",
+                manager.resolve_entity_id(mapping.ecobee_notify_entity or ""),
+            )
+
+            self.hass.states.async_remove("sensor.zone_a_precise_temperature")
+            self.hass.states.async_remove("notify.zone_a_thermostat")
+            await self.hass.async_block_till_done()
+            missing = manager.snapshot(mapping.mapping_id)
+            self.assertEqual("homekit", missing.provenance["current_temperature"])
+            self.assertFalse(notification.available)
+
+            self.hass.states.async_set(
+                "sensor.zone_a_precise_temperature",
+                "20.875",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "°C",
+                },
+            )
+            self.hass.states.async_set("notify.zone_a_thermostat", "unknown")
+            await self.hass.async_block_till_done()
+            restored = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.875, restored.current_temperature)
+            self.assertTrue(notification.available)
+            self.assertIsNone(
+                ir.async_get(self.hass).async_get_issue(
+                    DOMAIN, f"mapping_{mapping.mapping_id}"
+                )
+            )
+        finally:
+            await manager.async_stop()
+
     async def test_reconfigure_edits_and_removes_with_confirmation(self) -> None:
         homekit_b = self._source("homekit_controller", "hk_b", device=True)
         ecobee_b = self._source("ecobee", "ec_b")
@@ -579,7 +1024,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(2, entry.minor_version)
+        self.assertEqual(3, entry.minor_version)
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
         self.assertEqual({}, entry.options)
 

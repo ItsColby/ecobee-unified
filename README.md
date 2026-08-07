@@ -14,12 +14,17 @@ claimed here.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
+Separate, undecided Home Assistant Core improvement ideas are recorded in
+[Upstream Opportunities](docs/upstream-opportunities.md); the product does not
+depend on them.
 
 ## Ownership and behavior
 
-- HomeKit Controller owns standard climate state/control, optional current-mode
-  presets, and the optional local clear-hold action.
-- Ecobee owns vendor detail and the minimum-fan-runtime cloud action.
+- HomeKit Controller owns standard climate state/control, optional precise
+  same-device current temperature, current-mode presets, and the optional local
+  clear-hold action.
+- Ecobee owns vendor detail, thermostat-display notifications, and the
+  minimum-fan-runtime cloud action.
 - Bounded Unified actions route vacation, occupancy-policy, and comfort-sensor
   participation changes to the mapped Ecobee climate without exposing raw
   backend targets.
@@ -38,15 +43,19 @@ reconfiguration; replacements are never guessed.
 ## Entity surface
 
 Each mapping creates one climate, one minimum-fan-runtime number, one bounded
-equipment-stage sensor, and optional explicitly mapped AQI/CO2/VOC sensors,
-all linked to the selected HomeKit device using the Core 2026.8 helper pattern.
-Separate temperature/current-humidity, occupancy, weather, schedule, and
-transition entities are not duplicated. The canonical climate does expose the
-mapped HomeKit target-humidity capability. Entity properties project one immutable normalized snapshot and
-perform no I/O. Compact climate attributes expose field provenance, source
-age/health, degradation, bounded Ecobee context, and revision-guarded command confirmation. Volatile
-source-age, active-sensor, and command-confirmation attributes remain visible
-live but are excluded from Recorder.
+equipment-stage sensor, optional explicitly mapped AQI/CO2/VOC sensors, and an
+optional thermostat-display notification entity, all linked to the selected
+HomeKit device using the Core 2026.8 helper pattern. A mapped same-device
+HomeKit temperature sensor can supply the climate's precise current-temperature
+value without creating another temperature entity; it must advertise a
+temperature device class and compatible unit. Current-humidity, occupancy,
+weather, schedule, and transition entities are not duplicated. The canonical
+climate also exposes the mapped HomeKit target-humidity capability. Entity
+properties project one immutable normalized snapshot and perform no I/O.
+Compact climate attributes expose field provenance, source age/health,
+degradation, bounded Ecobee context, and revision-guarded command confirmation.
+Volatile source-age, active-sensor, and command-confirmation attributes remain
+visible live but are excluded from Recorder.
 
 Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
 device IDs, config-entry IDs, and source values. Public-safety validation scans
@@ -56,11 +65,11 @@ and every reachable bounded Git blob.
 ## Configuration
 
 The initial flow collects one or more mappings in a single config entry. Each
-mapping requires a HomeKit Controller climate and an Ecobee climate. The
-HomeKit current-mode select/clear-hold button and Ecobee AQI/CO2/VOC sensors are
-optional explicit same-device selections. Reconfiguration supports explicit
-add, edit, and remove operations. Editing physical association or command
-routing requires a second confirmation.
+mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
+current-temperature sensor/current-mode select/clear-hold button and Ecobee
+AQI/CO2/VOC sensors/notification entity are optional explicit same-device
+selections. Reconfiguration supports explicit add, edit, and remove operations.
+Editing physical association or command routing requires a second confirmation.
 
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. HomeKit push/event silence remains diagnostic age;
@@ -76,6 +85,11 @@ mapped local HomeKit Clear Hold button exactly once.
 
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once.
+
+The optional notification entity sends one non-empty message through the mapped
+Ecobee notification entity. It never calls the Ecobee API directly, retries,
+or fails over to another writer; unsupported titles are ignored consistently
+with the source entity.
 
 `ecobee_unified.create_vacation`, `delete_vacation`,
 `set_occupancy_modes`, and `set_sensors_used_in_climate` target a Unified

@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from typing import Any
 from uuid import uuid4
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfTemperature,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -31,11 +38,13 @@ from .const import (
     CONF_ECOBEE_AQI_ENTITY,
     CONF_ECOBEE_CO2_ENTITY,
     CONF_ECOBEE_ENTITY,
+    CONF_ECOBEE_NOTIFY_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
     CONF_ECOBEE_VOC_ENTITY,
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
+    CONF_HOMEKIT_TEMPERATURE_ENTITY,
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
@@ -50,6 +59,7 @@ CLIMATE_SELECTOR = EntitySelector(EntitySelectorConfig(domain="climate"))
 SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
 SELECT_SELECTOR = EntitySelector(EntitySelectorConfig(domain="select"))
 BUTTON_SELECTOR = EntitySelector(EntitySelectorConfig(domain="button"))
+NOTIFY_SELECTOR = EntitySelector(EntitySelectorConfig(domain="notify"))
 BOOLEAN_SELECTOR = BooleanSelector()
 
 
@@ -200,6 +210,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_HOMEKIT_PRESET_ENTITY,
                         CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
                         CONF_ECOBEE_ENTITY,
+                        CONF_ECOBEE_NOTIFY_ENTITY,
                     )
                 )
                 if changes_writer and not user_input.get(CONF_CONFIRM_CHANGE, False):
@@ -341,6 +352,16 @@ def _mapping_schema(
                 "suggested_value": defaults.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY)
             },
         ): BUTTON_SELECTOR,
+        vol.Optional(
+            CONF_HOMEKIT_TEMPERATURE_ENTITY,
+            description={
+                "suggested_value": defaults.get(CONF_HOMEKIT_TEMPERATURE_ENTITY)
+            },
+        ): SENSOR_SELECTOR,
+        vol.Optional(
+            CONF_ECOBEE_NOTIFY_ENTITY,
+            description={"suggested_value": defaults.get(CONF_ECOBEE_NOTIFY_ENTITY)},
+        ): NOTIFY_SELECTOR,
     }
     for key in (
         CONF_ECOBEE_AQI_ENTITY,
@@ -391,6 +412,7 @@ def _mapping_from_input(
                 CONF_ECOBEE_AQI_ENTITY,
                 CONF_ECOBEE_CO2_ENTITY,
                 CONF_ECOBEE_VOC_ENTITY,
+                CONF_ECOBEE_NOTIFY_ENTITY,
             )
         )
         and ecobee_device_id is None
@@ -416,6 +438,20 @@ def _mapping_from_input(
             "button",
             preserved.homekit_clear_hold_entity if preserved else None,
             required_device_id=_reference_device_id(hass, homekit_entity),
+        ),
+        homekit_temperature_entity=_temperature_entity_reference(
+            hass,
+            user_input.get(CONF_HOMEKIT_TEMPERATURE_ENTITY),
+            preserved.homekit_temperature_entity if preserved else None,
+            required_device_id=_reference_device_id(hass, homekit_entity),
+        ),
+        ecobee_notify_entity=_optional_entity_reference(
+            hass,
+            user_input.get(CONF_ECOBEE_NOTIFY_ENTITY),
+            "ecobee",
+            "notify",
+            preserved.ecobee_notify_entity if preserved else None,
+            required_device_id=ecobee_device_id,
         ),
         **{
             field_name: _optional_entity_reference(
@@ -491,15 +527,63 @@ def _reference_device_id(hass: Any, reference: str) -> str | None:
     return entry.device_id if entry is not None else None
 
 
+def _temperature_entity_reference(
+    hass: Any,
+    entity_id: Any,
+    preserve_reference: str | None,
+    *,
+    required_device_id: str | None,
+) -> str | None:
+    reference = _optional_entity_reference(
+        hass,
+        entity_id,
+        "homekit_controller",
+        "sensor",
+        preserve_reference,
+        required_device_id=required_device_id,
+    )
+    if reference is None:
+        return None
+    registry = er.async_get(hass)
+    resolved_id = er.async_resolve_entity_id(registry, reference)
+    if resolved_id is None and preserve_reference == reference:
+        return reference
+    entry = registry.async_get(resolved_id) if resolved_id else None
+    state = hass.states.get(resolved_id) if resolved_id else None
+    if entry is None:
+        raise vol.Invalid("invalid_homekit_temperature_source")
+    device_class = entry.original_device_class or (
+        state.attributes.get(ATTR_DEVICE_CLASS) if state else None
+    )
+    unit = entry.unit_of_measurement or (
+        state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
+    )
+    try:
+        UnitOfTemperature(str(unit))
+    except ValueError as err:
+        raise vol.Invalid("invalid_homekit_temperature_source") from err
+    if device_class != SensorDeviceClass.TEMPERATURE:
+        raise vol.Invalid("invalid_homekit_temperature_source")
+    if state is not None and state.state not in {"unknown", "unavailable"}:
+        try:
+            if not isfinite(float(state.state)):
+                raise ValueError
+        except ValueError as err:
+            raise vol.Invalid("invalid_homekit_temperature_source") from err
+    return reference
+
+
 def _validate_no_duplicate_sources(
     existing: list[dict[str, str]], candidate: dict[str, str]
 ) -> None:
     optional_keys = (
         CONF_HOMEKIT_PRESET_ENTITY,
         CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+        CONF_HOMEKIT_TEMPERATURE_ENTITY,
         CONF_ECOBEE_AQI_ENTITY,
         CONF_ECOBEE_CO2_ENTITY,
         CONF_ECOBEE_VOC_ENTITY,
+        CONF_ECOBEE_NOTIFY_ENTITY,
     )
     candidate_optional = {
         reference for key in optional_keys if (reference := candidate.get(key))
@@ -546,9 +630,11 @@ def _mapping_form_defaults(hass: Any, mapping: dict[str, str]) -> dict[str, Any]
             for key in (
                 CONF_HOMEKIT_PRESET_ENTITY,
                 CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+                CONF_HOMEKIT_TEMPERATURE_ENTITY,
                 CONF_ECOBEE_AQI_ENTITY,
                 CONF_ECOBEE_CO2_ENTITY,
                 CONF_ECOBEE_VOC_ENTITY,
+                CONF_ECOBEE_NOTIFY_ENTITY,
             )
         },
     }

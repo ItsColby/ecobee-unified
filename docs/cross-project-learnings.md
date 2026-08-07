@@ -20,11 +20,14 @@ Ecobee Unified is a helper and policy layer over Home Assistant-owned sources,
 not another cloud client or an automation engine. It consumes supported state,
 registry, event, and service APIs. It does not import another integration's
 runtime objects, call the Ecobee or Beestat APIs, scrape diagnostics, edit
-`.storage`, schedule comfort changes, or deliver notifications.
+`.storage`, or schedule comfort changes. Its optional notification facade sends
+through one mapped Home Assistant Ecobee entity; Ecobee remains the delivery
+transport owner.
 
-HomeKit remains the standard climate-state/control, preset, and clear-hold
-owner. The Ecobee integration remains the vendor-detail and minimum-fan action
-owner. Beestat-derived entities remain the first-class
+HomeKit remains the standard climate-state/control, precise local temperature,
+preset, and clear-hold owner. The Ecobee integration remains the vendor-detail,
+minimum-fan action, and thermostat-notification transport owner.
+Beestat-derived entities remain the first-class
 schedule/history/filter/alert surface and keep Recorder/import ownership. The
 unified integration owns mapping, deterministic field selection, degradation,
 command routing, command confirmation, and canonical climate plus
@@ -64,9 +67,10 @@ non-duplicate vendor projections on the same user-facing device.
 
 ## Devices and Entities
 
-- Link every unified climate/number/sensor to the selected physical thermostat device using
-  Home Assistant's supported helper-device pattern without returning foreign
-  identifiers/connections or claiming source-device ownership.
+- Link every unified climate/number/sensor/notification to the selected physical
+  thermostat device using Home Assistant's supported helper-device pattern
+  without returning foreign identifiers/connections or claiming source-device
+  ownership.
 - Reconcile every owned helper link in place when the HomeKit source entity is
   moved, detached, removed, or restored; do not reload/recreate the config entry
   or mutate a foreign entity record.
@@ -84,8 +88,9 @@ non-duplicate vendor projections on the same user-facing device.
 - Validate the mapped entry/entity, capability, writer availability, units,
   and bounds before issuing exactly one service call.
 - Standard climate, preset, and clear-hold commands use HomeKit only. The
-  minimum-fan number uses the explicitly documented Ecobee path. Read fallback never implies write
-  failover, and a timeout never causes a second-backend retry.
+  minimum-fan number and notification facade use their explicitly mapped Ecobee
+  paths. Read fallback never implies write failover, and a timeout never causes
+  a second-backend retry.
 - Give each pending command a monotonically increasing revision. After every
   await or source event, update confirmation only if that revision is still
   current so a late cloud observation cannot confirm, fail, or clear a newer

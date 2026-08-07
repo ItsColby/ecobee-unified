@@ -12,6 +12,7 @@
       "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",
       "invalid_ecobee_source": "Select an entity supplied by Ecobee on the mapped Ecobee device.",
       "invalid_homekit_controller_source": "Select an entity supplied by HomeKit Controller on the mapped thermostat device.",
+      "invalid_homekit_temperature_source": "Select a numeric HomeKit temperature sensor on the mapped thermostat device with a supported temperature unit.",
       "invalid_name": "Enter a name of 1 to 64 characters."
     },
     "step": {
@@ -21,10 +22,12 @@
           "ecobee_aqi_entity": "Ecobee air quality index (optional)",
           "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_notify_entity": "Ecobee thermostat notification (optional)",
           "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
           "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
           "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
         "description": "Build one thermostat device surface. HomeKit owns local climate, preset, and clear-hold control; Ecobee owns vendor-only detail and actions.",
@@ -35,10 +38,12 @@
           "ecobee_aqi_entity": "Ecobee air quality index (optional)",
           "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_notify_entity": "Ecobee thermostat notification (optional)",
           "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
           "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
           "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
         "title": "Add mapping"
@@ -50,10 +55,12 @@
           "ecobee_aqi_entity": "Ecobee air quality index (optional)",
           "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
+          "ecobee_notify_entity": "Ecobee thermostat notification (optional)",
           "ecobee_voc_entity": "Ecobee volatile organic compounds (optional)",
           "homekit_clear_hold_entity": "HomeKit clear hold button (optional)",
           "homekit_entity": "HomeKit climate",
           "homekit_preset_entity": "HomeKit current mode select (optional)",
+          "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
         "title": "Confirm mapping change"
@@ -64,6 +71,7 @@
   },
   "entity": {
     "climate": {"thermostat": {"name": "Unified climate"}},
+    "notify": {"notification": {"name": "Thermostat notification"}},
     "number": {"minimum_fan_runtime": {"name": "Minimum fan runtime"}},
     "sensor": {
       "air_quality_index": {"name": "Air quality index"},
@@ -74,6 +82,8 @@
   },
   "exceptions": {
     "ecobee_command_failed": {"message": "The Ecobee action failed."},
+    "ecobee_notification_failed": {"message": "The Ecobee thermostat notification failed."},
+    "ecobee_notification_unavailable": {"message": "The mapped Ecobee thermostat notification writer is unavailable, or the message is empty."},
     "ecobee_writer_unavailable": {"message": "The mapped Ecobee writer is unavailable."},
     "homekit_command_failed": {"message": "The HomeKit command failed."},
     "homekit_writer_unavailable": {"message": "The mapped HomeKit writer is unavailable; no fallback write was attempted."},

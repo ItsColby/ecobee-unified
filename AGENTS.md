@@ -15,6 +15,12 @@ Read, in order:
 5. `docs/implementation-plan.md`
 6. `docs/validation-plan.md`
 
+For David-maintained cross-portfolio engineering practice, use the external
+`maintain-ha-custom-integrations` skill when available. This repository's
+architecture, requirements, tests, privacy boundary, and future CI remain
+authoritative for Ecobee Unified. Release, HACS, installation, restart, live
+validation, and rollback belong to `release-ha-custom-integrations`.
+
 The maintainer's private runtime mapping, consumer inventory, migration plan,
 and live validation evidence are external inputs. Never copy private entity
 IDs, device/config-entry IDs, household names, addresses, IP addresses,

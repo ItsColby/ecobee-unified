@@ -12,8 +12,9 @@ implementation unless the separate deployment gate is explicitly opened.
   action schemas.
 - Inspect the supported public entity-linking pattern used by the Beestat-derived
   integration, without importing its runtime internals.
-- Re-evaluate every contract in `cross-project-learnings.md` against current
-  Home Assistant APIs and record any deliberate non-applicability.
+- Read the central `maintain-ha-custom-integrations` engineering contract and
+  re-evaluate its Ecobee-specific consequences in
+  `cross-project-learnings.md` against current Home Assistant APIs.
 - Record Home Assistant Core 2026.8 as the single initial support/test lane and
   any deferred quality rules. Add another Core lane only when support is
   intentionally widened.

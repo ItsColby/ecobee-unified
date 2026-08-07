@@ -1,260 +1,120 @@
-# Cross-project Learnings
+# Shared Engineering Contract: Ecobee Unified Consequences
 
-This document records reusable engineering contracts learned from the current
-Free Library Events and Beestat Statistics integrations. They are inputs to
-Ecobee Unified, not dependencies and not a reason to copy product-specific
-features. Re-read current Home Assistant contracts and each source integration
-before implementation because APIs and established patterns can change.
+Portfolio-wide Home Assistant custom-integration engineering practice is owned
+by the external `maintain-ha-custom-integrations` skill when it is available.
+That owner centralizes verified shared patterns, applicability checks, and the
+read-only portfolio audit. This repository remains authoritative for Ecobee
+Unified's product behavior, architecture, tests, privacy boundary, and CI.
+Versioning, GitHub/HACS release, installation, Home Assistant restart, live
+validation, and rollback belong to the separate
+`release-ha-custom-integrations` workflow.
 
-## Applicability Rule
+This document records only the consequences of the shared contract for Ecobee
+Unified. It is not a second copy of the portfolio contract. Re-read the central
+contract and current upstream Home Assistant APIs before implementation, then
+apply a shared pattern only when it protects an Ecobee Unified invariant.
 
-Adopt a pattern only when it protects an Ecobee Unified invariant or materially
-reduces maintenance. Do not reproduce Library feed/rendering/email machinery or
-Beestat API/statistics/filter machinery. Reuse the contract, not the code.
+## Product Boundary
 
-## Configuration and Lifecycle
+Ecobee Unified is a helper and policy layer over Home Assistant-owned sources,
+not another cloud client or an automation engine. It consumes supported state,
+registry, event, and service APIs. It does not import another integration's
+runtime objects, call the Ecobee or Beestat APIs, scrape diagnostics, edit
+`.storage`, schedule comfort changes, or deliver notifications.
 
-### Typed config-entry runtime
+HomeKit remains the standard climate-state and control owner. The Ecobee
+integration remains the vendor-detail and vendor-action owner. Optional
+Beestat-derived entities remain schedule/history context only. The unified
+integration owns mapping, deterministic field selection, degradation, command
+routing, command confirmation, and the canonical presentation surface.
 
-Both integrations attach typed runtime state to `ConfigEntry.runtime_data`.
-Library needs one coordinator and uses a typed `ConfigEntry[Coordinator]` alias;
-Beestat needs a client, coordinator, importer, and interval and uses a slotted
-runtime dataclass. Ecobee Unified should use the smallest corresponding shape:
+## Runtime and Configuration
 
-- a typed config-entry alias;
-- a slotted runtime dataclass only if mapping manager, command tracker, or other
-  independently owned runtime objects make it useful; and
-- no untyped domain dictionary for entry-owned state.
+- Use a typed config-entry alias. Add a slotted runtime dataclass only when the
+  mapping manager, command tracker, or other independently owned objects make
+  it useful; do not create an untyped domain dictionary.
+- Persist only stable mapping identity and explicit source/writer choices. Put
+  changeable behavior in options and use native config, reconfigure, and
+  options flows.
+- Preserve temporarily missing or renamed selections so sources can recover.
+  Never guess replacements from names or reinterpret saved numeric identifiers
+  across a different physical device or account boundary.
+- Require an impact summary and confirmation before changing the physical
+  thermostat association or command writer.
+- Version persisted-contract migrations and preserve mapping identity, unique
+  IDs, source/writer policy, recoverable selections, and Recorder semantics.
 
-### Data, options, and identity
+## Normalization and Degradation
 
-Persist only the minimum stable mapping identity needed to reconstruct runtime.
-Put changeable behavior in options. Use native config, reconfigure, and options
-flows; validate replacements before saving; reload after a successful change.
-
-Mapping changes must preserve unknown/unavailable selected entities so a
-temporarily absent backend can recover. Removing a required source or changing
-the physical thermostat association needs an impact summary and confirmation.
-Do not silently reinterpret saved numeric IDs across a different physical
-device/account boundary.
-
-### Versioned migrations and stable continuity
-
-Persisted-contract changes require config-entry migrations. UI changes that use
-an already-supported field do not. Migrations must preserve:
-
-- mapping identity and explicit source choices;
-- stable entity unique IDs;
-- source policy and command-writer policy;
-- unavailable but recoverable selections; and
-- the semantics of existing Recorder series.
-
-Downgrade compatibility is valuable only when it can be maintained without a
-second competing owner. Do not keep permanent mirror fields by reflex.
-
-## Source and Runtime Model
-
-### Explicit supported boundary
-
-Library documents exactly which public feeds and fallbacks it supports;
-Beestat maintains a checked API-surface inventory. Ecobee Unified likewise
-needs a narrow source contract:
-
-- public Home Assistant climate/entity state;
-- entity/device registries and state-change events;
-- Home Assistant services/actions; and
-- no direct cloud API, private source runtime objects, diagnostics scraping, or
-  `.storage` access.
-
-An unsupported or absent field remains absent. Do not infer it from names or an
-adjacent field that merely looks similar.
-
-### Normalize once, project many
-
-Library builds one deterministic normalized event model for calendar, WebCal,
-and digest projections. Beestat builds one runtime model for its entity and
-statistics surfaces. Ecobee Unified should build one immutable or treated-as-
-immutable per-mapping snapshot containing normalized source capabilities,
-values, provenance, ages, degradation, and pending-command state. Climate,
-diagnostics, and any diagnostic entity project that same snapshot.
-
-Never let individual entity properties independently reinterpret raw source
-attributes. This prevents cross-surface disagreement and keeps properties free
-of I/O.
-
-### Partial success and capability-aware degradation
-
-Library preserves usable feed results and fails only when all selected sources
-fail. Beestat keeps optional mappings and historical capabilities independent.
-Ecobee Unified should degrade by capability:
-
-- HomeKit loss can activate the documented Ecobee read fallback but disables
-  HomeKit-owned writes.
-- Ecobee loss removes vendor detail/actions without invalidating healthy
-  HomeKit climate state.
-- Beestat loss removes schedule/history context only.
-- Loss of every valid source for a required climate semantic makes the unified
-  climate unavailable.
-
-Keep bounded failure examples and counts for diagnostics. Do not expose an
-unbounded error collection in state attributes.
-
-### Bounded work and stale-result guards
-
-Library bounds request concurrency, redirects, response size, adaptive
-expansion, and total duration. Beestat bounds retry windows while normal refresh
-continues and re-reads the current revision after awaits so an old request
-cannot overwrite a newer user action.
-
-Ecobee Unified makes no network requests, but the same principles apply:
-
-- subscribe only to mapped entities;
-- debounce/coalesce a burst only when necessary and without hiding meaningful
-  state transitions;
-- bound retained diagnostic/command history;
-- give command confirmation a finite window;
-- tag each pending command with a monotonically increasing revision/token; and
-- after every await/event, update confirmation state only if that command is
-  still current. A late cloud update must not confirm or fail a superseded
-  command.
-
-Normal source state processing must continue while a confirmation is pending.
+- Build one immutable or treated-as-immutable per-mapping snapshot containing
+  normalized capabilities, values, provenance, source ages, degradation, and
+  pending-command state. Climate, diagnostics, and diagnostic entities project
+  that same snapshot; entity properties perform no I/O.
+- Select by documented semantics, never by newest timestamp, name similarity,
+  or averaging. An unsupported field remains absent.
+- HomeKit loss may activate only the documented Ecobee read fallback and must
+  disable HomeKit-owned writes. Ecobee loss removes vendor detail/actions.
+  Beestat loss removes schedule/history context. Loss of every valid source for
+  a required climate semantic makes the unified climate unavailable.
+- Subscribe only to explicitly mapped entities, bound retained history and
+  diagnostic examples, and keep normal source processing active while command
+  confirmation is pending.
 
 ## Devices and Entities
 
-### Link without co-ownership
+- Link the unified climate to the selected physical thermostat device using
+  Home Assistant's supported helper-device pattern without returning foreign
+  identifiers/connections or claiming source-device ownership.
+- Keep stable unique IDs across reload, rename, recovery, and migration. Do not
+  auto-discover thermostats or duplicate entities when a source reloads.
+- Keep Recorder attributes compact and stable. Put detailed mapping,
+  capability, source-age, field-selection, and command evidence in bounded,
+  redacted diagnostics.
+- Add a diagnostic entity only when it has a durable state semantic and a
+  demonstrated automation or UI consumer.
 
-Beestat demonstrates the current helper pattern: assign the existing source
-`DeviceEntry` to an enrichment entity, do not return foreign identifiers or
-connections, and remove only proven legacy helper ownership through supported
-Home Assistant APIs. Ecobee Unified must:
+## Commands, Recovery, and Repairs
 
-- link its climate entity to the selected physical thermostat device;
-- never claim the source device as owned by its config entry;
-- keep a fallback helper-owned device only when no valid source device exists;
-- fail closed before removing any mixed/shared registry record; and
-- test migration from any earlier ownership model before shipping such a
-  migration.
+- Validate the mapped entry/entity, capability, writer availability, units,
+  and bounds before issuing exactly one service call.
+- Standard climate commands use HomeKit only. Vendor-specific actions use the
+  explicitly documented Ecobee path. Read fallback never implies write
+  failover, and a timeout never causes a second-backend retry.
+- Give each pending command a monotonically increasing revision. After every
+  await or source event, update confirmation only if that revision is still
+  current so a late cloud observation cannot confirm, fail, or clear a newer
+  command.
+- Use Repairs only for persistent, actionable mapping faults such as a removed
+  required entity, an invalid domain, or an internally inconsistent mapping.
+  Clear the issue promptly on recovery. Transient source loss, cloud lag, and
+  one unconfirmed command remain state or diagnostic evidence.
 
-### Stable identity and dynamic discovery
+## Privacy and Validation Consequences
 
-Beestat adds newly discovered entities without duplicating known unique IDs and
-preserves explicit exclusions and unknown saved overrides. Ecobee Unified's
-mapping set is user-selected, not cloud-discovered, so it should not create
-thermostats automatically. It should still:
+- Public source, fixtures, documentation, diagnostics, logs, CI, history, and
+  release artifacts contain no household-specific identifiers, credentials,
+  private paths, raw diagnostics, or arbitrary backend response/error text.
+- Diagnostics are allow-listed and bounded. Exact private-value scans and live
+  deployment evidence remain in maintainer-controlled private owners.
+- The initial support contract is one exact Home Assistant Core 2026.8 lane,
+  matching the maintainer's installed runtime. Widen it only for an explicit
+  broader-support requirement with passing evidence.
+- Install the Home Assistant harness and exact Core requirements separately,
+  let the harness own its compatible pytest dependency, run `pip check` after
+  the final dependency install and before HA tests, and use Linux/hosted
+  execution for the Core test surface.
+- The initial repository baseline includes focused unit and HA tests, Ruff,
+  proportionate strict typing, compile/JSON/translation/privacy checks,
+  Hassfest, HACS validation, actionlint/ShellCheck, bounded workflows,
+  credential-free checkout, and a terminal release gate.
+- CodeQL, zizmor, generic security scanners, action SHA pinning, and additional
+  dependency automation remain conditional on concrete risk or maintenance
+  value; the design-only repository does not need CI before implementation.
 
-- track entity-registry renames;
-- tolerate temporarily missing selected entities;
-- avoid duplicate entities on source reload/recovery; and
-- require explicit configuration for a new physical thermostat.
+## Applicability Exclusions
 
-### Compact state; rich on-demand diagnostics
-
-Both integrations keep private/high-volume evidence out of ordinary entity
-state. Ecobee Unified should bound climate attributes to stable automation-
-useful values and compact provenance. Detailed mapping, capability, source age,
-field selection, and command-reconciliation evidence belongs in redacted
-downloadable diagnostics.
-
-Create a diagnostic entity only when it has a durable state semantic and an
-actual automation/UI consumer. An attribute is not free: Recorder writes it
-with every state change.
-
-## Actions, Side Effects, and Recovery
-
-### One action, one owner
-
-Library's render action produces data while the caller owns delivery and
-scheduling. Beestat keeps HomeKit/Ecobee live control outside its integration.
-Ecobee Unified must similarly avoid becoming an automation engine:
-
-- it routes an explicitly requested operation to one backend;
-- it does not schedule comfort changes, infer user intent, or retry through a
-  second backend;
-- response-producing diagnostic actions use `SupportsResponse.ONLY`; and
-- source refresh remains owned by the source integration.
-
-### Validate before side effects
-
-Resolve the mapped entry/entity, required capability, writer availability,
-units, and requested bounds before calling a service. Use translated
-`ServiceValidationError`/Home Assistant errors with safe bounded context. Do
-not pass raw backend error payloads into logs, diagnostics, attributes, or
-exception chains.
-
-### Fail closed for sensitive capability changes
-
-Library explicitly confirms rotation of a capability URL because it invalidates
-clients. Beestat confirms an account replacement because identifiers and
-history can cross a boundary. Ecobee Unified should require confirmation when a
-mapping change switches the physical thermostat/device or changes command
-ownership. Ordinary label or optional-enrichment changes should remain simple.
-
-### Actionable Repairs
-
-Use Repairs only for persistent conditions with a clear user action, such as a
-required mapped entity being removed, a selected entity having the wrong
-domain, or a mapping becoming internally inconsistent. Transient source
-unavailability, ordinary cloud lag, and a single unconfirmed command belong in
-state/diagnostics unless persistence makes intervention necessary. Delete an
-issue promptly when its condition clears.
-
-## Privacy and Security
-
-The maintained integrations establish a strong public/private boundary that
-Ecobee Unified should adopt from its first commit:
-
-- generic fixture/device/entity names only;
-- no private entity IDs, device/config-entry IDs, paths, diagnostics, logs,
-  hostnames, IPs, tokens, or credentials in the public tree or history;
-- exact-value publication scans run only from a maintainer-controlled private
-  gate, never by uploading private tokens to CI;
-- redacted diagnostics use allow-listed bounded output where practical;
-- no raw remote bodies or arbitrary exception text; and
-- GitHub Actions use least permissions, side-effect-free checkout without
-  persisted credentials, bounded timeouts/concurrency, and actionlint with
-  ShellCheck where shell is present.
-
-The repository privacy checker should scan tracked/public-relevant files while
-ignoring generated caches and local environments. Its own tests must prove both
-detection and avoidance of false confidence from ignored/binary/generated data.
-
-## Validation and Release
-
-Adopt the shared proven baseline, adjusted to the integration's actual source
-surface:
-
-- Python 3.14;
-- focused unit tests plus Home Assistant integration tests;
-- one maintained Home Assistant Core 2026.8 support/test lane; add another lane
-  only when the support contract is intentionally widened;
-- install the HA harness and exact Core requirements as separate steps;
-- Linux/container or hosted execution for HA tests that import `fcntl`;
-- Ruff format/lint and a proportionate strict typing contract;
-- compile, JSON/translation, privacy, Hassfest, HACS, and
-  actionlint/ShellCheck;
-- a final release-gate job that fails unless every required job succeeded; and
-- side-effect-free checkout plus explicit job timeouts and concurrency policy.
-
-CodeQL, zizmor, generic dependency/security scanners, action SHA pinning, and
-additional Dependabot coverage are not Phase 1 requirements. Add one only when
-a concrete repository risk, defect class, maintenance burden, or publication
-requirement makes its signal worth the setup and finding burden.
-
-Do not treat tool installation or workflow success as proof of correctness.
-Report exact skipped lanes. A validated local commit is not pushed, published,
-released, installed, restarted, migrated, or live-validated.
-
-## Ecobee Unified Consequences
-
-| Area | Required consequence |
-|---|---|
-| Runtime | One normalized per-mapping snapshot and typed entry runtime. |
-| Configuration | Native flows, recoverable saved mappings, explicit physical-device/writer changes. |
-| Source updates | Event subscriptions only; no forced refresh or network client. |
-| Control | Validate first, exactly one service call, revision-guarded observation, no write fallback. |
-| Devices | Link to source device without identifiers, connections, or co-ownership. |
-| Diagnostics | Allow-listed/redacted, bounded source/selection/command evidence. |
-| Repairs | Persistent actionable mapping faults only; clear on recovery. |
-| Entities | Stable IDs, compact attributes, no automatic duplicate surface. |
-| CI/release | Public-safety and HA compatibility from the first implementation commit; immutable separately gated releases. |
+Do not copy Library feed expansion, WebCal, digest, email, capability-route, or
+temporary-image machinery. Do not copy Beestat API, statistics-import,
+forecast, filter, dynamic-discovery, reauthentication, or account-continuity
+machinery. Reuse only an applicable engineering contract and implement it
+inside Ecobee Unified's own architecture and test harness.

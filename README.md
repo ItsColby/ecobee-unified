@@ -20,8 +20,7 @@ The repository currently contains the implementation contract and validation
 plan, not integration code. Home Assistant Core 2026.8 is the single initial
 support and test baseline. Start with [the architecture](docs/architecture.md),
 [requirements](docs/requirements.md), and the
-[cross-project learnings](docs/cross-project-learnings.md) carried forward from
-two maintained Home Assistant custom integrations.
+[Ecobee-specific consequences of the shared engineering contract](docs/cross-project-learnings.md).
 
 ## Non-goals
 

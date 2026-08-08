@@ -19,11 +19,13 @@ validation, consumer migration, outbound effects, or rollback.
   names, semantically invalid optional sensors,
   and unproven or mismatched physical-device pairings; they preserve temporarily
   missing saved references and require confirmation before physical-association
-  or writer changes. Reconfiguration completion compares its original
-  config-entry snapshot with current data and fails closed rather than
-  overwriting a concurrent session or external update. Selector results are
-  filtered to their owning HomeKit or Ecobee integration before backend contract
-  checks run.
+  or writer changes. Reconfiguration captures the complete config-entry data
+  snapshot, compares it with current data at completion, and fails closed rather
+  than overwriting a concurrent session or external update. A successful save
+  reconstructs data from that accepted snapshot and changes only the mapping
+  collection, preserving additive or unrecognized fields. Selector results are
+  filtered to their owning HomeKit or Ecobee integration before backend
+  contract checks run.
 - One normalized immutable snapshot per mapping owns field selection,
   provenance, source age/health, capability-aware degradation, explicit local
   precise temperature/preset plus vendor-only projections, and recent command
@@ -112,7 +114,7 @@ validation, consumer migration, outbound effects, or rollback.
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred ten bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred eleven bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, confirmation source selection, the writer-acceptance phase, an in-flight matching report followed by success or failure, and serialized overlapping effects. |
 
@@ -123,7 +125,7 @@ Published PyPI metadata was re-read on 2026-08-08:
 2026.8.0, while harness 0.13.355 requires exact Core 2026.8.1. The workflow
 keeps those dependency-closed environments separate and requires final
 `pip check` in both. Local isolated environments prove dependency closure,
-strict typing, and all 110 direct tests in both exact lanes. The Windows host
+strict typing, and all 111 direct tests in both exact lanes. The Windows host
 still cannot import the full Home
 Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
 and WSL has no installed distribution. Bounded real Core API tests run directly

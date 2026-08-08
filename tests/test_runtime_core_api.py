@@ -1614,6 +1614,58 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("configuration_changed", result["reason"])
         self.assertEqual(externally_updated, dict(entry.data))
 
+    async def test_reconfigure_preserves_accepted_unknown_entry_data(self) -> None:
+        future_data = {"opaque": ["preserve", 1]}
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={
+                CONF_MAPPINGS: [self.mapping.as_dict()],
+                "future_field": future_data,
+            },
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_edit"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"mapping_id": self.mapping.mapping_id}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Updated zone",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ECOBEE_AQI_ENTITY: self.ecobee_aqi.entity_id,
+                CONF_HOMEKIT_PRESET_ENTITY: self.homekit_preset.entity_id,
+                CONF_HOMEKIT_CLEAR_HOLD_ENTITY: self.homekit_clear_hold.entity_id,
+                "confirm_change": False,
+            },
+        )
+        self.assertIs(FlowResultType.MENU, result["type"])
+
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+
+        schedule_reload.assert_called_once_with(entry.entry_id)
+        self.assertIs(FlowResultType.ABORT, result["type"])
+        self.assertEqual("reconfigure_successful", result["reason"])
+        self.assertEqual(future_data, entry.data["future_field"])
+        self.assertEqual("Updated zone", entry.data[CONF_MAPPINGS][0][CONF_NAME])
+
     async def test_reconfigure_rejects_duplicate_mapping_name(self) -> None:
         homekit_b = self._source(
             "homekit_controller",
@@ -2280,6 +2332,9 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 "08:00:00",
             ),
             entity.async_create_vacation("Trip", 82.0, 58.0, "2026-02-30", "08:00:00"),
+            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-9-01", "08:00:00"),
+            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", "08:00"),
+            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", None),
             entity.async_set_occupancy_modes(),
             entity.async_set_sensors_used_in_climate(["unknown_device"]),
             entity.async_set_sensors_used_in_climate(
@@ -2802,6 +2857,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         await entity.async_set_hvac_mode(HVACMode.COOL)
         await entity.async_set_temperature(temperature=22.0)
+        await entity.async_set_temperature(temperature=21.5, hvac_mode=HVACMode.COOL)
         await entity.async_set_temperature(target_temp_low=19.0, target_temp_high=24.0)
         await entity.async_set_humidity(40)
         await entity.async_set_fan_mode("auto")
@@ -2811,6 +2867,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [
                 "set_hvac_mode",
+                "set_temperature",
                 "set_temperature",
                 "set_temperature",
                 "set_humidity",
@@ -2823,6 +2880,14 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(call.domain == "climate" for call in calls))
         self.assertTrue(
             all(call.data["entity_id"] == self.homekit.entity_id for call in calls)
+        )
+        self.assertEqual(
+            {
+                "entity_id": self.homekit.entity_id,
+                "temperature": 21.5,
+                "hvac_mode": HVACMode.COOL,
+            },
+            dict(calls[2].data),
         )
 
         call_count = len(calls)
@@ -2840,6 +2905,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             await entity.async_set_temperature(
                 target_temp_low=25.0, target_temp_high=20.0
             )
+        with self.assertRaises(ServiceValidationError):
+            await entity.async_set_temperature(temperature=22.0, hvac_mode=HVACMode.DRY)
+        with self.assertRaises(ServiceValidationError):
+            await entity.async_set_preset_mode("Sleep")
         self.assertEqual(call_count, len(calls))
 
     async def test_late_observation_cannot_confirm_newer_command(self) -> None:

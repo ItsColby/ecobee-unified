@@ -21,6 +21,8 @@
 - concurrent reconfigure sessions and external config-entry updates fail closed
   at completion, preserve the winning mapping collection, and do not schedule a
   reload from the stale flow;
+- successful reconfigure replaces mappings within the accepted complete entry
+  data while preserving additive or unrecognized fields;
 - matched, mismatched, and missing HomeKit-serial/Ecobee-identifier proof at
   create and reconfigure time, plus runtime identity drift/recovery without
   recreating the config entry;

@@ -320,12 +320,16 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Atomically save and reload the complete mapping collection."""
 
         entry = self._get_reconfigure_entry()
-        if dict(entry.data) != self._original_data:
+        original_data = self._original_data
+        if original_data is None or dict(entry.data) != original_data:
             return self.async_abort(reason="configuration_changed")
+
+        accepted_data = deepcopy(original_data)
+        accepted_data[CONF_MAPPINGS] = deepcopy(self._pending_mappings)
 
         return self.async_update_reload_and_abort(
             entry,
-            data={CONF_MAPPINGS: self._pending_mappings},
+            data=accepted_data,
             reason="reconfigure_successful",
             reload_even_if_entry_is_unchanged=False,
         )

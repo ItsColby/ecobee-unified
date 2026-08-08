@@ -56,6 +56,12 @@ them independently to the same HomeKit device.
 Mappings use entity/device selectors and supported entity-registry tracking so
 renames survive. A missing source must not be replaced using name guesses.
 
+Reconfiguration captures the complete entry-data snapshot before edits and
+fails closed if current data differs at completion. A successful save starts
+from that accepted snapshot and replaces only the mapping collection, preserving
+additive or unrecognized fields without merging data from a concurrently changed
+entry.
+
 ## Device Model
 
 Every unified climate, number, sensor, and notification entity links to the

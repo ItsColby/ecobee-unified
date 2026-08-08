@@ -180,15 +180,19 @@ All controlled capability dispositions and product-relative evidence paths:
 | `dependency-closure` | required / observed | `.github/workflows/validate.yaml`; `requirements-ha-test.txt`; `tests/test_public_safety.py` |
 | `installed-core-test` | required / gap | `hacs.json`; `requirements-ha-test.txt`; `.github/workflows/validate.yaml`; `tests/test_runtime_core_api.py`; `docs/upstream-contracts.md`; the dependency-clean real harness remains at Core 2026.8.0 while maintained Core 2026.8.1 has bounded direct evidence only. |
 
-The current owner-runtime candidate audit at Home commit
-`548d05540b6f0f8ee457981ef7932c5bafbe79d4` reports 27 passes, eight fails,
-and no warnings or unavailable checks across the portfolio. Ecobee Unified
-accounts for nine passes and two intentional installed-Core support-lane gaps:
-the formal dependency-clean harness remains at Core 2026.8.0 while the
+The last full-portfolio receipt recorded here, from Home commit
+`548d05540b6f0f8ee457981ef7932c5bafbe79d4`, reported 27 passes, eight fails,
+and no warnings or unavailable checks. At that historical receipt, Ecobee
+Unified accounted for nine passes and two installed-Core support-lane gaps;
+the other six failures belonged to the separate Beestat and Free Library
+product owners. It is not a current cross-portfolio green or failure claim.
+
+The product-local candidate audit on 2026-08-08, scoped to clean Ecobee commit
+`2591f64a191ddc977e0e4c30b495df4b28209415`, reports nine passes, the same two
+intentional installed-Core support-lane gaps, and no warnings or unavailable
+checks. The formal dependency-clean harness remains at Core 2026.8.0 while the
 maintained instance is 2026.8.1. Direct newer-Core tests are partial evidence,
-not a replacement formal lane. The other six failures belong to the separate
-Beestat and Free Library product owners: the same two support-lane checks per
-product plus their public-agent-artifact checks. The candidate posture
+not a replacement formal lane. The candidate posture
 explicitly does not prove remote Git freshness/integration, publication,
 release, or live-instance state.
 

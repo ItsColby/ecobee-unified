@@ -215,10 +215,11 @@ The latest Home-owner closure at Home commit
 commit `cb2bc4c1ac4332a133f2d1f2794ca0447cfc4f1d`, 114 tests, and a
 product-scoped candidate audit with 12 passes and no failures, warnings, or
 unavailable checks. That is a historical checkpoint because the product source
-and direct evidence have since advanced; the final clean commit requires a
-refreshed Home-owner receipt. The receipt does not prove product remote Git
-integration, publication,
-release, or live-instance state.
+and direct evidence have since advanced. This product-native status owns the
+current source and test evidence; Home separately owns canonical lifecycle,
+support, and capability reconciliation and does not need to mirror moving
+candidate SHAs or test counts. Neither surface proves product remote Git
+integration, publication, release, or live-instance state.
 
 ## Learning classification
 

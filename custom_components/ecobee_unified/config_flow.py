@@ -61,11 +61,27 @@ from .source_contracts import (
     sensor_contract_valid,
 )
 
-CLIMATE_SELECTOR = EntitySelector(EntitySelectorConfig(domain="climate"))
-SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
-SELECT_SELECTOR = EntitySelector(EntitySelectorConfig(domain="select"))
-BUTTON_SELECTOR = EntitySelector(EntitySelectorConfig(domain="button"))
-NOTIFY_SELECTOR = EntitySelector(EntitySelectorConfig(domain="notify"))
+HOMEKIT_CLIMATE_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="climate", integration="homekit_controller")
+)
+ECOBEE_CLIMATE_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="climate", integration="ecobee")
+)
+HOMEKIT_SENSOR_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", integration="homekit_controller")
+)
+ECOBEE_SENSOR_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", integration="ecobee")
+)
+HOMEKIT_SELECT_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="select", integration="homekit_controller")
+)
+HOMEKIT_BUTTON_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="button", integration="homekit_controller")
+)
+ECOBEE_NOTIFY_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="notify", integration="ecobee")
+)
 BOOLEAN_SELECTOR = BooleanSelector()
 OPTIONAL_SOURCE_KEYS = (
     CONF_HOMEKIT_PRESET_ENTITY,
@@ -352,31 +368,31 @@ def _mapping_schema(
         vol.Required(
             CONF_HOMEKIT_ENTITY,
             description={"suggested_value": defaults.get(CONF_HOMEKIT_ENTITY, "")},
-        ): CLIMATE_SELECTOR,
+        ): HOMEKIT_CLIMATE_SELECTOR,
         vol.Required(
             CONF_ECOBEE_ENTITY,
             description={"suggested_value": defaults.get(CONF_ECOBEE_ENTITY, "")},
-        ): CLIMATE_SELECTOR,
+        ): ECOBEE_CLIMATE_SELECTOR,
         vol.Optional(
             CONF_HOMEKIT_PRESET_ENTITY,
             description={"suggested_value": defaults.get(CONF_HOMEKIT_PRESET_ENTITY)},
-        ): SELECT_SELECTOR,
+        ): HOMEKIT_SELECT_SELECTOR,
         vol.Optional(
             CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
             description={
                 "suggested_value": defaults.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY)
             },
-        ): BUTTON_SELECTOR,
+        ): HOMEKIT_BUTTON_SELECTOR,
         vol.Optional(
             CONF_HOMEKIT_TEMPERATURE_ENTITY,
             description={
                 "suggested_value": defaults.get(CONF_HOMEKIT_TEMPERATURE_ENTITY)
             },
-        ): SENSOR_SELECTOR,
+        ): HOMEKIT_SENSOR_SELECTOR,
         vol.Optional(
             CONF_ECOBEE_NOTIFY_ENTITY,
             description={"suggested_value": defaults.get(CONF_ECOBEE_NOTIFY_ENTITY)},
-        ): NOTIFY_SELECTOR,
+        ): ECOBEE_NOTIFY_SELECTOR,
     }
     for key in (
         CONF_ECOBEE_AQI_ENTITY,
@@ -388,7 +404,7 @@ def _mapping_schema(
                 key,
                 description={"suggested_value": defaults.get(key)},
             )
-        ] = SENSOR_SELECTOR
+        ] = ECOBEE_SENSOR_SELECTOR
     if include_add:
         schema[vol.Required(CONF_ADD_ANOTHER, default=False)] = BOOLEAN_SELECTOR
     if include_confirmation:

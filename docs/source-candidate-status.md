@@ -18,7 +18,8 @@ validation, consumer migration, outbound effects, or rollback.
   invalid platforms, duplicate sources, semantically invalid optional sensors,
   and unproven or mismatched physical-device pairings; they preserve temporarily
   missing saved references and require confirmation before physical-association
-  or writer changes.
+  or writer changes. Selector results are filtered to their owning HomeKit or
+  Ecobee integration before backend contract checks run.
 - One normalized immutable snapshot per mapping owns field selection,
   provenance, source age/health, capability-aware degradation, explicit local
   precise temperature/preset plus vendor-only projections, and recent command
@@ -32,7 +33,9 @@ validation, consumer migration, outbound effects, or rollback.
   local decimals inside the climate without creating a duplicate temperature
   entity. AQI, CO2, and VOC projections require their exact sensor device class
   and unit. Registry reconciliation follows source move/detach/removal/
-  restoration in place without config-entry reload.
+  restoration in place without config-entry reload, ignores unrelated global
+  registry events, and removes only owned orphan entities after a mapping or
+  optional projection is removed.
 - Supported HomeKit serial and Ecobee identifier evidence proves each active
   cross-backend pairing. Identity loss preserves local HomeKit state/control but
   blocks cloud fallback, vendor actions, notification writes, and target-step
@@ -43,6 +46,8 @@ validation, consumer migration, outbound effects, or rollback.
 - Bounded vacation, occupancy-policy, and comfort-sensor-participation actions
   inject only the mapped Ecobee climate and issue one call. Effects not fully
   projected in source state are reported as submitted rather than confirmed.
+  Comfort-sensor devices must belong to the mapped Ecobee config entry before
+  the source action receives a call.
 - The optional notification facade sends a non-empty message through only the
   mapped Ecobee notification entity; missing services, unavailable state, and
   device-association drift fail before any write.
@@ -53,15 +58,17 @@ validation, consumer migration, outbound effects, or rollback.
   revisions, and guards observation, timeout, and failure updates against
   superseded commands. A fresh matching unchanged Ecobee report can confirm
   only the current pending revision.
-- Diagnostics are allow-listed and mapping-indexed. Repairs cover removed
-  required registry sources, invalid semantic contracts, missing device links,
-  and physical-identity drift, and clear when valid evidence recovers.
+- Diagnostics are allow-listed and mapping-indexed. Repairs cover removed or
+  user-disabled required/optional registry sources, invalid semantic contracts,
+  missing device links, and physical-identity drift, and clear when valid
+  evidence recovers.
 - The repository includes generic fixtures/tests, strict typing and Ruff
   policy, exact Core requirements, complete reachable-blob public-safety and
   history scanning, Hassfest and HACS jobs, least workflow permissions, bounded
   timeouts/concurrency, non-persistent checkout credentials, and a terminal
   release gate. Pytest explicitly owns async HA test collection, and tracked
-  source archives reject maintainer-only agent instructions. Volatile source
+  source archives read exact stage-0 blobs and reject maintainer-only agent
+  instructions. Volatile source
   age, active-sensor, and command-confirmation attributes are excluded from
   Recorder.
 
@@ -78,11 +85,11 @@ validation, consumer migration, outbound effects, or rollback.
 | Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; full climate method matrix is in the Linux HA test suite. |
 | Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one HomeKit clear-hold press from each Unified entry point, and one mapped Ecobee call for minimum fan, notification, vacation, occupancy policy, and sensor participation. Unprojectable effects remain submitted. |
 | Observation never retries | Proven locally | Command tracker and service-registry tests prove confirmation is read-only and timeouts issue no service call. |
-| Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, registry rename, physical-identity and semantic-contract drift/recovery, capability loss/recovery, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
+| Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, owned orphan cleanup, registry rename, filtered source/helper events, physical-identity and semantic-contract drift/recovery, capability loss/recovery, disabled/detached source Repairs, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
-| Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/archive and commit-metadata/filename/reachable-blob public-safety scans. |
+| Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | Eighty-six bounded tests pass directly on installed Core 2026.8.1; the dependency-closed Core 2026.8.0 minimum workflow now explicitly collects async HA tests. Strict mypy, host Ruff, compile, JSON, `pip check`, working-tree/tracked-archive, and complete reachable-history privacy checks also pass. The latest real harness cannot yet form a closed 2026.8.1 lane, and Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | Ninety bounded tests pass directly on installed Core 2026.8.1; the dependency-closed Core 2026.8.0 minimum workflow explicitly collects async HA tests and owns the passing final `pip check`. Strict mypy, host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. The mixed local 2026.8.1 Core/2026.8.0 harness environment correctly fails `pip check`; Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
@@ -186,6 +193,15 @@ release, or live-instance state.
   or returns. Ecobee now reconciles the entity registry and uses the supported
   in-place registry path without recreating or reloading the config entry; the
   current Home registry records this under `helper-device-linking`.
+- **Product-specific lifecycle refinements under existing capabilities:** use
+  stable source registry references to observe removal/restoration, ignore
+  unrelated registry events, resynchronize only owned helper records, remove
+  only entry-owned orphan entities after reconfigure, and surface disabled or
+  detached selections as recoverable Repairs.
+- **Product-specific action validation under the existing single-writer
+  capability:** selected comfort-sensor devices must share the mapped Ecobee
+  config entry before the source service is invoked. Core retains final
+  thermostat-membership enforcement.
 - **Product-specific Core consequence:** cadence-backed Ecobee health uses
   `last_reported`, while quiet HomeKit age remains diagnostic; unchanged reports
   can confirm only the operation-owned pending revision, and elapsed-time cloud

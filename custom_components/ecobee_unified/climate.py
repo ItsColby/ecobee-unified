@@ -18,7 +18,6 @@ from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -604,11 +603,8 @@ class EcobeeUnifiedClimate(ClimateEntity):
             or any(not item for item in device_ids)
         ):
             self._raise_validation("invalid_sensor_selection")
-        registry = dr.async_get(self.hass)
-        if any(
-            (device := registry.async_get(device_id)) is None
-            or not any(domain == "ecobee" for domain, _value in device.identifiers)
-            for device_id in device_ids
+        if not self._manager.ecobee_sensor_devices_valid(
+            self._mapping.mapping_id, device_ids
         ):
             self._raise_validation("invalid_sensor_selection")
         service_data: dict[str, Any] = {ATTR_DEVICE_IDS: list(device_ids)}

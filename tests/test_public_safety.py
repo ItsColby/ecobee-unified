@@ -47,6 +47,20 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
 
+    def test_tracked_archive_reads_staged_bytes_not_dirty_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            readme = root / "README.md"
+            readme.write_text("private address " + "192" + ".168.1.2", encoding="utf-8")
+            self._git(root, "add", "README.md")
+            readme.write_text("public-safe worktree", encoding="utf-8")
+
+            count, failures = run_archive_guard(root)
+
+        self.assertEqual(1, count)
+        self.assertIn("Source archive README.md: private IPv4 address", failures)
+
     def test_tracked_maintainer_agent_artifacts_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -138,6 +152,10 @@ class PublicSafetyTests(unittest.TestCase):
                 "set_sensors_used_in_climate",
             },
             set(icons["services"]),
+        )
+        self.assertEqual(
+            "mdi:hvac",
+            icons["entity"]["sensor"]["equipment_stage"]["default"],
         )
         harness = (
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'

@@ -6,6 +6,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
@@ -14,6 +15,13 @@ from .const import (
     CONF_MAPPINGS,
     DOMAIN,
     PLATFORMS,
+    SUFFIX_AIR_QUALITY_INDEX,
+    SUFFIX_CO2,
+    SUFFIX_EQUIPMENT_STAGE,
+    SUFFIX_MINIMUM_FAN_RUNTIME,
+    SUFFIX_NOTIFICATION,
+    SUFFIX_RESUME_PROGRAM,
+    SUFFIX_VOC,
 )
 from .manager import MappingManager
 from .models import MappingConfig
@@ -36,9 +44,10 @@ async def async_setup_entry(
     )
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     entry.runtime_data = EcobeeUnifiedRuntime(manager)
-    await manager.async_start()
+    _remove_orphaned_entities(hass, entry, mappings)
     platforms = _platforms_for_mappings(mappings)
     try:
+        await manager.async_start()
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
     except Exception:
         await manager.async_stop()
@@ -109,3 +118,45 @@ def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
         for platform in PLATFORMS
         if enabled_optional_platforms.get(platform, True)
     ]
+
+
+def _remove_orphaned_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    mappings: tuple[MappingConfig, ...],
+) -> None:
+    """Remove only entities this entry no longer declares after reconfigure."""
+
+    expected: set[tuple[str, str]] = set()
+    for mapping in mappings:
+        expected.update(
+            {
+                ("climate", mapping.mapping_id),
+                ("number", f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}"),
+                ("sensor", f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}"),
+            }
+        )
+        optional = (
+            (
+                mapping.homekit_clear_hold_entity,
+                "button",
+                SUFFIX_RESUME_PROGRAM,
+            ),
+            (mapping.ecobee_notify_entity, "notify", SUFFIX_NOTIFICATION),
+            (mapping.ecobee_aqi_entity, "sensor", SUFFIX_AIR_QUALITY_INDEX),
+            (mapping.ecobee_co2_entity, "sensor", SUFFIX_CO2),
+            (mapping.ecobee_voc_entity, "sensor", SUFFIX_VOC),
+        )
+        expected.update(
+            (domain, f"{mapping.mapping_id}_{suffix}")
+            for reference, domain, suffix in optional
+            if reference
+        )
+
+    registry = er.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registry_entry.platform == DOMAIN
+            and (registry_entry.domain, registry_entry.unique_id) not in expected
+        ):
+            registry.async_remove(registry_entry.entity_id)

@@ -39,6 +39,9 @@ depend on them.
 The integration stores entity-registry IDs rather than names, so registry
 renames survive. Missing selections are preserved and require explicit
 reconfiguration; replacements are never guessed.
+Registry listeners react only to mapped source/device changes and owned helper
+relinking. Removing a mapping or optional projection removes only that config
+entry's now-orphaned Unified registry entities on reload.
 The supported HomeKit device serial and Ecobee device identifier must also
 match. If that proof later disappears, local HomeKit state and control remain
 usable while every Ecobee read, action, notification, and metadata fusion fails
@@ -63,8 +66,8 @@ visible live but are excluded from Recorder.
 
 Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
 device IDs, config-entry IDs, and source values. Public-safety validation scans
-the working tree, tracked archive, commit metadata, every historical filename,
-and every reachable bounded Git blob.
+the working tree, an archive built from exact stage-0 Git blobs, commit
+metadata, every historical filename, and every reachable bounded Git blob.
 
 ## Configuration
 
@@ -72,7 +75,8 @@ The initial flow collects one or more mappings in a single config entry. Each
 mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
 current-temperature sensor/current-mode select/clear-hold button and Ecobee
 AQI/CO2/VOC sensors/notification entity are optional explicit same-device
-selections. AQI, CO2, and VOC selections must also advertise the matching sensor
+selections. Selectors are filtered to the owning integration before backend
+validation. AQI, CO2, and VOC selections must also advertise the matching sensor
 device class and unit, and one optional source cannot fill multiple semantic
 roles. Reconfiguration supports explicit add, edit, and remove operations.
 Editing physical association or command routing requires a second confirmation.
@@ -95,7 +99,8 @@ mapped local HomeKit Clear Hold button exactly once.
 
 The same operation is available as an optional **Resume program** button on the
 Unified thermostat device, so dashboards do not need to expose or target the
-raw HomeKit button.
+raw HomeKit button. It is available only while both the clear-hold writer and
+the current-mode observation source needed for confirmation are usable.
 
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once.
@@ -108,7 +113,8 @@ with the source entity.
 `ecobee_unified.create_vacation`, `delete_vacation`,
 `set_occupancy_modes`, and `set_sensors_used_in_climate` target a Unified
 climate entity and inject its explicitly mapped Ecobee climate writer. Inputs
-are bounded and capability-checked before exactly one call. Because public
+are bounded and capability-checked before exactly one call; comfort sensors
+must belong to the mapped Ecobee config entry. Because public
 source state cannot prove the complete resulting vacation or policy,
 successful dispatch is reported as `submitted`, not `confirmed`.
 

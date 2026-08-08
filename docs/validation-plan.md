@@ -10,6 +10,10 @@
 - entity rename, device rename, source removal/re-add, and registry disable;
 - source device move, detach, removal, and restoration with helper relinking
   for climate/number/sensor records without config-entry reload or stable-entity recreation;
+- unrelated entity/device registry events do not refresh mappings, while owned
+  helper registry reconciliation remains bounded and self-correcting;
+- removing a mapping or optional projection deletes only that config entry's
+  orphaned Unified entities and preserves retained stable IDs;
 - startup before each source integration and later source setup/reload;
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
@@ -60,7 +64,7 @@ decimal places or a newer timestamp.
   late completion cannot mutate a newer command revision;
 - vacation names/temperatures/date-time pairs, occupancy policy, source
   service availability, and Ecobee sensor device selections fail before any
-  effect when invalid;
+  effect when invalid or owned by another Ecobee config entry;
 - writer unavailable fails clearly without fallback;
 - confirmation observes the operation-owned source without issuing another
   call: Ecobee for cloud-observed standard operations, HomeKit for target
@@ -93,7 +97,8 @@ decimal places or a newer timestamp.
   excluded from Recorder;
 - schedule/transition and vendor control/detail are not duplicated in climate
   attributes when first-class Beestat/number/sensor entities own them;
-- Repairs only for persistent actionable faults, with recovery deletion;
+- Repairs only for persistent actionable faults, including user-disabled or
+  detached required/optional sources, with recovery deletion;
 - one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
   legacy lane unless the maintained support contract is widened;
 - explicit pytest asyncio ownership so every top-level HA integration test is

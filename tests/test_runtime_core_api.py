@@ -50,6 +50,13 @@ from custom_components.ecobee_unified.climate import (
     async_setup_entry as async_setup_climate_entry,
 )
 from custom_components.ecobee_unified.config_flow import (
+    ECOBEE_CLIMATE_SELECTOR,
+    ECOBEE_NOTIFY_SELECTOR,
+    ECOBEE_SENSOR_SELECTOR,
+    HOMEKIT_BUTTON_SELECTOR,
+    HOMEKIT_CLIMATE_SELECTOR,
+    HOMEKIT_SELECT_SELECTOR,
+    HOMEKIT_SENSOR_SELECTOR,
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
@@ -347,6 +354,46 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    async def test_setup_removes_only_owned_orphaned_mapping_entities(self) -> None:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        registry = er.async_get(self.hass)
+        climate_id = registry.async_get_entity_id(
+            "climate", DOMAIN, self.mapping.mapping_id
+        )
+        button_id = registry.async_get_entity_id(
+            "button", DOMAIN, "mapping_a_resume_program"
+        )
+        aqi_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, "mapping_a_air_quality_index"
+        )
+        self.assertIsNotNone(climate_id)
+        self.assertIsNotNone(button_id)
+        self.assertIsNotNone(aqi_id)
+
+        retained = MappingConfig("mapping_a", "Zone A", self.homekit.id, self.ecobee.id)
+        self.hass.config_entries.async_update_entry(
+            entry, data={CONF_MAPPINGS: [retained.as_dict()]}
+        )
+        self.assertTrue(await self.hass.config_entries.async_reload(entry.entry_id))
+        await self.hass.async_block_till_done()
+
+        self.assertEqual(
+            climate_id,
+            registry.async_get_entity_id("climate", DOMAIN, "mapping_a"),
+        )
+        self.assertIsNone(registry.async_get(button_id))
+        self.assertIsNone(registry.async_get(aqi_id))
+
     async def test_setup_failure_and_entry_removal_release_owned_state(self) -> None:
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -372,6 +419,29 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(failed_manager._unsub_registry)
         self.assertIsNone(failed_manager._unsub_device_registry)
         self.assertEqual({}, failed_manager._unsub_stale_refreshes)
+
+        start_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        start_entry.add_to_hass(self.hass)
+        with (
+            patch.object(
+                MappingManager,
+                "refresh_all",
+                side_effect=RuntimeError("initial refresh failed"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "initial refresh failed"),
+        ):
+            await async_setup_entry(self.hass, start_entry)
+        start_manager = start_entry.runtime_data.manager
+        self.assertIsNone(start_manager._unsub_state)
+        self.assertIsNone(start_manager._unsub_state_report)
+        self.assertIsNone(start_manager._unsub_registry)
+        self.assertIsNone(start_manager._unsub_device_registry)
 
         er.async_get(self.hass).async_remove(self.homekit.entity_id)
         await self.hass.async_block_till_done()
@@ -470,6 +540,21 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_mapping_validation_rejects_wrong_domains_and_reused_sources(
         self,
     ) -> None:
+        self.assertEqual(
+            "homekit_controller", HOMEKIT_CLIMATE_SELECTOR.config["integration"]
+        )
+        self.assertEqual("ecobee", ECOBEE_CLIMATE_SELECTOR.config["integration"])
+        self.assertEqual(
+            "homekit_controller", HOMEKIT_SELECT_SELECTOR.config["integration"]
+        )
+        self.assertEqual(
+            "homekit_controller", HOMEKIT_BUTTON_SELECTOR.config["integration"]
+        )
+        self.assertEqual(
+            "homekit_controller", HOMEKIT_SENSOR_SELECTOR.config["integration"]
+        )
+        self.assertEqual("ecobee", ECOBEE_SENSOR_SELECTOR.config["integration"])
+        self.assertEqual("ecobee", ECOBEE_NOTIFY_SELECTOR.config["integration"])
         ecobee_sensor = self._source("ecobee", "ec_sensor", domain="sensor")
         with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
             _mapping_from_input(
@@ -862,6 +947,13 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unavailable")
+        await self.hass.async_block_till_done()
+        self.assertFalse(entity.available)
+        with self.assertRaises(ServiceValidationError):
+            await entity.async_press()
+
+        self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unknown")
+        self.hass.states.async_set(self.homekit_preset.entity_id, "unavailable")
         await self.hass.async_block_till_done()
         self.assertFalse(entity.available)
         with self.assertRaises(ServiceValidationError):
@@ -1367,6 +1459,30 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(recovered.homekit_writable)
         self.assertEqual(19.5, recovered.current_temperature)
 
+    async def test_unrelated_registry_events_do_not_refresh_mappings(self) -> None:
+        registry = er.async_get(self.hass)
+        unrelated_entry = MockConfigEntry(domain="demo")
+        unrelated_entry.add_to_hass(self.hass)
+        with patch.object(self.manager, "refresh_all") as refresh_all:
+            dr.async_get(self.hass).async_get_or_create(
+                config_entry_id=unrelated_entry.entry_id,
+                identifiers={("demo", "unrelated_device")},
+            )
+            registry.async_get_or_create(
+                "sensor",
+                "demo",
+                "unrelated",
+                config_entry=unrelated_entry,
+                suggested_object_id="unrelated",
+            )
+            await self.hass.async_block_till_done()
+        refresh_all.assert_not_called()
+
+        with patch.object(self.manager, "refresh_all") as refresh_all:
+            registry.async_update_entity(self.homekit.entity_id, name="Source name")
+            await self.hass.async_block_till_done()
+        refresh_all.assert_called_once_with()
+
     async def test_registry_disable_and_late_source_state_recover_without_reload(
         self,
     ) -> None:
@@ -1380,10 +1496,46 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(disabled.homekit_writable)
         self.assertEqual("unavailable", disabled.source_health["homekit"].value)
         self.assertEqual("ecobee", disabled.provenance["current_temperature"])
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        self.assertIsNotNone(issue)
+        assert issue is not None
+        self.assertEqual({"source": "homekit disabled"}, issue.translation_placeholders)
 
         registry.async_update_entity(self.homekit.entity_id, disabled_by=None)
         await self.hass.async_block_till_done()
         self.assertTrue(self.manager.snapshot("mapping_a").homekit_writable)
+        self.assertIsNone(
+            ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        )
+
+        registry.async_update_entity(
+            self.ecobee.entity_id,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+        await self.hass.async_block_till_done()
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        self.assertIsNotNone(issue)
+        assert issue is not None
+        self.assertEqual({"source": "ecobee disabled"}, issue.translation_placeholders)
+        registry.async_update_entity(self.ecobee.entity_id, disabled_by=None)
+        await self.hass.async_block_till_done()
+
+        registry.async_update_entity(
+            self.homekit_preset.entity_id,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+        await self.hass.async_block_till_done()
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        self.assertIsNotNone(issue)
+        assert issue is not None
+        self.assertEqual(
+            {"source": "HomeKit preset disabled"}, issue.translation_placeholders
+        )
+        registry.async_update_entity(self.homekit_preset.entity_id, disabled_by=None)
+        await self.hass.async_block_till_done()
+        self.assertIsNone(
+            ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        )
 
         self.hass.states.async_remove(self.homekit.entity_id)
         await self.hass.async_block_till_done()
@@ -1398,6 +1550,38 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         recovered = self.manager.snapshot("mapping_a")
         self.assertTrue(recovered.homekit_writable)
         self.assertEqual(18.5, recovered.current_temperature)
+
+    async def test_required_ecobee_source_without_device_creates_repair(self) -> None:
+        mapping = MappingConfig(
+            "mapping_required_devices", "Zone A", self.homekit.id, self.ecobee.id
+        )
+        manager = MappingManager(self.hass, "entry_required_devices", (mapping,), {})
+        await manager.async_start()
+        assert self.ecobee.device_id is not None
+        try:
+            registry = er.async_get(self.hass)
+            registry.async_update_entity(self.ecobee.entity_id, device_id=None)
+            await self.hass.async_block_till_done()
+            issue = ir.async_get(self.hass).async_get_issue(
+                DOMAIN, "mapping_mapping_required_devices"
+            )
+            self.assertIsNotNone(issue)
+            assert issue is not None
+            self.assertEqual(
+                {"source": "ecobee device"}, issue.translation_placeholders
+            )
+
+            registry.async_update_entity(
+                self.ecobee.entity_id, device_id=self.ecobee.device_id
+            )
+            await self.hass.async_block_till_done()
+            self.assertIsNone(
+                ir.async_get(self.hass).async_get_issue(
+                    DOMAIN, "mapping_mapping_required_devices"
+                )
+            )
+        finally:
+            await manager.async_stop()
 
     async def test_target_humidity_degrades_on_actual_unavailable_and_recovers(
         self,
@@ -1667,6 +1851,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         entity.hass = self.hass
         assert self.ecobee.device_id is not None
+        foreign_sensor = self._source(
+            "ecobee", "foreign_sensor", domain="sensor", device=True
+        )
+        assert foreign_sensor.device_id is not None
 
         invalid_calls = (
             entity.async_create_vacation("", 82.0, 58.0),
@@ -1690,6 +1878,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             entity.async_set_sensors_used_in_climate(
                 [self.ecobee.device_id], preset_mode=" "
             ),
+            entity.async_set_sensors_used_in_climate([foreign_sensor.device_id]),
         )
         for call in invalid_calls:
             with self.assertRaises(ServiceValidationError):

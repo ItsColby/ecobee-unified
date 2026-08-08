@@ -105,16 +105,34 @@ class MappingManager:
         self._unsub_device_registry: Callable[[], None] | None = None
         self._unsub_timeouts: dict[str, Callable[[], None]] = {}
         self._unsub_stale_refreshes: dict[str, Callable[[], None]] = {}
+        self._watched_entity_ids: set[str] = set()
+        self._watched_entity_references = {
+            reference
+            for mapping in mappings
+            for reference in (
+                mapping.homekit_entity,
+                mapping.ecobee_entity,
+                mapping.homekit_preset_entity,
+                mapping.homekit_clear_hold_entity,
+                mapping.homekit_temperature_entity,
+                mapping.ecobee_aqi_entity,
+                mapping.ecobee_co2_entity,
+                mapping.ecobee_voc_entity,
+                mapping.ecobee_notify_entity,
+            )
+            if reference
+        }
+        self._watched_device_ids: set[str] = set()
 
     async def async_start(self) -> None:
         """Start subscriptions and build initial snapshots."""
 
         self._subscribe_states()
         self._unsub_registry = self.hass.bus.async_listen(
-            er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_registry_event
+            er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_event
         )
         self._unsub_device_registry = self.hass.bus.async_listen(
-            dr.EVENT_DEVICE_REGISTRY_UPDATED, self._handle_registry_event
+            dr.EVENT_DEVICE_REGISTRY_UPDATED, self._handle_device_registry_event
         )
         self.refresh_all()
 
@@ -139,6 +157,8 @@ class MappingManager:
         for unsubscribe in self._unsub_stale_refreshes.values():
             unsubscribe()
         self._unsub_stale_refreshes.clear()
+        self._watched_entity_ids.clear()
+        self._watched_device_ids.clear()
         for mapping in self.mappings:
             ir.async_delete_issue(self.hass, DOMAIN, f"mapping_{mapping.mapping_id}")
 
@@ -229,6 +249,16 @@ class MappingManager:
                 (mapping.ecobee_voc_entity, "voc"),
             )
         )
+        homekit_preset_writable = bool(
+            homekit_preset is not None and homekit_preset.usable
+        )
+        homekit_clear_hold_writable = bool(
+            homekit_preset_writable
+            and self._writer_available(
+                mapping.homekit_clear_hold_entity,
+                required_device_id=homekit_device_id,
+            )
+        )
         snapshot = build_snapshot(
             mapping_id,
             homekit,
@@ -239,10 +269,7 @@ class MappingManager:
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
             command=self._tracker.summary(mapping_id),
-            homekit_clear_hold_writable=self._writer_available(
-                mapping.homekit_clear_hold_entity,
-                required_device_id=homekit_device_id,
-            ),
+            homekit_clear_hold_writable=homekit_clear_hold_writable,
             temperature_step_fusion_proven=(
                 physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
             ),
@@ -270,10 +297,7 @@ class MappingManager:
                 co2=cloud_sensors[1],
                 voc=cloud_sensors[2],
                 command=self._tracker.summary(mapping_id),
-                homekit_clear_hold_writable=self._writer_available(
-                    mapping.homekit_clear_hold_entity,
-                    required_device_id=homekit_device_id,
-                ),
+                homekit_clear_hold_writable=homekit_clear_hold_writable,
                 temperature_step_fusion_proven=(
                     physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
                 ),
@@ -662,7 +686,38 @@ class MappingManager:
                 )
 
     @callback
-    def _handle_registry_event(self, _event: Event[Any]) -> None:
+    def _handle_entity_registry_event(
+        self, event: Event[er.EventEntityRegistryUpdatedData]
+    ) -> None:
+        affected = {event.data["entity_id"]}
+        old_entity_id = event.data.get("old_entity_id")
+        if isinstance(old_entity_id, str):
+            affected.add(old_entity_id)
+        registry = er.async_get(self.hass)
+        source_event = bool(affected.intersection(self._watched_entity_ids)) or any(
+            (registry_entry := registry.async_get(entity_id)) is not None
+            and registry_entry.id in self._watched_entity_references
+            for entity_id in affected
+        )
+        if source_event:
+            self._subscribe_states()
+            self.refresh_all()
+            self._sync_helper_device_links()
+            return
+        if any(
+            (registry_entry := registry.async_get(entity_id)) is not None
+            and registry_entry.platform == DOMAIN
+            and registry_entry.config_entry_id == self.entry_id
+            for entity_id in affected
+        ):
+            self._sync_helper_device_links()
+
+    @callback
+    def _handle_device_registry_event(
+        self, event: Event[dr.EventDeviceRegistryUpdatedData]
+    ) -> None:
+        if event.data["device_id"] not in self._watched_device_ids:
+            return
         self._subscribe_states()
         self.refresh_all()
         self._sync_helper_device_links()
@@ -731,6 +786,14 @@ class MappingManager:
                 mapping.ecobee_notify_entity,
             )
             if reference and (resolved := self.resolve_entity_id(reference))
+        }
+        self._watched_entity_ids = entity_ids
+        registry = er.async_get(self.hass)
+        self._watched_device_ids = {
+            registry_entry.device_id
+            for entity_id in entity_ids
+            if (registry_entry := registry.async_get(entity_id)) is not None
+            and registry_entry.device_id is not None
         }
         self._unsub_state = (
             async_track_state_change_event(
@@ -1032,7 +1095,51 @@ class MappingManager:
             and state.state != "unavailable"
         )
 
+    def ecobee_sensor_devices_valid(
+        self, mapping_id: str, device_ids: list[str]
+    ) -> bool:
+        """Prove selected sensor devices belong to the mapped Ecobee account."""
+
+        mapping = self._mapping_by_id[mapping_id]
+        registry = er.async_get(self.hass)
+        entity_id = er.async_resolve_entity_id(registry, mapping.ecobee_entity)
+        source_entry = registry.async_get(entity_id) if entity_id else None
+        source_config_entry_id = source_entry.config_entry_id if source_entry else None
+        if source_config_entry_id is None:
+            return False
+        device_registry = dr.async_get(self.hass)
+        return all(
+            (device := device_registry.async_get(device_id)) is not None
+            and source_config_entry_id in device.config_entries
+            and any(domain == "ecobee" for domain, _value in device.identifiers)
+            for device_id in device_ids
+        )
+
     def _refresh_mapping_issue(self, mapping: MappingConfig) -> None:
+        invalid, homekit_device_id, ecobee_device_id = self._required_source_issues(
+            mapping
+        )
+        invalid.extend(
+            self._optional_source_issues(mapping, homekit_device_id, ecobee_device_id)
+        )
+        issue_id = f"mapping_{mapping.mapping_id}"
+        if invalid:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                is_persistent=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key="mapping_source_missing",
+                translation_placeholders={"source": ", ".join(invalid)},
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def _required_source_issues(
+        self, mapping: MappingConfig
+    ) -> tuple[list[str], str | None, str | None]:
         registry = er.async_get(self.hass)
         homekit_entity_id = er.async_resolve_entity_id(registry, mapping.homekit_entity)
         homekit_entry = (
@@ -1043,14 +1150,23 @@ class MappingManager:
         invalid = []
         if homekit_entry is None:
             invalid.append("homekit")
+        elif homekit_entry.disabled:
+            invalid.append("homekit disabled")
         elif (
             homekit_entry.device_id is None
             or dr.async_get(self.hass).async_get(homekit_entry.device_id) is None
         ):
             invalid.append("homekit device")
         ecobee_entity_id = er.async_resolve_entity_id(registry, mapping.ecobee_entity)
-        if ecobee_entity_id is None:
+        ecobee_entry = (
+            registry.async_get(ecobee_entity_id) if ecobee_entity_id else None
+        )
+        if ecobee_entry is None:
             invalid.append("ecobee")
+        elif ecobee_entry.disabled:
+            invalid.append("ecobee disabled")
+        elif ecobee_device_id is None:
+            invalid.append("ecobee device")
         elif (
             homekit_entry is not None
             and homekit_device_id is not None
@@ -1061,18 +1177,16 @@ class MappingManager:
             is not PhysicalIdentityStatus.MATCH
         ):
             invalid.append("physical device identity")
-        ecobee_siblings = (
-            mapping.ecobee_aqi_entity,
-            mapping.ecobee_co2_entity,
-            mapping.ecobee_voc_entity,
-            mapping.ecobee_notify_entity,
-        )
-        if (
-            ecobee_entity_id is not None
-            and any(ecobee_siblings)
-            and ecobee_device_id is None
-        ):
-            invalid.append("ecobee device")
+        return invalid, homekit_device_id, ecobee_device_id
+
+    def _optional_source_issues(
+        self,
+        mapping: MappingConfig,
+        homekit_device_id: str | None,
+        ecobee_device_id: str | None,
+    ) -> list[str]:
+        registry = er.async_get(self.hass)
+        invalid: list[str] = []
         optional_sources = (
             (
                 "HomeKit preset",
@@ -1124,6 +1238,8 @@ class MappingManager:
             entry = registry.async_get(entity_id) if entity_id else None
             if entry is None:
                 invalid.append(label)
+            elif entry.disabled:
+                invalid.append(f"{label} disabled")
             elif (
                 required_device_id is not None and entry.device_id != required_device_id
             ):
@@ -1140,20 +1256,7 @@ class MappingManager:
                 )
             ):
                 invalid.append(label)
-        issue_id = f"mapping_{mapping.mapping_id}"
-        if invalid:
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                issue_id,
-                is_fixable=False,
-                is_persistent=False,
-                severity=ir.IssueSeverity.ERROR,
-                translation_key="mapping_source_missing",
-                translation_placeholders={"source": ", ".join(invalid)},
-            )
-        else:
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        return invalid
 
     def _temperature_contract_valid(self, entity_reference: str) -> bool:
         registry = er.async_get(self.hass)

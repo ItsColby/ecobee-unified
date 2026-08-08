@@ -97,28 +97,42 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
     """Build and inspect the exact tracked source archive in temporary storage."""
 
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--stage", "-z"],
         cwd=root,
         check=True,
         capture_output=True,
     )
-    tracked = [
-        Path(item.decode("utf-8")) for item in result.stdout.split(b"\0") if item
-    ]
     failures: list[str] = []
+    tracked: list[tuple[Path, str]] = []
+    for item in result.stdout.split(b"\0"):
+        if not item:
+            continue
+        metadata, raw_name = item.split(b"\t", 1)
+        _mode, object_id, stage = metadata.decode("ascii").split()
+        relative = Path(raw_name.decode("utf-8"))
+        if stage != "0":
+            failures.append(
+                f"Source archive {relative.as_posix()}: unresolved index stage"
+            )
+            continue
+        tracked.append((relative, object_id))
     with tempfile.TemporaryDirectory() as temporary_directory:
         archive_path = Path(temporary_directory) / "ecobee_unified_source.zip"
         with zipfile.ZipFile(
             archive_path, "w", compression=zipfile.ZIP_DEFLATED
         ) as archive:
-            for relative in tracked:
+            for relative, object_id in tracked:
                 if _is_maintainer_agent_artifact(relative):
                     failures.append(
                         f"Source archive {relative.as_posix()}: maintainer agent artifact"
                     )
-                path = root / relative
-                if path.is_file():
-                    archive.write(path, relative.as_posix())
+                blob = subprocess.run(
+                    ["git", "cat-file", "blob", object_id],
+                    cwd=root,
+                    check=True,
+                    capture_output=True,
+                )
+                archive.writestr(relative.as_posix(), blob.stdout)
         with zipfile.ZipFile(archive_path) as archive:
             for name in archive.namelist():
                 failures.extend(

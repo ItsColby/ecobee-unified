@@ -150,7 +150,25 @@ normal UI shows one thermostat surface, and rollback remains documented.
 
 ## Phase 8: Release
 
-Publication is separately gated. Privacy-scan the complete tree and Git history,
-align manifest/tag/release version, wait for terminal CI, and create the
-immutable release only from the validated commit. HACS installation, Home
-Assistant checks, restart, and live validation remain separate operations.
+Publication is separately gated. The first-publication setup must establish
+protected pull requests, linear squash/rebase merges, the aggregate **Release
+gate**, CodeQL protection, and immutable releases before the first candidate PR.
+Every release then follows this order:
+
+1. Create a release-candidate branch from current `main`; privacy-scan the
+   complete tree and Git history and align manifest, intended tag, and release
+   version.
+2. Open a pull request and require terminal success for **Unit tests and static
+   validation**, **Home Assistant integration tests (Core 2026.8.0 minimum)**,
+   **Home Assistant integration tests (Core 2026.8.1 current)**, **Hassfest**,
+   **HACS**, the aggregate **Release gate**, and CodeQL's future **Analyze
+   (actions)**, **Analyze (python)**, and **CodeQL** contexts.
+3. Merge through default-branch protection without bypass, using squash or
+   rebase so history remains linear.
+4. Require the resulting `main` commit's **Validate** push run and CodeQL
+   analysis to succeed; inspect complete logs and alerts.
+5. Create the immutable tag and GitHub Release only from that exact validated
+   `main` commit.
+6. Treat HACS selection or installation, the Home Assistant configuration
+   check, restart, live validation, migration, and rollback as later, separately
+   gated phases.

@@ -140,7 +140,9 @@ is not a public push, release, install, or live validation claim.
 ## Home registry handoff
 
 The current Home registry lifecycle classification is `active_unreleased`.
-The support fields below are the product-authoritative handoff values for the Home registry owner; recording them in Home remains a separate owner action.
+Home owner commit
+`008a869a944f75be3b8610dfb600d191a06fde14` records the support fields
+below and is clean and privately integrated with its configured remote.
 The product repository still has no configured remote, so
 `repository.public_url` remains `null`; the Home registry record is not remote
 Git integration or product publication.
@@ -187,12 +189,13 @@ Unified accounted for nine passes and two installed-Core support-lane gaps;
 the other six failures belonged to the separate Beestat and Free Library
 product owners. It is not a current cross-portfolio green or failure claim.
 
-This candidate adds a separate exact dependency-clean Core 2026.8.1 lane while
-retaining the exact Core 2026.8.0 distribution-floor lane. Product-native
-validation and the product-scoped portfolio audit receipt are refreshed after
-the implementation commit below. The candidate posture explicitly does not
-prove remote Git freshness/integration, publication, release, or live-instance
-state.
+The product-scoped portfolio audit for clean Ecobee commit
+`c2235ff46d5f968a8b7dc2b2740aa8caaf4f0131` reports 12 passes and no
+failures, warnings, or unavailable checks in candidate posture. Canonical
+posture reports 11 passes, no failures or warnings, and one expected
+`audit-provenance` unavailable result because this product has no remote.
+The receipt does not prove product remote Git integration, publication,
+release, or live-instance state.
 
 ## Learning classification
 

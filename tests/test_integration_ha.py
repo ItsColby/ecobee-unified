@@ -191,7 +191,7 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
     )
     await manager.async_start()
     service_call = AsyncMock()
-    with patch.object(hass.services, "async_call", service_call):
+    with patch.object(type(hass.services), "async_call", service_call):
         await manager.async_standard_command(
             "mapping_a",
             "set_temperature",

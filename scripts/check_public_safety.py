@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 import tempfile
@@ -45,6 +46,12 @@ EMAIL_PATTERN = re.compile(
 )
 MAX_HISTORY_BLOB_BYTES = 1_000_000
 MAINTAINER_AGENT_PARTS = frozenset({".agents", ".codex"})
+REVIEWED_BINARY_SHA256 = {
+    "custom_components/ecobee_unified/brand/icon.png": (
+        "46021e7b36e50c480c1e649057ccc726dd95ae4a72ce4447356bbfa1030737c7"
+    )
+}
+REVIEWED_BINARY_HASHES = frozenset(REVIEWED_BINARY_SHA256.values())
 
 
 def _text_failures(text: str) -> set[str]:
@@ -67,6 +74,16 @@ def _is_maintainer_agent_artifact(path: Path) -> bool:
     )
 
 
+def _is_reviewed_binary(path: Path, content: bytes) -> bool:
+    expected = REVIEWED_BINARY_SHA256.get(path.as_posix())
+    return expected is not None and hashlib.sha256(content).hexdigest() == expected
+
+
+def _record_unreviewed_binary(failures: set[str], message: str, content: bytes) -> None:
+    if hashlib.sha256(content).hexdigest() not in REVIEWED_BINARY_HASHES:
+        failures.add(message)
+
+
 def run_guard(root: Path) -> tuple[int, list[str]]:
     failures: list[str] = []
     count = 0
@@ -79,7 +96,10 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
             for failure in sorted(_text_failures(str(relative)))
         )
         if path.suffix.lower() not in TEXT_SUFFIXES:
-            failures.append(f"{relative}: unreviewed binary content")
+            if _is_reviewed_binary(relative, path.read_bytes()):
+                count += 1
+            else:
+                failures.append(f"{relative}: unreviewed binary content")
             continue
         count += 1
         try:
@@ -141,7 +161,10 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
                 )
                 suffix = Path(name).suffix.lower()
                 if suffix not in TEXT_SUFFIXES:
-                    failures.append(f"Source archive {name}: unreviewed binary content")
+                    if not _is_reviewed_binary(Path(name), archive.read(name)):
+                        failures.append(
+                            f"Source archive {name}: unreviewed binary content"
+                        )
                     continue
                 try:
                     text = archive.read(name).decode("utf-8")
@@ -202,7 +225,10 @@ def _history_failures(root: Path) -> list[str]:
         failures.update(
             f"Git history filename: {item}" for item in _text_failures(name)
         )
-        if Path(name).suffix.lower() not in TEXT_SUFFIXES:
+        if (
+            Path(name).suffix.lower() not in TEXT_SUFFIXES
+            and Path(name).as_posix() not in REVIEWED_BINARY_SHA256
+        ):
             failures.add("Git history filename: unreviewed binary content")
 
     objects = subprocess.run(
@@ -242,10 +268,18 @@ def _history_failures(root: Path) -> list[str]:
         try:
             text = blob.decode("utf-8")
         except UnicodeDecodeError:
-            failures.add(f"Git history {object_type}: non-UTF-8 content")
+            _record_unreviewed_binary(
+                failures,
+                f"Git history {object_type}: non-UTF-8 content",
+                blob,
+            )
             continue
         if "\0" in text:
-            failures.add(f"Git history {object_type}: unreviewed binary content")
+            _record_unreviewed_binary(
+                failures,
+                f"Git history {object_type}: unreviewed binary content",
+                blob,
+            )
             continue
         failures.update(
             f"Git history {object_type}: {item}" for item in _text_failures(text)

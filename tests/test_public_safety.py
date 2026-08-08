@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -10,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from scripts.check_public_safety import (
+    REVIEWED_BINARY_SHA256,
     _history_failures,
     _text_failures,
     run_archive_guard,
@@ -40,6 +42,12 @@ class PublicSafetyTests(unittest.TestCase):
         count, failures = run_guard(root)
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
+
+    def test_reviewed_brand_asset_is_hash_pinned(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        relative = "custom_components/ecobee_unified/brand/icon.png"
+        digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        self.assertEqual(REVIEWED_BINARY_SHA256[relative], digest)
 
     def test_tracked_source_archive_is_public_safe(self) -> None:
         root = Path(__file__).resolve().parents[1]

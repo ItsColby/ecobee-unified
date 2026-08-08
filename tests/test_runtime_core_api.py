@@ -87,6 +87,7 @@ from custom_components.ecobee_unified.const import (
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
     SUFFIX_AIR_QUALITY_INDEX,
+    SUFFIX_EQUIPMENT_STAGE,
 )
 from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
@@ -1016,6 +1017,103 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             await self.hass.async_block_till_done()
             self.assertEqual(0.1, entity.precision)
             self.assertEqual(75.5, entity.state_attributes["current_temperature"])
+        finally:
+            await manager.async_stop()
+
+    async def test_climate_state_uses_configured_temperature_unit(self) -> None:
+        """Core climate states omit a unit because values use the system unit."""
+
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        homekit_attributes = self._attributes(77.0) | {
+            "target_temp_low": 71.0,
+            "target_temp_high": 74.0,
+            "min_temp": 45.0,
+            "max_temp": 92.0,
+            "supported_features": 399,
+        }
+        homekit_attributes.pop("target_temp_step")
+        homekit_attributes.pop("unit_of_measurement")
+        self.hass.states.async_set(
+            self.homekit.entity_id,
+            "heat_cool",
+            homekit_attributes,
+        )
+        ecobee_attributes = self._attributes(76.8) | {
+            "target_temp_low": 71.0,
+            "target_temp_high": 74.0,
+            "min_temp": 44.6,
+            "max_temp": 95.0,
+            "target_temp_step": 0.5,
+            "equipment_running": "",
+        }
+        ecobee_attributes.pop("unit_of_measurement")
+        self.hass.states.async_set(
+            self.ecobee.entity_id,
+            "heat_cool",
+            ecobee_attributes,
+        )
+        self.hass.states.async_set(
+            self.homekit_temperature.entity_id,
+            "76.82",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT,
+            },
+        )
+        await self.hass.async_block_till_done()
+
+        mapping = MappingConfig(
+            "mapping_core_climate_state",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_core_climate_state", (mapping,), {})
+        await manager.async_start()
+        try:
+            snapshot = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(UnitOfTemperature.FAHRENHEIT, snapshot.temperature_unit)
+            self.assertEqual(45.0, snapshot.min_temp)
+            self.assertEqual(92.0, snapshot.max_temp)
+            self.assertEqual(0.5, snapshot.target_temperature_step)
+            self.assertEqual(76.82, snapshot.current_temperature)
+            self.assertEqual(
+                "homekit_temperature", snapshot.provenance["current_temperature"]
+            )
+            self.assertEqual(
+                UnitOfTemperature.FAHRENHEIT, snapshot.ecobee_temperature_unit
+            )
+            self.assertEqual(44.6, snapshot.ecobee_min_temp)
+            self.assertEqual(95.0, snapshot.ecobee_max_temp)
+            self.assertEqual("", snapshot.equipment_running)
+            self.assertNotIn(
+                "homekit_temperature_metadata_unavailable", snapshot.degradation
+            )
+            self.assertNotIn("homekit_temperature_unverifiable", snapshot.degradation)
+
+            climate = EcobeeUnifiedClimate(manager, mapping)
+            climate.hass = self.hass
+            self.assertEqual(76.82, climate.current_temperature)
+            self.assertEqual(0.1, climate.precision)
+            self.assertEqual(71.0, climate.target_temperature_low)
+            self.assertEqual(74.0, climate.target_temperature_high)
+            self.assertEqual(45.0, climate.min_temp)
+            self.assertEqual(92.0, climate.max_temp)
+            self.assertEqual(0.5, climate.target_temperature_step)
+            self.assertEqual(UnitOfTemperature.FAHRENHEIT, climate.temperature_unit)
+            self.assertTrue(
+                climate.supported_features
+                & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+            )
+
+            equipment = EcobeeCloudSensor(
+                manager,
+                mapping,
+                PROJECTIONS[SUFFIX_EQUIPMENT_STAGE],
+            )
+            self.assertTrue(equipment.available)
+            self.assertEqual("idle", equipment.native_value)
         finally:
             await manager.async_stop()
 

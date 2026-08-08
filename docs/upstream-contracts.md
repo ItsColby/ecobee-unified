@@ -53,9 +53,14 @@ Verified against installed Home Assistant Core 2026.8.1 on
    whenever present. A mapped same-device Ecobee step is only a guarded static
    presentation fallback for this omission, never read fallback or a precision
    substitution.
-   Home Assistant climate writers expose Celsius or Fahrenheit units; Kelvin
-   remains valid for an explicitly mapped temperature sensor only through
-   conversion into the writer's supported unit.
+   Core serializes climate state temperatures into Home Assistant's configured
+   temperature unit and does not add `unit_of_measurement` to the public climate
+   state attributes. Unified therefore attaches the configured unit at its
+   climate-source normalization boundary before validating writer metadata,
+   precise-sensor agreement, bounds, steps, or vacation input. Home Assistant
+   climate writers expose Celsius or Fahrenheit units; Kelvin remains valid for
+   an explicitly mapped temperature sensor only through conversion into the
+   writer's supported unit.
 9. **Mapped vendor actions:** Core 2026.8.1 retains public Ecobee actions for
    vacation create/delete, Smart Home/Away and Follow Me policy, and comfort
    sensor participation. Unified mirrors their bounded public schemas, injects
@@ -88,6 +93,11 @@ Verified against installed Home Assistant Core 2026.8.1 on
     registry events. Explicit selection alone is not identity proof; an
     unproven or mismatched pairing disables all Ecobee composition while local
     HomeKit control remains available.
+14. **Ecobee equipment idle semantics:** The Ecobee climate exposes an empty
+    `equipment_running` string while no equipment is active. Unified preserves
+    that healthy empty report through normalization so its bounded equipment
+    sensor projects `idle`; absent or unusable source state still projects
+    unavailable.
 
 Potential improvements to the source integrations are recorded separately in
 `upstream-opportunities.md`; none is required for this candidate and none has

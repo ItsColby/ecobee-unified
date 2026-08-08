@@ -200,14 +200,14 @@ class MappingManager:
             self.hass, mapping.homekit_entity, mapping.ecobee_entity
         )
         physical_identity_proven = identity_status is PhysicalIdentityStatus.MATCH
-        homekit = self._raw_source(
+        homekit = self._climate_raw_source(
             mapping.homekit_entity,
             None,
             require_device=True,
             now=now,
             report_times=report_times,
         )
-        ecobee_observed = self._raw_source(
+        ecobee_observed = self._climate_raw_source(
             mapping.ecobee_entity,
             ecobee_stale_seconds,
             now=now,
@@ -922,6 +922,34 @@ class MappingManager:
             )
             if entity_reference
             else None
+        )
+
+    def _climate_raw_source(
+        self,
+        entity_reference: str,
+        stale_seconds: int | None,
+        *,
+        require_device: bool = False,
+        now: datetime | None = None,
+        report_times: Mapping[str, datetime] | None = None,
+    ) -> RawSource:
+        """Read a climate source using Core's configured-unit state contract."""
+
+        source = self._raw_source(
+            entity_reference,
+            stale_seconds,
+            require_device=require_device,
+            now=now,
+            report_times=report_times,
+        )
+        return RawSource(
+            source.state,
+            {
+                **source.attributes,
+                ATTR_UNIT_OF_MEASUREMENT: self.hass.config.units.temperature_unit,
+            },
+            age_seconds=source.age_seconds,
+            health=source.health,
         )
 
     def _air_quality_raw_source(

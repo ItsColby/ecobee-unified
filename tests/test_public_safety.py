@@ -43,6 +43,19 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
 
+    def test_current_tree_ignores_private_local_control_overlays(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "README.md").write_text("public-safe", encoding="utf-8")
+            overlay = root / ".codex" / "rules"
+            overlay.mkdir(parents=True)
+            (overlay / "publication.rules").write_bytes(b"\x00private local overlay")
+
+            count, failures = run_guard(root)
+
+        self.assertEqual(1, count)
+        self.assertEqual([], failures)
+
     def test_reviewed_brand_asset_is_hash_pinned(self) -> None:
         root = Path(__file__).resolve().parents[1]
         relative = "custom_components/ecobee_unified/brand/icon.png"

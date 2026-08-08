@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,26 @@ class PublicSafetyTests(unittest.TestCase):
         count, failures = run_archive_guard(root)
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
+
+    def test_tracked_maintainer_agent_artifacts_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            (root / "AGENTS.md").write_text("private workflow", encoding="utf-8")
+            self._git(root, "add", "AGENTS.md")
+
+            _count, failures = run_archive_guard(root)
+
+        self.assertIn("Source archive AGENTS.md: maintainer agent artifact", failures)
+
+    def test_pytest_collects_async_home_assistant_tests(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        configuration = tomllib.loads(
+            (root / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "auto", configuration["tool"]["pytest"]["ini_options"]["asyncio_mode"]
+        )
 
     def test_retired_history_content_and_binary_blobs_are_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

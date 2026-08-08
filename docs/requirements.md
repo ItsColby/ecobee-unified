@@ -18,7 +18,7 @@ justify ambiguous values or dual writes.
 | ID | Requirement |
 |---|---|
 | F-01 | Configure multiple thermostat mappings through native config/options flows without credentials. |
-| F-02 | Validate source domains/integrations and reject circular or semantically invalid mappings. |
+| F-02 | Validate source domains/integrations and semantic contracts, prove the HomeKit/Ecobee climates represent the same physical thermostat, and reject circular, duplicate, mismatched, or unproven new mappings. |
 | F-03 | Expose one stable unified climate plus justified sibling entities on the HomeKit-owned thermostat device. |
 | F-04 | Implement the deterministic field ownership and fallback table in `architecture.md`. |
 | F-05 | Route every command to exactly one documented backend service/entity. |
@@ -36,7 +36,7 @@ justify ambiguous values or dual writes.
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
 | F-19 | When explicitly mapped and capability-advertised, expose HomeKit current-mode presets and local clear-hold/resume through the Unified climate action and a native Unified button, with exactly one local writer. |
-| F-20 | Project only justified Ecobee-only detail: minimum fan runtime, bounded equipment stage, explicitly selected AQI/CO2/VOC sensors, and an optional thermostat-display notification facade; do not create duplicate temperature, humidity, occupancy, weather, schedule, or history entities. |
+| F-20 | Project only justified Ecobee-only detail: minimum fan runtime, bounded equipment stage, explicitly selected device-class/unit-valid AQI/CO2/VOC sensors, and an optional thermostat-display notification facade; do not create duplicate temperature, humidity, occupancy, weather, schedule, or history entities. |
 | F-21 | Treat quiet HomeKit push/event observation age as diagnostic rather than unavailability; only cadence-backed sources may become stale by elapsed time. |
 | F-22 | Expose standard target humidity only through capability-advertised HomeKit bounds, one HomeKit writer, and revision-guarded HomeKit confirmation. |
 | F-23 | Permit target-temperature step fusion only as an explicit same-physical-device metadata exception with proven HomeKit writer granularity and reconciled units/bounds; never as generic freshness fallback. |
@@ -84,6 +84,9 @@ MVP is complete when all of the following are true:
 10. A private shadow deployment completes its soak and comparison criteria
     before any existing consumer is migrated.
 11. A late observation cannot confirm, fail, or clear a newer pending command.
+12. Physical-identity or optional-sensor semantic drift disables only the
+    affected Ecobee capabilities before any effect and recovers from supported
+    registry/state evidence without recreating the config entry.
 
 ## Explicit Non-goals for MVP
 

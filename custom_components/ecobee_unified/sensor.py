@@ -139,7 +139,9 @@ def equipment_stage(equipment_running: str | None) -> str | None:
     if "fan" in stages and len(stages) > 1:
         stages.remove("fan")
     unknown = tokens.difference(_EQUIPMENT_STAGES)
-    if unknown or len(stages) > 1:
+    if unknown:
+        return "multiple" if stages else "unknown"
+    if len(stages) > 1:
         return "multiple"
     if stages:
         return next(iter(stages))

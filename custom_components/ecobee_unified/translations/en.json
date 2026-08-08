@@ -10,10 +10,15 @@
       "duplicate_optional_source": "Each optional source entity can be mapped only once.",
       "duplicate_homekit_source": "This HomeKit climate is already mapped.",
       "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",
+      "invalid_ecobee_aqi_source": "Select an Ecobee air quality index sensor on the mapped Ecobee device.",
+      "invalid_ecobee_co2_source": "Select an Ecobee carbon dioxide sensor measured in ppm on the mapped Ecobee device.",
       "invalid_ecobee_source": "Select an entity supplied by Ecobee on the mapped Ecobee device.",
+      "invalid_ecobee_voc_source": "Select an Ecobee volatile organic compounds sensor measured in micrograms per cubic meter on the mapped Ecobee device.",
       "invalid_homekit_controller_source": "Select an entity supplied by HomeKit Controller on the mapped thermostat device.",
       "invalid_homekit_temperature_source": "Select a numeric HomeKit temperature sensor on the mapped thermostat device with a supported temperature unit.",
-      "invalid_name": "Enter a name of 1 to 64 characters."
+      "invalid_name": "Enter a name of 1 to 64 characters.",
+      "physical_device_identity_unproven": "Select HomeKit and Ecobee climates whose supported device identities prove they represent the same thermostat.",
+      "physical_device_mismatch": "The selected HomeKit and Ecobee climates represent different thermostats."
     },
     "step": {
       "mapping": {
@@ -106,7 +111,7 @@
   },
   "issues": {
     "mapping_source_missing": {
-      "description": "The explicitly mapped {source} source or required device link is missing. Reconfigure this thermostat mapping; Ecobee Unified will not guess a replacement.",
+      "description": "The explicitly mapped {source} source, semantic contract, physical identity, or required device link is invalid or missing. Reconfigure this thermostat mapping; Ecobee Unified will not guess a replacement.",
       "title": "A thermostat mapping needs attention"
     }
   },

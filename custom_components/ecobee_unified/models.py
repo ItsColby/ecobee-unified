@@ -205,6 +205,7 @@ def build_snapshot(
     command: CommandSummary | None = None,
     homekit_clear_hold_writable: bool = False,
     temperature_step_fusion_proven: bool = False,
+    physical_identity_proven: bool = True,
     homekit_temperature: RawSource | None = None,
     ecobee_notify_writable: bool = False,
 ) -> NormalizedSnapshot:
@@ -213,6 +214,8 @@ def build_snapshot(
     values: dict[str, Any] = {}
     provenance: dict[str, str] = {}
     degradation: set[str] = set()
+    if not physical_identity_proven:
+        degradation.add("physical_identity_unproven")
 
     hvac_mode, owner = _select_state(homekit, ecobee)
     values["hvac_mode"] = hvac_mode

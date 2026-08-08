@@ -39,6 +39,10 @@ depend on them.
 The integration stores entity-registry IDs rather than names, so registry
 renames survive. Missing selections are preserved and require explicit
 reconfiguration; replacements are never guessed.
+The supported HomeKit device serial and Ecobee device identifier must also
+match. If that proof later disappears, local HomeKit state and control remain
+usable while every Ecobee read, action, notification, and metadata fusion fails
+closed until the registry pairing recovers.
 
 ## Entity surface
 
@@ -68,7 +72,9 @@ The initial flow collects one or more mappings in a single config entry. Each
 mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
 current-temperature sensor/current-mode select/clear-hold button and Ecobee
 AQI/CO2/VOC sensors/notification entity are optional explicit same-device
-selections. Reconfiguration supports explicit add, edit, and remove operations.
+selections. AQI, CO2, and VOC selections must also advertise the matching sensor
+device class and unit, and one optional source cannot fill multiple semantic
+roles. Reconfiguration supports explicit add, edit, and remove operations.
 Editing physical association or command routing requires a second confirmation.
 
 When the explicit HomeKit temperature sensor is selected, the Unified climate

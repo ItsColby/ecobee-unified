@@ -61,11 +61,17 @@ from .models import (
     SourceHealth,
     build_snapshot,
 )
+from .source_contracts import (
+    AIR_QUALITY_SENSOR_CONTRACTS,
+    PhysicalIdentityStatus,
+    physical_identity_status,
+    sensor_contract_valid,
+)
 
-# An explicit mapping asserts the HomeKit and Ecobee climates represent the same
-# physical Ecobee. Core 2026.8's HomeKit writer honors the accessory's native
-# granularity even though its climate adapter omits target_temp_step.
-TEMPERATURE_STEP_FUSION_PROVEN = True
+# Core 2026.8's HomeKit writer honors the accessory's native granularity even
+# though its climate adapter omits target_temp_step. Physical identity remains a
+# separate per-mapping proof that is reevaluated through registry events.
+HOMEKIT_WRITER_GRANULARITY_PROVEN = True
 UNCONFIRMABLE_VENDOR_ACTIONS = frozenset(
     {
         SERVICE_CREATE_VACATION,
@@ -168,6 +174,12 @@ class MappingManager:
         )
         homekit_device_id = self._source_device_id(mapping.homekit_entity)
         ecobee_device_id = self._source_device_id(mapping.ecobee_entity)
+        physical_identity_proven = (
+            physical_identity_status(
+                self.hass, mapping.homekit_entity, mapping.ecobee_entity
+            )
+            is PhysicalIdentityStatus.MATCH
+        )
         homekit = self._raw_source(
             mapping.homekit_entity,
             None,
@@ -175,11 +187,16 @@ class MappingManager:
             now=now,
             report_times=report_times,
         )
-        ecobee = self._raw_source(
+        ecobee_observed = self._raw_source(
             mapping.ecobee_entity,
             ecobee_stale_seconds,
             now=now,
             report_times=report_times,
+        )
+        ecobee = (
+            ecobee_observed
+            if physical_identity_proven
+            else self._invalid_source(ecobee_observed)
         )
         homekit_preset = self._optional_raw_source(
             mapping.homekit_preset_entity,
@@ -197,18 +214,19 @@ class MappingManager:
             required_device_id=homekit_device_id,
         )
         cloud_sensors = tuple(
-            self._optional_raw_source(
+            self._air_quality_raw_source(
                 reference,
+                contract_name,
                 ecobee_stale_seconds,
                 now=now,
                 report_times=report_times,
                 required_device_id=ecobee_device_id,
-                require_matching_device=True,
+                physical_identity_proven=physical_identity_proven,
             )
-            for reference in (
-                mapping.ecobee_aqi_entity,
-                mapping.ecobee_co2_entity,
-                mapping.ecobee_voc_entity,
+            for reference, contract_name in (
+                (mapping.ecobee_aqi_entity, "aqi"),
+                (mapping.ecobee_co2_entity, "co2"),
+                (mapping.ecobee_voc_entity, "voc"),
             )
         )
         snapshot = build_snapshot(
@@ -225,10 +243,16 @@ class MappingManager:
                 mapping.homekit_clear_hold_entity,
                 required_device_id=homekit_device_id,
             ),
-            temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
-            ecobee_notify_writable=self._writer_available(
-                mapping.ecobee_notify_entity,
-                required_device_id=ecobee_device_id,
+            temperature_step_fusion_proven=(
+                physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
+            ),
+            physical_identity_proven=physical_identity_proven,
+            ecobee_notify_writable=(
+                physical_identity_proven
+                and self._writer_available(
+                    mapping.ecobee_notify_entity,
+                    required_device_id=ecobee_device_id,
+                )
             ),
         )
         if observation_revision is not None and self._tracker.observe(
@@ -250,10 +274,16 @@ class MappingManager:
                     mapping.homekit_clear_hold_entity,
                     required_device_id=homekit_device_id,
                 ),
-                temperature_step_fusion_proven=TEMPERATURE_STEP_FUSION_PROVEN,
-                ecobee_notify_writable=self._writer_available(
-                    mapping.ecobee_notify_entity,
-                    required_device_id=ecobee_device_id,
+                temperature_step_fusion_proven=(
+                    physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
+                ),
+                physical_identity_proven=physical_identity_proven,
+                ecobee_notify_writable=(
+                    physical_identity_proven
+                    and self._writer_available(
+                        mapping.ecobee_notify_entity,
+                        required_device_id=ecobee_device_id,
+                    )
                 ),
             )
         self._snapshots[mapping_id] = snapshot
@@ -539,6 +569,12 @@ class MappingManager:
 
         mapping = self._mapping_by_id[mapping_id]
         entity_id = self.resolve_entity_id(mapping.ecobee_entity)
+        identity_proven = (
+            physical_identity_status(
+                self.hass, mapping.homekit_entity, mapping.ecobee_entity
+            )
+            is PhysicalIdentityStatus.MATCH
+        )
         source = self._raw_source(
             mapping.ecobee_entity,
             int(
@@ -549,6 +585,7 @@ class MappingManager:
         )
         if (
             entity_id is None
+            or not identity_proven
             or not source.usable
             or not self.hass.services.has_service("ecobee", service)
         ):
@@ -714,6 +751,14 @@ class MappingManager:
             if operation is None:
                 continue
             reference = self._confirmation_reference(mapping, operation)
+            if (
+                reference == mapping.ecobee_entity
+                and physical_identity_status(
+                    self.hass, mapping.homekit_entity, mapping.ecobee_entity
+                )
+                is not PhysicalIdentityStatus.MATCH
+            ):
+                continue
             if reference and (resolved := self.resolve_entity_id(reference)):
                 observed_entity_ids.add(resolved)
         self._unsub_state_report = (
@@ -789,6 +834,39 @@ class MappingManager:
             if entity_reference
             else None
         )
+
+    def _air_quality_raw_source(
+        self,
+        entity_reference: str | None,
+        contract_name: str,
+        stale_seconds: int,
+        *,
+        now: datetime,
+        report_times: Mapping[str, datetime] | None,
+        required_device_id: str | None,
+        physical_identity_proven: bool,
+    ) -> RawSource | None:
+        source = self._optional_raw_source(
+            entity_reference,
+            stale_seconds,
+            now=now,
+            report_times=report_times,
+            required_device_id=required_device_id,
+            require_matching_device=True,
+        )
+        if source is None or not source.usable:
+            return source
+        if (
+            not physical_identity_proven
+            or entity_reference is None
+            or not sensor_contract_valid(
+                self.hass,
+                entity_reference,
+                AIR_QUALITY_SENSOR_CONTRACTS[contract_name],
+            )
+        ):
+            return self._invalid_source(source)
+        return source
 
     def _temperature_raw_source(
         self,
@@ -900,6 +978,15 @@ class MappingManager:
         )
 
     @staticmethod
+    def _invalid_source(source: RawSource) -> RawSource:
+        return RawSource(
+            None,
+            source.attributes,
+            age_seconds=source.age_seconds,
+            health=SourceHealth.UNAVAILABLE,
+        )
+
+    @staticmethod
     def _confirmation_reference(
         mapping: MappingConfig, operation: str | None
     ) -> str | None:
@@ -964,6 +1051,16 @@ class MappingManager:
         ecobee_entity_id = er.async_resolve_entity_id(registry, mapping.ecobee_entity)
         if ecobee_entity_id is None:
             invalid.append("ecobee")
+        elif (
+            homekit_entry is not None
+            and homekit_device_id is not None
+            and ecobee_device_id is not None
+            and physical_identity_status(
+                self.hass, mapping.homekit_entity, mapping.ecobee_entity
+            )
+            is not PhysicalIdentityStatus.MATCH
+        ):
+            invalid.append("physical device identity")
         ecobee_siblings = (
             mapping.ecobee_aqi_entity,
             mapping.ecobee_co2_entity,
@@ -977,27 +1074,50 @@ class MappingManager:
         ):
             invalid.append("ecobee device")
         optional_sources = (
-            ("HomeKit preset", mapping.homekit_preset_entity, homekit_device_id),
+            (
+                "HomeKit preset",
+                mapping.homekit_preset_entity,
+                homekit_device_id,
+                None,
+            ),
             (
                 "HomeKit clear hold",
                 mapping.homekit_clear_hold_entity,
                 homekit_device_id,
+                None,
             ),
             (
                 "HomeKit temperature",
                 mapping.homekit_temperature_entity,
                 homekit_device_id,
+                None,
             ),
-            ("Ecobee air quality", mapping.ecobee_aqi_entity, ecobee_device_id),
-            ("Ecobee carbon dioxide", mapping.ecobee_co2_entity, ecobee_device_id),
+            (
+                "Ecobee air quality",
+                mapping.ecobee_aqi_entity,
+                ecobee_device_id,
+                "aqi",
+            ),
+            (
+                "Ecobee carbon dioxide",
+                mapping.ecobee_co2_entity,
+                ecobee_device_id,
+                "co2",
+            ),
             (
                 "Ecobee volatile organic compounds",
                 mapping.ecobee_voc_entity,
                 ecobee_device_id,
+                "voc",
             ),
-            ("Ecobee notification", mapping.ecobee_notify_entity, ecobee_device_id),
+            (
+                "Ecobee notification",
+                mapping.ecobee_notify_entity,
+                ecobee_device_id,
+                None,
+            ),
         )
-        for label, reference, required_device_id in optional_sources:
+        for label, reference, required_device_id, contract_name in optional_sources:
             if not reference:
                 continue
             entity_id = er.async_resolve_entity_id(registry, reference)
@@ -1011,6 +1131,13 @@ class MappingManager:
             elif (
                 label == "HomeKit temperature"
                 and not self._temperature_contract_valid(reference)
+            ) or (
+                contract_name is not None
+                and not sensor_contract_valid(
+                    self.hass,
+                    reference,
+                    AIR_QUALITY_SENSOR_CONTRACTS[contract_name],
+                )
             ):
                 invalid.append(label)
         issue_id = f"mapping_{mapping.mapping_id}"

@@ -42,6 +42,13 @@ materially better. A mapping contains:
 - optional Ecobee AQI, CO2, VOC, and notification entities on the Ecobee source
   device.
 
+The HomeKit device serial and Ecobee device identifier must independently prove
+that the two required climates represent the same physical thermostat. New or
+changed mappings fail closed when identity is missing or mismatched. A saved
+temporarily missing mapping remains recoverable, but runtime cloud reads,
+vendor actions, notification writes, and cross-interface metadata fusion stay
+disabled until registry evidence proves the pairing again.
+
 Beestat schedule, transition, filter, alert, and history entities are not
 remapped into this config entry. Beestat owns their transport/storage and links
 them independently to the same HomeKit device.
@@ -65,6 +72,9 @@ does not recreate or reload the config entry and never mutates foreign records.
 Optional HomeKit and Ecobee sibling capabilities remain valid only while their
 registry entities stay on the selected source device; association drift
 degrades only the affected capability and blocks its writer before effects.
+Identity drift between the two required source devices preserves local HomeKit
+state/control but disables all Ecobee-derived semantics and creates a bounded
+Repair until the supported registry identities match again.
 
 ## Deterministic Field Ownership
 
@@ -83,7 +93,7 @@ degrades only the affected capability and blocks its writer before effects.
 | Active comfort sensors | Ecobee climate | none | Do not infer from occupancy. |
 | Scheduled profile/next transition | Beestat entities on the device | none | First-class Beestat presentation; never duplicate as climate attributes. |
 | Room motion/occupancy/battery | HomeKit sibling entities | none | Keep as linked sibling entities; do not copy into climate attributes. |
-| Air-quality estimates | Ecobee sibling entities | none | Keep separate; they are contextual estimates, not life-safety measurements. |
+| Air-quality estimates | Ecobee sibling entities | none | Require the mapped Ecobee device plus the role's exact device class and unit contract; keep separate because they are contextual estimates, not life-safety measurements. |
 | Thermostat-display notification | Ecobee notification entity | none | Optional Unified notification facade; one mapped writer and no delivery failover. |
 | History/filter/alerts | Beestat-derived entities | none | Do not re-export historical series through the climate entity. |
 
@@ -101,7 +111,8 @@ snapshot rather than interpreting raw attributes independently. Availability is
 capability-aware:
 
 - HomeKit available: canonical local climate state and standard control work.
-- Ecobee available: vendor detail/actions work.
+- Ecobee available with same-physical-device identity proven: vendor
+  detail/actions work.
 - Beestat independently available: its sibling schedule/history context works;
   Ecobee Unified does not consume it as a mapped source.
 - A missing optional source removes only its capabilities.

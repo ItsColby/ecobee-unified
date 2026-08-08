@@ -40,9 +40,9 @@ async def test_config_flow_creates_two_explicit_mappings(
     hass: HomeAssistant,
 ) -> None:
     hk_a = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec_a = _register_source(hass, "ecobee", "ec_a")
+    ec_a = _register_source(hass, "ecobee", "ec_a", with_device=True)
     hk_b = _register_source(hass, "homekit_controller", "hk_b", with_device=True)
-    ec_b = _register_source(hass, "ecobee", "ec_b")
+    ec_b = _register_source(hass, "ecobee", "ec_b", with_device=True)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -81,7 +81,7 @@ async def test_config_flow_rejects_wrong_platform_and_duplicates(
     hass: HomeAssistant,
 ) -> None:
     wrong = _register_source(hass, "demo", "wrong")
-    ec_a = _register_source(hass, "ecobee", "ec_a")
+    ec_a = _register_source(hass, "ecobee", "ec_a", with_device=True)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -102,9 +102,9 @@ async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
     hass: HomeAssistant,
 ) -> None:
     hk_a = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec_a = _register_source(hass, "ecobee", "ec_a")
+    ec_a = _register_source(hass, "ecobee", "ec_a", with_device=True)
     hk_b = _register_source(hass, "homekit_controller", "hk_b", with_device=True)
-    ec_b = _register_source(hass, "ecobee", "ec_b")
+    ec_b = _register_source(hass, "ecobee", "ec_b", with_device=True)
     entry = _entry(
         hass,
         (
@@ -133,7 +133,7 @@ async def test_rename_loss_fallback_recovery_and_removal_repair(
     hass: HomeAssistant,
 ) -> None:
     hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a")
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
     entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -170,7 +170,7 @@ async def test_standard_and_vendor_commands_have_exactly_one_writer(
     hass: HomeAssistant,
 ) -> None:
     hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a")
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
     preset = _register_sibling(hass, hk, "select", "hk_a_current_mode")
     clear_hold = _register_sibling(hass, hk, "button", "hk_a_clear_hold")
     hass.states.async_set(preset.entity_id, "Home", {"options": ["Home", "Away"]})
@@ -233,7 +233,7 @@ async def test_vendor_action_services_target_unified_climate_once(
     hass: HomeAssistant,
 ) -> None:
     hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a")
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
     entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
     calls = []
 
@@ -273,7 +273,7 @@ async def test_diagnostics_are_bounded_and_identifier_free(
     hass: HomeAssistant,
 ) -> None:
     hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a")
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
     entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
     assert await hass.config_entries.async_setup(entry.entry_id)
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -298,11 +298,19 @@ def _register_source(
     source_entry.add_to_hass(hass)
     device_id: str | None = None
     if with_device:
+        physical_identity = f"thermostat_{unique_id.rsplit('_', 1)[-1]}"
+        identifiers = {(platform, f"device_{unique_id}")}
+        serial_number = None
+        if platform == "homekit_controller":
+            serial_number = physical_identity
+        elif platform == "ecobee":
+            identifiers = {(platform, physical_identity)}
         device_id = (
             dr.async_get(hass)
             .async_get_or_create(
                 config_entry_id=source_entry.entry_id,
-                identifiers={(platform, f"device_{unique_id}")},
+                identifiers=identifiers,
+                serial_number=serial_number,
             )
             .id
         )

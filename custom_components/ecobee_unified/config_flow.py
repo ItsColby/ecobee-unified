@@ -54,6 +54,12 @@ from .const import (
     NAME,
 )
 from .models import MappingConfig
+from .source_contracts import (
+    AIR_QUALITY_SENSOR_CONTRACTS,
+    PhysicalIdentityStatus,
+    physical_identity_status,
+    sensor_contract_valid,
+)
 
 CLIMATE_SELECTOR = EntitySelector(EntitySelectorConfig(domain="climate"))
 SENSOR_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
@@ -61,6 +67,15 @@ SELECT_SELECTOR = EntitySelector(EntitySelectorConfig(domain="select"))
 BUTTON_SELECTOR = EntitySelector(EntitySelectorConfig(domain="button"))
 NOTIFY_SELECTOR = EntitySelector(EntitySelectorConfig(domain="notify"))
 BOOLEAN_SELECTOR = BooleanSelector()
+OPTIONAL_SOURCE_KEYS = (
+    CONF_HOMEKIT_PRESET_ENTITY,
+    CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+    CONF_HOMEKIT_TEMPERATURE_ENTITY,
+    CONF_ECOBEE_AQI_ENTITY,
+    CONF_ECOBEE_CO2_ENTITY,
+    CONF_ECOBEE_VOC_ENTITY,
+    CONF_ECOBEE_NOTIFY_ENTITY,
+)
 
 
 class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -390,6 +405,7 @@ def _mapping_from_input(
     name = str(user_input[CONF_NAME]).strip()
     if not name or len(name) > 64:
         raise vol.Invalid("invalid_name")
+    _validate_candidate_optional_sources(user_input)
     homekit_entity = _entity_reference(
         hass,
         str(user_input[CONF_HOMEKIT_ENTITY]),
@@ -404,7 +420,17 @@ def _mapping_from_input(
         "climate",
         preserved.ecobee_entity if preserved else None,
     )
+    homekit_device_id = _reference_device_id(hass, homekit_entity)
     ecobee_device_id = _reference_device_id(hass, ecobee_entity)
+    identity_status = physical_identity_status(hass, homekit_entity, ecobee_entity)
+    if identity_status is PhysicalIdentityStatus.MISMATCH:
+        raise vol.Invalid("physical_device_mismatch")
+    if identity_status is PhysicalIdentityStatus.UNPROVEN and not (
+        preserved is not None
+        and homekit_entity == preserved.homekit_entity
+        and ecobee_entity == preserved.ecobee_entity
+    ):
+        raise vol.Invalid("physical_device_identity_unproven")
     if (
         any(
             user_input.get(key)
@@ -429,7 +455,7 @@ def _mapping_from_input(
             "homekit_controller",
             "select",
             preserved.homekit_preset_entity if preserved else None,
-            required_device_id=_reference_device_id(hass, homekit_entity),
+            required_device_id=homekit_device_id,
         ),
         homekit_clear_hold_entity=_optional_entity_reference(
             hass,
@@ -437,13 +463,13 @@ def _mapping_from_input(
             "homekit_controller",
             "button",
             preserved.homekit_clear_hold_entity if preserved else None,
-            required_device_id=_reference_device_id(hass, homekit_entity),
+            required_device_id=homekit_device_id,
         ),
         homekit_temperature_entity=_temperature_entity_reference(
             hass,
             user_input.get(CONF_HOMEKIT_TEMPERATURE_ENTITY),
             preserved.homekit_temperature_entity if preserved else None,
-            required_device_id=_reference_device_id(hass, homekit_entity),
+            required_device_id=homekit_device_id,
         ),
         ecobee_notify_entity=_optional_entity_reference(
             hass,
@@ -454,18 +480,33 @@ def _mapping_from_input(
             required_device_id=ecobee_device_id,
         ),
         **{
-            field_name: _optional_entity_reference(
+            field_name: _air_quality_entity_reference(
                 hass,
                 user_input.get(config_key),
-                "ecobee",
-                "sensor",
                 getattr(preserved, field_name) if preserved else None,
+                contract_name,
+                error_key,
                 required_device_id=ecobee_device_id,
             )
-            for config_key, field_name in (
-                (CONF_ECOBEE_AQI_ENTITY, "ecobee_aqi_entity"),
-                (CONF_ECOBEE_CO2_ENTITY, "ecobee_co2_entity"),
-                (CONF_ECOBEE_VOC_ENTITY, "ecobee_voc_entity"),
+            for config_key, field_name, contract_name, error_key in (
+                (
+                    CONF_ECOBEE_AQI_ENTITY,
+                    "ecobee_aqi_entity",
+                    "aqi",
+                    "invalid_ecobee_aqi_source",
+                ),
+                (
+                    CONF_ECOBEE_CO2_ENTITY,
+                    "ecobee_co2_entity",
+                    "co2",
+                    "invalid_ecobee_co2_source",
+                ),
+                (
+                    CONF_ECOBEE_VOC_ENTITY,
+                    "ecobee_voc_entity",
+                    "voc",
+                    "invalid_ecobee_voc_source",
+                ),
             )
         },
     )
@@ -573,20 +614,54 @@ def _temperature_entity_reference(
     return reference
 
 
+def _air_quality_entity_reference(
+    hass: Any,
+    entity_id: Any,
+    preserve_reference: str | None,
+    contract_name: str,
+    error_key: str,
+    *,
+    required_device_id: str | None,
+) -> str | None:
+    reference = _optional_entity_reference(
+        hass,
+        entity_id,
+        "ecobee",
+        "sensor",
+        preserve_reference,
+        required_device_id=required_device_id,
+    )
+    if reference is None:
+        return None
+    registry = er.async_get(hass)
+    if (
+        er.async_resolve_entity_id(registry, reference) is None
+        and preserve_reference == reference
+    ):
+        return reference
+    if not sensor_contract_valid(
+        hass, reference, AIR_QUALITY_SENSOR_CONTRACTS[contract_name]
+    ):
+        raise vol.Invalid(error_key)
+    return reference
+
+
+def _validate_candidate_optional_sources(candidate: dict[str, Any]) -> None:
+    references = [
+        str(reference)
+        for key in OPTIONAL_SOURCE_KEYS
+        if (reference := candidate.get(key))
+    ]
+    if len(references) != len(set(references)):
+        raise vol.Invalid("duplicate_optional_source")
+
+
 def _validate_no_duplicate_sources(
     existing: list[dict[str, str]], candidate: dict[str, str]
 ) -> None:
-    optional_keys = (
-        CONF_HOMEKIT_PRESET_ENTITY,
-        CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
-        CONF_HOMEKIT_TEMPERATURE_ENTITY,
-        CONF_ECOBEE_AQI_ENTITY,
-        CONF_ECOBEE_CO2_ENTITY,
-        CONF_ECOBEE_VOC_ENTITY,
-        CONF_ECOBEE_NOTIFY_ENTITY,
-    )
+    _validate_candidate_optional_sources(candidate)
     candidate_optional = {
-        reference for key in optional_keys if (reference := candidate.get(key))
+        reference for key in OPTIONAL_SOURCE_KEYS if (reference := candidate.get(key))
     }
     for mapping in existing:
         if mapping[CONF_HOMEKIT_ENTITY] == candidate[CONF_HOMEKIT_ENTITY]:
@@ -594,7 +669,7 @@ def _validate_no_duplicate_sources(
         if mapping[CONF_ECOBEE_ENTITY] == candidate[CONF_ECOBEE_ENTITY]:
             raise vol.Invalid("duplicate_ecobee_source")
         existing_optional = {
-            reference for key in optional_keys if (reference := mapping.get(key))
+            reference for key in OPTIONAL_SOURCE_KEYS if (reference := mapping.get(key))
         }
         if candidate_optional & existing_optional:
             raise vol.Invalid("duplicate_optional_source")

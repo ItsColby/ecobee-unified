@@ -19,6 +19,8 @@ from homeassistant.config_entries import SOURCE_USER, ConfigEntries
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_PARTS_PER_MILLION,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceRegistry
@@ -57,9 +59,11 @@ from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_AQI_ENTITY,
+    CONF_ECOBEE_CO2_ENTITY,
     CONF_ECOBEE_ENTITY,
     CONF_ECOBEE_NOTIFY_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
+    CONF_ECOBEE_VOC_ENTITY,
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
@@ -103,8 +107,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         dr.async_setup(self.hass)
         await dr.async_load(self.hass, load_empty=True)
         await er.async_load(self.hass, load_empty=True)
-        self.homekit = self._source("homekit_controller", "hk_a", device=True)
-        self.ecobee = self._source("ecobee", "ec_a", device=True)
+        self.homekit = self._source(
+            "homekit_controller",
+            "hk_a",
+            device=True,
+            physical_identity="thermostat_a",
+        )
+        self.ecobee = self._source(
+            "ecobee", "ec_a", device=True, physical_identity="thermostat_a"
+        )
         homekit_entry = self.hass.config_entries.async_get_entry(
             self.homekit.config_entry_id
         )
@@ -142,7 +153,11 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             device_id=self.ecobee.device_id,
             suggested_object_id="ec_a_air_quality_index",
         )
-        self.hass.states.async_set(self.ecobee_aqi.entity_id, "42")
+        self.hass.states.async_set(
+            self.ecobee_aqi.entity_id,
+            "42",
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.AQI},
+        )
         self.homekit_temperature = registry.async_get_or_create(
             "sensor",
             "homekit_controller",
@@ -369,8 +384,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_native_config_flow_creates_multiple_mappings(self) -> None:
-        homekit_b = self._source("homekit_controller", "hk_b", device=True)
-        ecobee_b = self._source("ecobee", "ec_b")
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_b",
+            device=True,
+            physical_identity="thermostat_b",
+        )
+        ecobee_b = self._source(
+            "ecobee", "ec_b", device=True, physical_identity="thermostat_b"
+        )
         result = await self.hass.config_entries.flow.async_init(
             DOMAIN, context={"source": SOURCE_USER}
         )
@@ -402,7 +424,9 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_config_flow_rejects_duplicate_mapping_and_second_entry(self) -> None:
-        ecobee_b = self._source("ecobee", "ec_b")
+        ecobee_b = self._source(
+            "ecobee", "ec_b", device=True, physical_identity="thermostat_a"
+        )
         result = await self.hass.config_entries.flow.async_init(
             DOMAIN, context={"source": SOURCE_USER}
         )
@@ -472,7 +496,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
 
         candidate = self.mapping.as_dict()
-        homekit_b = self._source("homekit_controller", "hk_b", device=True)
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_b",
+            device=True,
+            physical_identity="thermostat_b",
+        )
         ecobee_b = self._source("ecobee", "ec_b")
         duplicate_context = MappingConfig(
             "mapping_b",
@@ -483,6 +512,111 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         ).as_dict()
         with self.assertRaisesRegex(vol.Invalid, "duplicate_optional_source"):
             _validate_no_duplicate_sources([candidate], duplicate_context)
+
+        reused_within_mapping = self.mapping.as_dict() | {
+            CONF_ECOBEE_CO2_ENTITY: self.ecobee_aqi.id,
+            CONF_ECOBEE_VOC_ENTITY: self.ecobee_aqi.id,
+        }
+        with self.assertRaisesRegex(vol.Invalid, "duplicate_optional_source"):
+            _validate_no_duplicate_sources([], reused_within_mapping)
+
+    async def test_mapping_requires_proven_same_physical_device(self) -> None:
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_identity_b",
+            device=True,
+            physical_identity="thermostat_b",
+        )
+        ecobee_c = self._source(
+            "ecobee",
+            "ec_identity_c",
+            device=True,
+            physical_identity="thermostat_c",
+        )
+        with self.assertRaisesRegex(vol.Invalid, "physical_device_mismatch"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone B",
+                    CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
+                    CONF_ECOBEE_ENTITY: ecobee_c.entity_id,
+                },
+            )
+
+        ecobee_unproven = self._source("ecobee", "ec_unproven")
+        with self.assertRaisesRegex(vol.Invalid, "physical_device_identity_unproven"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone B",
+                    CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
+                    CONF_ECOBEE_ENTITY: ecobee_unproven.entity_id,
+                },
+            )
+
+    async def test_mapping_validates_air_quality_sensor_semantics(self) -> None:
+        registry = er.async_get(self.hass)
+        ecobee_entry = self.hass.config_entries.async_get_entry(
+            self.ecobee.config_entry_id
+        )
+        assert ecobee_entry is not None
+        temperature = registry.async_get_or_create(
+            "sensor",
+            "ecobee",
+            "ec_a_temperature",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            suggested_object_id="ec_a_temperature",
+            original_device_class=SensorDeviceClass.TEMPERATURE,
+            unit_of_measurement=UnitOfTemperature.CELSIUS,
+        )
+        self.hass.states.async_set(temperature.entity_id, "21.5")
+        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_aqi_source"):
+            _mapping_from_input(
+                self.hass,
+                {
+                    CONF_NAME: "Zone A",
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                    CONF_ECOBEE_AQI_ENTITY: temperature.entity_id,
+                },
+            )
+
+        co2 = registry.async_get_or_create(
+            "sensor",
+            "ecobee",
+            "ec_a_co2",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            suggested_object_id="ec_a_co2",
+            original_device_class=SensorDeviceClass.CO2,
+            unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        )
+        voc = registry.async_get_or_create(
+            "sensor",
+            "ecobee",
+            "ec_a_voc",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            suggested_object_id="ec_a_voc",
+            original_device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+            unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        )
+        self.hass.states.async_set(co2.entity_id, "850")
+        self.hass.states.async_set(voc.entity_id, "125")
+        mapping = _mapping_from_input(
+            self.hass,
+            {
+                CONF_NAME: "Zone A",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ECOBEE_AQI_ENTITY: self.ecobee_aqi.entity_id,
+                CONF_ECOBEE_CO2_ENTITY: co2.entity_id,
+                CONF_ECOBEE_VOC_ENTITY: voc.entity_id,
+            },
+        )
+        self.assertEqual(co2.id, mapping[CONF_ECOBEE_CO2_ENTITY])
+        self.assertEqual(voc.id, mapping[CONF_ECOBEE_VOC_ENTITY])
 
     async def test_mapping_accepts_only_same_device_temperature_and_notify_sources(
         self,
@@ -1013,8 +1147,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             await manager.async_stop()
 
     async def test_reconfigure_edits_and_removes_with_confirmation(self) -> None:
-        homekit_b = self._source("homekit_controller", "hk_b", device=True)
-        ecobee_b = self._source("ecobee", "ec_b")
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_b",
+            device=True,
+            physical_identity="thermostat_b",
+        )
+        ecobee_b = self._source(
+            "ecobee", "ec_b", device=True, physical_identity="thermostat_b"
+        )
         mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -1071,9 +1212,17 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         replacement_homekit = self._source(
-            "homekit_controller", "hk_replacement", device=True
+            "homekit_controller",
+            "hk_replacement",
+            device=True,
+            physical_identity="thermostat_replacement",
         )
-        replacement_ecobee = self._source("ecobee", "ec_replacement")
+        replacement_ecobee = self._source(
+            "ecobee",
+            "ec_replacement",
+            device=True,
+            physical_identity="thermostat_replacement",
+        )
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
@@ -1136,6 +1285,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         result = await self.hass.config_entries.options.async_configure(
             result["flow_id"], options
         )
+        await self.hass.async_block_till_done()
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
         self.assertEqual(options, entry.options)
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
@@ -1723,6 +1873,69 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         )
 
+    async def test_identity_and_air_quality_contract_drift_degrade_and_recover(
+        self,
+    ) -> None:
+        devices = dr.async_get(self.hass)
+        assert self.ecobee.device_id is not None
+        devices.async_update_device(
+            self.ecobee.device_id,
+            new_identifiers={("ecobee", "different_thermostat")},
+        )
+        await self.hass.async_block_till_done()
+
+        degraded = self.manager.snapshot("mapping_a")
+        self.assertTrue(degraded.available)
+        self.assertTrue(degraded.homekit_writable)
+        self.assertFalse(degraded.ecobee_writable)
+        self.assertIsNone(degraded.air_quality_index)
+        self.assertIsNone(degraded.target_temperature_step)
+        self.assertIn("physical_identity_unproven", degraded.degradation)
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("ecobee", "set_fan_min_on_time", capture)
+        with self.assertRaises(ServiceValidationError):
+            await self.manager.async_set_minimum_fan_runtime("mapping_a", 10, None)
+        self.assertEqual([], calls)
+
+        devices.async_update_device(
+            self.ecobee.device_id,
+            new_identifiers={("ecobee", "thermostat_a")},
+        )
+        await self.hass.async_block_till_done()
+        recovered = self.manager.snapshot("mapping_a")
+        self.assertTrue(recovered.ecobee_writable)
+        self.assertEqual(42.0, recovered.air_quality_index)
+        self.assertEqual(0.5, recovered.target_temperature_step)
+
+        self.hass.states.async_set(
+            self.ecobee_aqi.entity_id,
+            "42",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
+            },
+        )
+        await self.hass.async_block_till_done()
+        invalid_sensor = self.manager.snapshot("mapping_a")
+        self.assertIsNone(invalid_sensor.air_quality_index)
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        self.assertIsNotNone(issue)
+
+        self.hass.states.async_set(
+            self.ecobee_aqi.entity_id,
+            "42",
+            {ATTR_DEVICE_CLASS: SensorDeviceClass.AQI},
+        )
+        await self.hass.async_block_till_done()
+        self.assertEqual(42.0, self.manager.snapshot("mapping_a").air_quality_index)
+        self.assertIsNone(
+            ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
+        )
+
     async def test_command_timeout_reports_unconfirmed_without_retry(self) -> None:
         calls: list[ServiceCall] = []
 
@@ -2283,6 +2496,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         replacement = dr.async_get(self.hass).async_get_or_create(
             config_entry_id=self.homekit.config_entry_id,
             identifiers={("homekit_controller", "replacement_device")},
+            serial_number="thermostat_a",
         )
         registry.async_update_entity(self.homekit.entity_id, device_id=replacement.id)
         registry.async_update_entity(
@@ -2375,16 +2589,24 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         *,
         device: bool = False,
         domain: str = "climate",
+        physical_identity: str | None = None,
     ) -> er.RegistryEntry:
         source_entry = MockConfigEntry(domain=platform)
         source_entry.add_to_hass(self.hass)
         device_id = None
         if device:
+            identifiers = {(platform, f"device_{unique_id}")}
+            serial_number = None
+            if platform == "homekit_controller":
+                serial_number = physical_identity
+            elif platform == "ecobee" and physical_identity:
+                identifiers = {(platform, physical_identity)}
             device_id = (
                 dr.async_get(self.hass)
                 .async_get_or_create(
                     config_entry_id=source_entry.entry_id,
-                    identifiers={(platform, f"device_{unique_id}")},
+                    identifiers=identifiers,
+                    serial_number=serial_number,
                 )
                 .id
             )

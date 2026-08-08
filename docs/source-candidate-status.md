@@ -15,9 +15,10 @@ validation, consumer migration, outbound effects, or rollback.
 
 - One typed config-entry runtime owns multiple explicit thermostat mappings.
 - Config and reconfigure flows use entity selectors, store registry IDs, reject
-  invalid platforms and duplicate sources, preserve temporarily missing saved
-  references, and require confirmation before physical-association or writer
-  changes.
+  invalid platforms, duplicate sources, semantically invalid optional sensors,
+  and unproven or mismatched physical-device pairings; they preserve temporarily
+  missing saved references and require confirmation before physical-association
+  or writer changes.
 - One normalized immutable snapshot per mapping owns field selection,
   provenance, source age/health, capability-aware degradation, explicit local
   precise temperature/preset plus vendor-only projections, and recent command
@@ -29,8 +30,13 @@ validation, consumer migration, outbound effects, or rollback.
   without property I/O and link to the selected HomeKit thermostat device. An
   explicitly mapped same-device HomeKit temperature sensor can preserve honest
   local decimals inside the climate without creating a duplicate temperature
-  entity. Registry reconciliation follows source move/detach/removal/restoration
-  in place without config-entry reload.
+  entity. AQI, CO2, and VOC projections require their exact sensor device class
+  and unit. Registry reconciliation follows source move/detach/removal/
+  restoration in place without config-entry reload.
+- Supported HomeKit serial and Ecobee identifier evidence proves each active
+  cross-backend pairing. Identity loss preserves local HomeKit state/control but
+  blocks cloud fallback, vendor actions, notification writes, and target-step
+  fusion until registry evidence recovers.
 - Standard climate, preset, and clear-hold commands call only their explicitly
   mapped HomeKit entities. The minimum-fan number calls only Ecobee
   `set_fan_min_on_time`. No path retries or fails over to a second writer.
@@ -48,14 +54,16 @@ validation, consumer migration, outbound effects, or rollback.
   superseded commands. A fresh matching unchanged Ecobee report can confirm
   only the current pending revision.
 - Diagnostics are allow-listed and mapping-indexed. Repairs cover removed
-  required registry sources and missing HomeKit device links, and clear when
-  valid references recover.
+  required registry sources, invalid semantic contracts, missing device links,
+  and physical-identity drift, and clear when valid evidence recovers.
 - The repository includes generic fixtures/tests, strict typing and Ruff
   policy, exact Core requirements, complete reachable-blob public-safety and
   history scanning, Hassfest and HACS jobs, least workflow permissions, bounded
   timeouts/concurrency, non-persistent checkout credentials, and a terminal
-  release gate. Volatile source-age, active-sensor, and command-confirmation
-  attributes are excluded from Recorder.
+  release gate. Pytest explicitly owns async HA test collection, and tracked
+  source archives reject maintainer-only agent instructions. Volatile source
+  age, active-sensor, and command-confirmation attributes are excluded from
+  Recorder.
 
 ## MVP acceptance disposition
 
@@ -64,17 +72,17 @@ validation, consumer migration, outbound effects, or rollback.
 | Multiple mappings in one entry | Proven locally | Real Core flow manager creates two registry-ID mappings in one entry. |
 | Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, honest primary precision, no averaging, and semantic current temperature. |
 | Quiet-source health and recovery | Proven locally | Exact-Core manager tests keep quiet HomeKit push/event state healthy across multiple elapsed/cloud boundaries, degrade only on actual unavailable/missing state, recover ownership, and prevent oscillation. |
-| Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, writer-owned temperature unit/bounds, and explicit same-device step fusion without freshness or precision substitution. |
+| Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, writer-owned temperature unit/bounds, and identity-proven same-device step fusion without freshness or precision substitution. |
 | Precise local current temperature | Proven locally | Pure and exact-Core tests cover explicit same-device capability validation, unit conversion, source-dependent climate-state precision, preserved decimals, quiet-source ownership, climate/cloud fallback, rename, move/detach, disappearance, and recovery without apparent-precision or freshness selection. |
-| Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover preset capability, the native Unified resume button, minimum fan number, bounded equipment stage, optional AQI/CO2/VOC/notification, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
+| Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover physical identity, preset capability, the native Unified resume button, minimum fan number, bounded equipment stage, device-class/unit-valid AQI/CO2/VOC, notification, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
 | Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; full climate method matrix is in the Linux HA test suite. |
 | Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one HomeKit clear-hold press from each Unified entry point, and one mapped Ecobee call for minimum fan, notification, vacation, occupancy policy, and sensor participation. Unprojectable effects remain submitted. |
 | Observation never retries | Proven locally | Command tracker and service-registry tests prove confirmation is read-only and timeouts issue no service call. |
-| Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, registry rename, capability loss/recovery, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
+| Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, registry rename, physical-identity and semantic-contract drift/recovery, capability loss/recovery, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | Eighty-one bounded tests pass directly on installed Core 2026.8.1 and in the dependency-closed Core 2026.8.0 minimum environment. Strict mypy, host Ruff, compile, JSON, `pip check`, working-tree/tracked-archive, and complete reachable-history privacy checks also pass. The latest real harness cannot yet form a closed 2026.8.1 lane, and Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | Eighty-six bounded tests pass directly on installed Core 2026.8.1; the dependency-closed Core 2026.8.0 minimum workflow now explicitly collects async HA tests. Strict mypy, host Ruff, compile, JSON, `pip check`, working-tree/tracked-archive, and complete reachable-history privacy checks also pass. The latest real harness cannot yet form a closed 2026.8.1 lane, and Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
@@ -133,7 +141,7 @@ All controlled capability dispositions and product-relative evidence paths:
 | `typed-runtime` | required / observed | `custom_components/ecobee_unified/runtime.py`; `custom_components/ecobee_unified/__init__.py` |
 | `config-entry-lifecycle` | required / observed | `custom_components/ecobee_unified/config_flow.py`; `custom_components/ecobee_unified/__init__.py`; `tests/test_runtime_core_api.py` |
 | `config-entry-migrations` | required / observed | `custom_components/ecobee_unified/__init__.py`; `tests/test_runtime_core_api.py` |
-| `bounded-source-boundary` | required / observed | `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/models.py`; `tests/test_runtime_core_api.py` |
+| `bounded-source-boundary` | required / observed | `custom_components/ecobee_unified/source_contracts.py`; `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/models.py`; `tests/test_runtime_core_api.py` |
 | `normalized-model` | required / observed | `custom_components/ecobee_unified/models.py`; `custom_components/ecobee_unified/manager.py`; `tests/test_models.py` |
 | `dynamic-discovery` | not applicable / not applicable | `docs/architecture.md`; thermostat mappings are explicitly selected rather than discovered. |
 | `helper-device-linking` | required / observed | `custom_components/ecobee_unified/entity.py`; `custom_components/ecobee_unified/button.py`; `custom_components/ecobee_unified/notify.py`; `custom_components/ecobee_unified/manager.py`; `tests/test_runtime_core_api.py` |
@@ -143,7 +151,7 @@ All controlled capability dispositions and product-relative evidence paths:
 | `reauth` | not applicable / not applicable | `docs/architecture.md`; the helper consumes Home Assistant-owned sources and stores no upstream credential. |
 | `account-continuity` | not applicable / not applicable | `docs/architecture.md`; the helper owns mappings rather than an authenticated upstream account. |
 | `single-writer-actions` | required / observed | `custom_components/ecobee_unified/manager.py`; `custom_components/ecobee_unified/climate.py`; `custom_components/ecobee_unified/button.py`; `custom_components/ecobee_unified/number.py`; `custom_components/ecobee_unified/notify.py`; `tests/test_commands.py`; `tests/test_runtime_core_api.py` |
-| `response-producing-actions` | not applicable / not applicable | `docs/architecture.md`; the integration routes climate commands and does not own delivered content. |
+| `response-producing-actions` | not applicable / not applicable | `docs/architecture.md`; the one-way NotifyEntity facade delegates delivery to the mapped Ecobee notification entity and returns no caller-owned content. |
 | `capability-route` | not applicable / not applicable | `docs/architecture.md`; the integration exposes no unauthenticated subscription or capability route. |
 | `health-projection` | required / observed | `custom_components/ecobee_unified/models.py`; `custom_components/ecobee_unified/climate.py`; `custom_components/ecobee_unified/button.py`; `custom_components/ecobee_unified/notify.py`; `custom_components/ecobee_unified/diagnostics.py`; `tests/test_models.py`; `tests/test_runtime_core_api.py` |
 | `temporary-artifacts` | not applicable / not applicable | `docs/architecture.md`; the integration runtime produces no temporary files or attachments. |
@@ -190,6 +198,13 @@ release, or live-instance state.
   canonical climate after device-class, unit, finite-value, association, and
   climate-state serialization validation. This is not a generic precision or
   freshest-source rule.
+- **Product-specific identity consequence:** explicit selection is not proof
+  that HomeKit and Ecobee represent the same thermostat. Supported registry
+  identity equality gates every cloud read/action and cross-interface metadata
+  fusion while leaving local HomeKit control available.
+- **Product-specific semantic consequence:** AQI, CO2, and VOC require exact
+  device-class/unit contracts at configuration and runtime; a same-device but
+  different physical quantity is unavailable rather than relabeled.
 - **Product-specific action consequence:** the optional Unified notification
   entity is covered by existing single-writer and helper-linking capabilities;
   Ecobee still owns transport and delivered-content semantics, so no new shared

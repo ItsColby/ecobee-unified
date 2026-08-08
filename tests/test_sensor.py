@@ -14,6 +14,7 @@ class EquipmentStageTests(unittest.TestCase):
 
     def test_idle_multiple_and_unknown_are_bounded(self) -> None:
         self.assertEqual("idle", equipment_stage(""))
+        self.assertEqual("unknown", equipment_stage("privateToken"))
         self.assertEqual("multiple", equipment_stage("compCool1,auxHeat1"))
         self.assertEqual("multiple", equipment_stage("compCool1,privateToken"))
         self.assertIsNone(equipment_stage(None))

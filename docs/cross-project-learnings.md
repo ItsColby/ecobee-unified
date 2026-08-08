@@ -46,6 +46,10 @@ non-duplicate vendor projections on the same user-facing device.
   across a different physical device or account boundary.
 - Require an impact summary and confirmation before changing the physical
   thermostat association or command writer.
+- Treat an explicit pair selection as intent rather than proof. Installed Core
+  exposes the HomeKit thermostat serial and Ecobee thermostat identifier through
+  supported device-registry fields; require their equality for active cloud
+  composition and reevaluate it on registry lifecycle events.
 - Version persisted-contract migrations and preserve mapping identity, unique
   IDs, source/writer policy, recoverable selections, and Recorder semantics.
 
@@ -87,6 +91,9 @@ non-duplicate vendor projections on the same user-facing device.
 
 - Validate the mapped entry/entity, capability, writer availability, units,
   and bounds before issuing exactly one service call.
+- Validate AQI, CO2, and VOC device classes and units at configuration and
+  runtime; a same-device but semantically different sensor must not be relabeled
+  by the Unified projection.
 - Standard climate, preset, and clear-hold commands use HomeKit only. The
   minimum-fan number and notification facade use their explicitly mapped Ecobee
   paths. Read fallback never implies write failover, and a timeout never causes

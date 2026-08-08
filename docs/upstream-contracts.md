@@ -65,6 +65,13 @@ Verified against installed Home Assistant Core 2026.8.1 on
     delegates messages to its owned backend while ignoring titles. Unified
     therefore forwards one non-empty message to one explicitly mapped Ecobee
     notification entity and lets Core own notification entity state semantics.
+12. **Cross-backend physical identity:** Installed Core 2026.8.1 stores the
+    HomeKit accessory serial in `DeviceEntry.serial_number` and the Ecobee
+    thermostat identifier in the Ecobee device's `(ecobee, identifier)` pair.
+    Unified compares those supported registry fields at configuration and after
+    registry events. Explicit selection alone is not identity proof; an
+    unproven or mismatched pairing disables all Ecobee composition while local
+    HomeKit control remains available.
 
 Potential improvements to the source integrations are recorded separately in
 `upstream-opportunities.md`; none is required for this candidate and none has
@@ -87,6 +94,7 @@ been selected for upstream work.
 - [Core 2026.8.1 Ecobee climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/climate.py)
 - [Core 2026.8.1 Ecobee action schema](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/services.yaml)
 - [Core 2026.8.1 HomeKit Controller climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/homekit_controller/climate.py)
+- [Core 2026.8.1 HomeKit Controller device identity source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/homekit_controller/connection.py)
 - [Core 2026.8.1 notify entity source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/notify/__init__.py)
 - [Core 2026.8.1 Ecobee notify source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/notify.py)
 - [Home Assistant notify entity developer contract](https://developers.home-assistant.io/docs/core/entity/notify/)

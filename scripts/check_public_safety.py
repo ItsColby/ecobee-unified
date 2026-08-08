@@ -44,6 +44,7 @@ EMAIL_PATTERN = re.compile(
     r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE
 )
 MAX_HISTORY_BLOB_BYTES = 1_000_000
+MAINTAINER_AGENT_PARTS = frozenset({".agents", ".codex"})
 
 
 def _text_failures(text: str) -> set[str]:
@@ -58,6 +59,12 @@ def _text_failures(text: str) -> set[str]:
         } and not email.endswith("@users.noreply.github.com"):
             failures.add("non-example email address")
     return failures
+
+
+def _is_maintainer_agent_artifact(path: Path) -> bool:
+    return path.name.casefold() == "agents.md" or any(
+        part.casefold() in MAINTAINER_AGENT_PARTS for part in path.parts
+    )
 
 
 def run_guard(root: Path) -> tuple[int, list[str]]:
@@ -105,6 +112,10 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
             archive_path, "w", compression=zipfile.ZIP_DEFLATED
         ) as archive:
             for relative in tracked:
+                if _is_maintainer_agent_artifact(relative):
+                    failures.append(
+                        f"Source archive {relative.as_posix()}: maintainer agent artifact"
+                    )
                 path = root / relative
                 if path.is_file():
                     archive.write(path, relative.as_posix())

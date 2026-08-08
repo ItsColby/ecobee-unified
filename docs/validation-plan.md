@@ -14,6 +14,9 @@
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
 - explicit confirmation for physical-device or command-writer changes.
+- matched, mismatched, and missing HomeKit-serial/Ecobee-identifier proof at
+  create and reconfigure time, plus runtime identity drift/recovery without
+  recreating the config entry;
 
 ### Field Selection
 
@@ -33,6 +36,8 @@ For every standard and vendor field, test:
   move/detach, disappearance, and recovery;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, and recovery.
+- AQI, CO2, and VOC device-class/unit contracts, non-finite/negative state,
+  within-mapping source reuse, semantic drift, Repair creation, and recovery.
 
 Include fixtures where climate `current_temperature` intentionally differs from
 an explicitly mapped same-device HomeKit temperature sensor and an unmapped raw
@@ -91,6 +96,8 @@ decimal places or a newer timestamp.
 - Repairs only for persistent actionable faults, with recovery deletion;
 - one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
   legacy lane unless the maintained support contract is widened;
+- explicit pytest asyncio ownership so every top-level HA integration test is
+  collected and executed rather than silently skipped;
 - separate harness/Core requirement installation, with Linux/hosted execution
   for HA-specific tests when native Windows cannot import Core;
 - Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,
@@ -113,6 +120,8 @@ text, and packaged archive for:
 - real entity/device/config-entry IDs and household names;
 - credentials, tokens, cookies, capability URLs, and raw diagnostics;
 - local filesystem paths and private repository URLs.
+- tracked maintainer agent instructions or configuration in the public source
+  archive.
 
 Fixtures use names such as `zone_a`, `room_sensor_a`, and synthetic IDs only.
 History scanning covers commit metadata, every historical filename, and every

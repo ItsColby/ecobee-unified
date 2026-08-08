@@ -46,6 +46,9 @@ Exit: the empty integration configures/unloads cleanly and all CI is green.
 - Use typed mapping and snapshot models.
 - Track source entity changes through supported registry/event APIs.
 - Validate domains/integrations and reject loops/duplicates.
+- Compare the supported HomeKit device serial with the Ecobee device identifier;
+  reject mismatched or unproven new pairings and reevaluate the proof on
+  registry lifecycle changes.
 - Implement source availability separately from observation age: quiet HomeKit
   remains healthy, while cadence-backed Ecobee sources retain bounded stale
   reevaluation and redacted diagnostics.
@@ -96,9 +99,10 @@ unconfirmable vendor action.
 ## Phase 5: Optional Enrichment
 
 - Add a bounded equipment-stage sensor and explicitly mapped AQI/CO2/VOC
-  sensors; do not create duplicate HomeKit temperature/humidity/occupancy/weather
-  entities. Precise mapped temperature is projected through the canonical
-  climate instead.
+  sensors only after device-class, unit, finite-state, and same-device
+  validation; do not create duplicate HomeKit temperature/humidity/occupancy/
+  weather entities. Precise mapped temperature is projected through the
+  canonical climate instead.
 - Rely on Beestat's first-class schedule/filter/alert entities already linked
   to the same device; do not copy their state or move Recorder ownership.
 - Keep all historical, volatile-age, and high-cardinality data out of recorded

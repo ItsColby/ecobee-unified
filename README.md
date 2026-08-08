@@ -6,9 +6,9 @@ thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
 
 The candidate keeps Home Assistant Core 2026.8.0 as its distribution minimum
-and dependency-closed harness lane. Bounded direct validation also targets the
-installed Core 2026.8.1 patch, whose compatible published test harness is still
-pending. A local candidate commit is not remote Git integration, publication,
+and dependency-closed minimum lane. A second dependency-closed lane targets the
+maintained Core 2026.8.1 patch with its matching published harness. A local
+candidate commit is not remote Git integration, publication,
 release, deployment, or HACS availability; none of those later states is
 claimed here.
 
@@ -156,14 +156,26 @@ python scripts/check_public_safety.py
 actionlint
 ```
 
-The formal minimum lane installs the compatible Home Assistant harness first,
-Core 2026.8.0 second, product-owned typing tools last, and then proves the final
-environment before tests. Installed Core 2026.8.1 receives bounded direct API
-validation until the real harness publishes a dependency-compatible release:
+Both formal lanes install their matching Home Assistant harness first, exact
+Core second, product-owned typing tools last, and then prove final dependency
+closure before the complete test surface.
+
+Minimum Core lane:
 
 ```text
 python -m pip install "pytest-homeassistant-custom-component==0.13.354"
 python -m pip install --upgrade -r requirements-ha-test.txt
+python -m pip install "mypy==2.3.0"
+python -m pip check
+python -m mypy --strict custom_components/ecobee_unified
+pytest tests -q
+```
+
+Current maintained Core lane:
+
+```text
+python -m pip install "pytest-homeassistant-custom-component==0.13.355"
+python -m pip install --upgrade -r requirements-ha-current.txt
 python -m pip install "mypy==2.3.0"
 python -m pip check
 python -m mypy --strict custom_components/ecobee_unified

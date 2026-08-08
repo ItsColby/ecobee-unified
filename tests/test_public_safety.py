@@ -124,24 +124,33 @@ class PublicSafetyTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_support_and_ci_have_one_exact_core_lane(self) -> None:
+    def test_support_and_ci_have_exact_minimum_and_current_core_lanes(self) -> None:
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/validate.yaml").read_text(
             encoding="utf-8"
         )
-        requirements = (root / "requirements-ha-test.txt").read_text(encoding="utf-8")
+        minimum_requirements = (root / "requirements-ha-test.txt").read_text(
+            encoding="utf-8"
+        )
+        current_requirements = (root / "requirements-ha-current.txt").read_text(
+            encoding="utf-8"
+        )
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
         icons = json.loads(
             (root / "custom_components/ecobee_unified/icons.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual("homeassistant==2026.8.0", requirements.strip())
+        self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
+        self.assertEqual("homeassistant==2026.8.1", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
         self.assertIn(
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )
-        self.assertEqual(1, workflow.count("pytest-homeassistant-custom-component=="))
+        self.assertIn(
+            "Home Assistant integration tests (Core 2026.8.1 current)", workflow
+        )
+        self.assertEqual(2, workflow.count("pytest-homeassistant-custom-component=="))
         self.assertNotIn("matrix.", workflow)
         self.assertEqual(
             {
@@ -157,15 +166,35 @@ class PublicSafetyTests(unittest.TestCase):
             "mdi:hvac",
             icons["entity"]["sensor"]["equipment_stage"]["default"],
         )
-        harness = (
+        minimum_harness = (
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
         )
-        core = "python -m pip install --upgrade -r requirements-ha-test.txt"
+        current_harness = (
+            'python -m pip install "pytest-homeassistant-custom-component==0.13.355"'
+        )
+        minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
+        current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"
         dependency_check = "python -m pip check"
         all_tests = "pytest tests -q"
-        self.assertLess(workflow.index(harness), workflow.index(core))
-        self.assertLess(workflow.index(core), workflow.index(dependency_check))
-        self.assertLess(workflow.index(dependency_check), workflow.index(all_tests))
+        minimum_lane = workflow[
+            workflow.index("  home_assistant_minimum:") : workflow.index(
+                "  home_assistant_current:"
+            )
+        ]
+        current_lane = workflow[
+            workflow.index("  home_assistant_current:") : workflow.index("  hassfest:")
+        ]
+        for lane, harness, core in (
+            (minimum_lane, minimum_harness, minimum_core),
+            (current_lane, current_harness, current_core),
+        ):
+            self.assertLess(lane.index(harness), lane.index(core))
+            self.assertLess(lane.index(core), lane.index(dependency_check))
+            self.assertLess(lane.index(dependency_check), lane.index(all_tests))
+        self.assertIn(
+            "needs: [unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
+            workflow,
+        )
         self.assertNotIn("python -m unittest tests.test_models", workflow)
 
 

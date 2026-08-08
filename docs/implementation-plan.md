@@ -15,9 +15,9 @@ implementation unless the separate deployment gate is explicitly opened.
 - Read the central `maintain-ha-custom-integrations` engineering contract and
   re-evaluate its Ecobee-specific consequences in
   `cross-project-learnings.md` against current Home Assistant APIs.
-- Record Home Assistant Core 2026.8 as the single initial support/test lane and
-  any deferred quality rules. Add another Core lane only when support is
-  intentionally widened.
+- Record exact Core 2026.8.0 minimum and exact maintained Core 2026.8.1 test
+  lanes plus any deferred quality rules. Add a lane outside that year/month
+  only when support is intentionally widened.
 
 Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
@@ -25,8 +25,9 @@ Exit: contracts and compatibility lanes are explicit and cited in code/docs.
 
 Create the standard custom component package, manifest, config flow, typed
 runtime model, constants, translations, diagnostics, public-safety checker and
-tests, one exact Home Assistant Core 2026.8 lane, Hassfest/HACS validation, Ruff format/lint, a
-proportionate strict mypy policy, pytest and Home Assistant tests,
+tests, exact minimum and maintained Home Assistant Core 2026.8 lanes,
+Hassfest/HACS validation, Ruff format/lint, a proportionate strict mypy policy,
+pytest and Home Assistant tests,
 actionlint/ShellCheck, explicit job timeouts/concurrency, side-effect-free
 checkout without persisted credentials, and a required terminal release-gate
 job. Use CalVer versioning only when a release is actually prepared.

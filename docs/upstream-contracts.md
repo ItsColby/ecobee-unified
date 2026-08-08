@@ -24,11 +24,12 @@ Verified against installed Home Assistant Core 2026.8.1 on
    `set_fan_min_on_time` with a 0-to-60-minute bound. The unified action routes
    from the first-class number to that writer exactly once.
 5. **Compatibility lanes:** Core 2026.8.0 remains the distribution minimum and
-   dependency-closed formal harness lane. Installed Core 2026.8.1 is the direct
-   validation target. The latest published real harness, 0.13.354, requires
-   Core 2026.8.0, so the formal lane must not be retargeted into a known
-   dependency conflict; installed-Core validation remains partial and blocks
-   release until a compatible harness is published.
+   dependency-closed minimum lane with harness 0.13.354. Installed Core
+   2026.8.1 is the maintained-current target and has its own dependency-closed
+   lane with matching published harness 0.13.355. Each lane installs its exact
+   harness before exact Core, installs product-owned tooling last, runs
+   `pip check`, and executes the complete HA test surface. Support outside the
+   Core 2026.8 year/month remains unclaimed.
 6. **Source-device lifecycle:** Core 2026.8's helper lifecycle updates helper
    entity registry links when the selected source entity's device association
    changes. Ecobee Unified applies supported entity/device registry listeners

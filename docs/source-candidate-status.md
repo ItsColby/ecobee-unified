@@ -4,9 +4,9 @@ Date: 2026-08-08
 
 Ecobee Unified is implemented as an unreleased, public-safe source candidate
 with Core 2026.8.0 as its distribution minimum and dependency-closed formal
-harness lane. Bounded direct validation passes against installed Core
-2026.8.1, but the latest published real harness still requires Core 2026.8.0;
-the installed-Core and release gates therefore remain blocked. A local
+minimum lane. Installed Core 2026.8.1 has a second exact lane using its matching
+published harness. The installed-Core structural evidence gap is closed; hosted
+execution and every publication, release, and live gate remain blocked. A local
 candidate commit is not remote Git integration. This status does not
 authorize or claim publication, release, installation, reload/restart, live
 validation, consumer migration, outbound effects, or rollback.
@@ -104,21 +104,20 @@ validation, consumer migration, outbound effects, or rollback.
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; installed-Core and hosted gates blocked | One hundred four bounded tests pass directly on installed Core 2026.8.1; the dependency-closed Core 2026.8.0 minimum workflow explicitly collects async HA tests and owns the passing final `pip check`. Strict mypy, host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. The mixed local 2026.8.1 Core/2026.8.0 harness environment correctly fails `pip check`; Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred four bounded tests pass directly on Core 2026.8.1. The workflow now owns separate exact Core 2026.8.0 minimum/harness 0.13.354 and Core 2026.8.1 current/harness 0.13.355 jobs; each installs product tooling last, requires final `pip check`, and runs the complete HA test surface. Strict mypy, host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
 
 ## Validation boundary
 
-The latest published harness metadata was re-read from PyPI:
-`pytest-homeassistant-custom-component==0.13.354` requires
-`homeassistant==2026.8.0`. Installing installed Core 2026.8.1 after that
-correctly makes `python -m pip check` fail on the exact mismatch. The formal
-Core 2026.8.0 workflow remains dependency-closed; it is not relabeled as the
-installed-Core lane. The Windows host also cannot import the full Home
+Published PyPI metadata was re-read on 2026-08-08:
+`pytest-homeassistant-custom-component==0.13.354` requires exact Core
+2026.8.0, while harness 0.13.355 requires exact Core 2026.8.1. The workflow
+keeps those dependency-closed environments separate and requires final
+`pip check` in both. The Windows host still cannot import the full Home
 Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
 and WSL has no installed distribution. Bounded real Core API tests run directly
-under `unittest` without a fake harness; the complete pytest suite remains
+under `unittest` without a fake harness; complete pytest execution remains
 Linux/CI-owned.
 
 The historical Home-owned handoff was integrated and privately pushed at Home
@@ -141,6 +140,7 @@ is not a public push, release, install, or live validation claim.
 ## Home registry handoff
 
 The current Home registry lifecycle classification is `active_unreleased`.
+The support fields below are the product-authoritative handoff values for the Home registry owner; recording them in Home remains a separate owner action.
 The product repository still has no configured remote, so
 `repository.public_url` remains `null`; the Home registry record is not remote
 Git integration or product publication.
@@ -149,12 +149,12 @@ Exact support owners for portfolio schema v2:
 
 | Field | Final value |
 |---|---|
-| `policy` | `installed_only` |
+| `policy` | `explicit_broader` |
 | `hacs_metadata` | `hacs.json` |
-| `core_requirements` | `requirements-ha-test.txt` |
-| `minimum_core_requirements` | `null` |
+| `core_requirements` | `requirements-ha-current.txt` |
+| `minimum_core_requirements` | `requirements-ha-test.txt` |
 | `test_workflow` | `.github/workflows/validate.yaml` |
-| `broader_support_reason` | `null` |
+| `broader_support_reason` | `The product maintains its declared distribution floor and the current stable patch of the same Home Assistant monthly release.` |
 
 All controlled capability dispositions and product-relative evidence paths:
 
@@ -177,8 +177,8 @@ All controlled capability dispositions and product-relative evidence paths:
 | `capability-route` | not applicable / not applicable | `docs/architecture.md`; the integration exposes no unauthenticated subscription or capability route. |
 | `health-projection` | required / observed | `custom_components/ecobee_unified/models.py`; `custom_components/ecobee_unified/climate.py`; `custom_components/ecobee_unified/button.py`; `custom_components/ecobee_unified/notify.py`; `custom_components/ecobee_unified/diagnostics.py`; `tests/test_models.py`; `tests/test_runtime_core_api.py` |
 | `temporary-artifacts` | not applicable / not applicable | `docs/architecture.md`; the integration runtime produces no temporary files or attachments. |
-| `dependency-closure` | required / observed | `.github/workflows/validate.yaml`; `requirements-ha-test.txt`; `tests/test_public_safety.py` |
-| `installed-core-test` | required / gap | `hacs.json`; `requirements-ha-test.txt`; `.github/workflows/validate.yaml`; `tests/test_runtime_core_api.py`; `docs/upstream-contracts.md`; the dependency-clean real harness remains at Core 2026.8.0 while maintained Core 2026.8.1 has bounded direct evidence only. |
+| `dependency-closure` | required / observed | `.github/workflows/validate.yaml`; `requirements-ha-test.txt`; `requirements-ha-current.txt`; `tests/test_public_safety.py` |
+| `installed-core-test` | required / observed | `hacs.json`; `requirements-ha-test.txt`; `requirements-ha-current.txt`; `.github/workflows/validate.yaml`; `tests/test_runtime_core_api.py`; `docs/upstream-contracts.md`; exact dependency-clean lanes cover Core 2026.8.0 and the maintained Core 2026.8.1 patch. |
 
 The last full-portfolio receipt recorded here, from Home commit
 `548d05540b6f0f8ee457981ef7932c5bafbe79d4`, reported 27 passes, eight fails,
@@ -187,14 +187,12 @@ Unified accounted for nine passes and two installed-Core support-lane gaps;
 the other six failures belonged to the separate Beestat and Free Library
 product owners. It is not a current cross-portfolio green or failure claim.
 
-The product-local candidate audit on 2026-08-08, scoped to clean Ecobee commit
-`2591f64a191ddc977e0e4c30b495df4b28209415`, reports nine passes, the same two
-intentional installed-Core support-lane gaps, and no warnings or unavailable
-checks. The formal dependency-clean harness remains at Core 2026.8.0 while the
-maintained instance is 2026.8.1. Direct newer-Core tests are partial evidence,
-not a replacement formal lane. The candidate posture
-explicitly does not prove remote Git freshness/integration, publication,
-release, or live-instance state.
+This candidate adds a separate exact dependency-clean Core 2026.8.1 lane while
+retaining the exact Core 2026.8.0 distribution-floor lane. Product-native
+validation and the product-scoped portfolio audit receipt are refreshed after
+the implementation commit below. The candidate posture explicitly does not
+prove remote Git freshness/integration, publication, release, or live-instance
+state.
 
 ## Learning classification
 

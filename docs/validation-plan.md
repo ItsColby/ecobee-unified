@@ -120,12 +120,14 @@ decimal places or a newer timestamp.
   attributes when first-class Beestat/number/sensor entities own them;
 - Repairs only for persistent actionable faults, including user-disabled or
   detached required/optional sources, with recovery deletion;
-- one exact Home Assistant Core 2026.8 support/test lane, with no duplicate
-  legacy lane unless the maintained support contract is widened;
+- exact Home Assistant Core 2026.8.0 minimum and 2026.8.1 maintained-current
+  support/test lanes, with no lane outside that year/month unless the support
+  contract is intentionally widened;
 - explicit pytest asyncio ownership so every top-level HA integration test is
   collected and executed rather than silently skipped;
-- separate harness/Core requirement installation, with Linux/hosted execution
-  for HA-specific tests when native Windows cannot import Core;
+- matching harness/Core requirement installation and final dependency closure
+  in each lane, with Linux/hosted execution for HA-specific tests when native
+  Windows cannot import Core;
 - Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,
   compile/JSON/translation/privacy checks, Hassfest, HACS Action, actionlint
   with ShellCheck, explicit job timeouts/concurrency, side-effect-free checkout

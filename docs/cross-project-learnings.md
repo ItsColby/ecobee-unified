@@ -131,11 +131,12 @@ non-duplicate vendor projections on the same user-facing device.
   binary/non-UTF-8 artifacts that a patch-only scan cannot inspect.
 - Diagnostics are allow-listed and bounded. Exact private-value scans and live
   deployment evidence remain in maintainer-controlled private owners.
-- The initial support contract is one exact Home Assistant Core 2026.8 lane,
-  matching the maintainer's installed runtime. Widen it only for an explicit
-  broader-support requirement with passing evidence.
-- Install the Home Assistant harness and exact Core requirements separately,
-  let the harness own its compatible pytest dependency, run `pip check` after
+- The support contract covers exact Core 2026.8.0 as the distribution minimum
+  and exact maintained Core 2026.8.1 as the current lane. Widen it outside that
+  year/month only for an explicit broader-support requirement with passing
+  evidence.
+- Install each lane's matching Home Assistant harness and exact Core
+  requirements separately, let the harness own pytest, run `pip check` after
   the final dependency install and before HA tests, and use Linux/hosted
   execution for the Core test surface.
 - The initial repository baseline includes focused unit and HA tests, Ruff,

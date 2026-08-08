@@ -103,7 +103,10 @@ metadata, every historical filename, and every reachable bounded Git blob.
 
 ## Configuration
 
-The initial flow collects one or more mappings in a single config entry. Each
+The initial flow collects one or more mappings in a single config entry. The
+manifest declares Home Assistant's native single-entry contract, so trying to
+configure Ecobee Unified again links to the existing integration instead of
+opening an unusable duplicate setup flow. Each
 mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
 current-temperature sensor/current-mode select/clear-hold button and Ecobee
 AQI/CO2/VOC sensors/notification entity are optional explicit same-device
@@ -219,8 +222,9 @@ green until a separately authorized public repository runs them.
 ## Known limits
 
 - The 30-minute Ecobee cadence-health and confirmation defaults were calibrated
-  from read-only live reporting evidence and remain subject to command-specific
-  shadow validation after installation and before consumer migration.
+  from read-only live reporting evidence. Live acceptance verifies source
+  behavior and presentation before consumer migration, but it has no mandatory
+  elapsed-time delay.
 - No automatic write failover exists.
 - Ecobee microphone and daylight-saving administration remain outside the
   routine Unified surface.

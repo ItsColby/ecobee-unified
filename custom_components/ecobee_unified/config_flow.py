@@ -120,7 +120,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Begin one entry containing one or more explicit mappings."""
 
         await self.async_set_unique_id(DOMAIN)
-        self._abort_if_unique_id_configured()
         self._pending_mappings = []
         return await self.async_step_mapping(user_input)
 

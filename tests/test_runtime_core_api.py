@@ -567,7 +567,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             DOMAIN, context={"source": SOURCE_USER}
         )
         self.assertIs(FlowResultType.ABORT, duplicate_entry["type"])
-        self.assertEqual("already_configured", duplicate_entry["reason"])
+        self.assertEqual("single_instance_allowed", duplicate_entry["reason"])
+        self.assertEqual("homeassistant", duplicate_entry["translation_domain"])
 
     async def test_config_flow_rejects_duplicate_mapping_names(self) -> None:
         homekit_b = self._source(

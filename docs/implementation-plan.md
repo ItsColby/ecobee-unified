@@ -129,8 +129,9 @@ Exit: the integration remains fully usable without the optional source.
 
 The private runtime owner supplies exact mappings, consumer inventory, backup,
 installation authorization, and live acceptance. Install with distinct shadow
-entity IDs. Observe at least seven days across mode, schedule, occupancy,
-equipment, source-refresh, and command events before migration.
+entity IDs. Exercise or observe the currently available mode, schedule,
+occupancy, equipment, source-refresh, and recovery evidence before migration;
+do not impose an elapsed-time minimum.
 
 Exit: comparison evidence meets the private acceptance criteria and rollback is
 demonstrated without disabling raw sources.
@@ -141,7 +142,8 @@ demonstrated without disabling raw sources.
   unified climates.
 - Preserve old template/statistics helpers until Recorder and automation
   semantics are explicitly replaced.
-- After soak, hide backend duplicates from routine dashboards/search/exposure;
+- After successful migration validation, hide backend duplicates from routine
+  dashboards/search/exposure;
   disable only proven unconsumed redundant entities.
 - Keep necessary backend entities enabled for acquisition and diagnostics.
 

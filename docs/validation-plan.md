@@ -172,8 +172,10 @@ patch-only scan.
 
 ## Private Shadow Acceptance
 
-Private deployment evidence should cover at least seven consecutive days and
-include:
+Private deployment evidence has no mandatory elapsed-time minimum. It should
+cover the currently observable and safely exercisable cases below, with any
+unobserved command/event path retained as an explicit limitation rather than a
+reason to delay unrelated consumer migration:
 
 - source availability/age through normal cloud and local update cycles;
 - scheduled transitions, temporary/permanent holds, mode changes, fan activity,
@@ -199,7 +201,7 @@ Before each consumer batch:
 3. Change only the selected consumers.
 4. Trigger or observe each consumer's meaningful path.
 5. Confirm no stale reference remains in that batch.
-6. Keep the old entity enabled until the complete migration and soak finish.
+6. Keep the old entity enabled through complete migration validation.
 
 Final deduplication requires a zero-consumer proof for every entity proposed for
 disablement and a dashboard/exposure readback showing one routine thermostat

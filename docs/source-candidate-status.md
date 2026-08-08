@@ -121,7 +121,7 @@ lifecycle states.
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
 | Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred sixteen bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
-| Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
+| Private shadow acceptance before migration | Live gate | Requires separately authorized installation and current comparison evidence, with no mandatory elapsed-time minimum. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, confirmation source selection, the writer-acceptance phase, an in-flight matching report followed by success or failure, and serialized overlapping effects. |
 
 ## Validation boundary

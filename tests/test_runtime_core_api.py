@@ -1504,6 +1504,116 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replacement_homekit.id, updated[CONF_HOMEKIT_ENTITY])
         self.assertEqual(replacement_ecobee.id, updated[CONF_ECOBEE_ENTITY])
 
+    async def test_reconfigure_rejects_stale_mapping_snapshot(self) -> None:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+
+        first = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        stale = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+
+        first = await self.hass.config_entries.flow.async_configure(
+            first["flow_id"], {"next_step_id": "reconfigure_edit"}
+        )
+        first = await self.hass.config_entries.flow.async_configure(
+            first["flow_id"], {"mapping_id": self.mapping.mapping_id}
+        )
+        first = await self.hass.config_entries.flow.async_configure(
+            first["flow_id"],
+            {
+                CONF_NAME: "First update",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ECOBEE_AQI_ENTITY: self.ecobee_aqi.entity_id,
+                CONF_HOMEKIT_PRESET_ENTITY: self.homekit_preset.entity_id,
+                CONF_HOMEKIT_CLEAR_HOLD_ENTITY: self.homekit_clear_hold.entity_id,
+                "confirm_change": False,
+            },
+        )
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            first = await self.hass.config_entries.flow.async_configure(
+                first["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+        schedule_reload.assert_called_once_with(entry.entry_id)
+        self.assertIs(FlowResultType.ABORT, first["type"])
+        self.assertEqual("reconfigure_successful", first["reason"])
+
+        stale = await self.hass.config_entries.flow.async_configure(
+            stale["flow_id"], {"next_step_id": "reconfigure_edit"}
+        )
+        stale = await self.hass.config_entries.flow.async_configure(
+            stale["flow_id"], {"mapping_id": self.mapping.mapping_id}
+        )
+        stale = await self.hass.config_entries.flow.async_configure(
+            stale["flow_id"],
+            {
+                CONF_NAME: "Stale update",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ECOBEE_AQI_ENTITY: self.ecobee_aqi.entity_id,
+                CONF_HOMEKIT_PRESET_ENTITY: self.homekit_preset.entity_id,
+                CONF_HOMEKIT_CLEAR_HOLD_ENTITY: self.homekit_clear_hold.entity_id,
+                "confirm_change": False,
+            },
+        )
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            stale = await self.hass.config_entries.flow.async_configure(
+                stale["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+        schedule_reload.assert_not_called()
+
+        self.assertIs(FlowResultType.ABORT, stale["type"])
+        self.assertEqual("configuration_changed", stale["reason"])
+        self.assertEqual("First update", entry.data[CONF_MAPPINGS][0][CONF_NAME])
+
+    async def test_reconfigure_rejects_external_entry_update(self) -> None:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+
+        externally_updated = {
+            CONF_MAPPINGS: [self.mapping.as_dict()],
+            "future_field": "preserve",
+        }
+        self.hass.config_entries.async_update_entry(entry, data=externally_updated)
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+        schedule_reload.assert_not_called()
+
+        self.assertIs(FlowResultType.ABORT, result["type"])
+        self.assertEqual("configuration_changed", result["reason"])
+        self.assertEqual(externally_updated, dict(entry.data))
+
     async def test_reconfigure_rejects_duplicate_mapping_name(self) -> None:
         homekit_b = self._source(
             "homekit_controller",

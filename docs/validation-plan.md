@@ -18,6 +18,9 @@
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
 - explicit confirmation for physical-device or command-writer changes.
+- concurrent reconfigure sessions and external config-entry updates fail closed
+  at completion, preserve the winning mapping collection, and do not schedule a
+  reload from the stale flow;
 - matched, mismatched, and missing HomeKit-serial/Ecobee-identifier proof at
   create and reconfigure time, plus runtime identity drift/recovery without
   recreating the config entry;

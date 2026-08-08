@@ -101,6 +101,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     MINOR_VERSION = 3
 
     def __init__(self) -> None:
+        self._original_data: dict[str, Any] | None = None
         self._pending_mappings: list[dict[str, str]] = []
         self._selected_mapping_id: str | None = None
 
@@ -156,9 +157,12 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Open explicit add, edit, remove, or finish mapping operations."""
 
-        if not self._pending_mappings:
+        if self._original_data is None:
             entry = self._get_reconfigure_entry()
-            self._pending_mappings = deepcopy(entry.data.get(CONF_MAPPINGS, []))
+            self._original_data = deepcopy(dict(entry.data))
+            self._pending_mappings = deepcopy(
+                self._original_data.get(CONF_MAPPINGS, [])
+            )
         return self.async_show_menu(
             step_id="reconfigure",
             menu_options=(
@@ -316,6 +320,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Atomically save and reload the complete mapping collection."""
 
         entry = self._get_reconfigure_entry()
+        if dict(entry.data) != self._original_data:
+            return self.async_abort(reason="configuration_changed")
+
         return self.async_update_reload_and_abort(
             entry,
             data={CONF_MAPPINGS: self._pending_mappings},

@@ -107,6 +107,8 @@ validation. AQI, CO2, and VOC selections must also advertise the matching sensor
 device class and unit, and one optional source cannot fill multiple semantic
 roles. Reconfiguration supports explicit add, edit, and remove operations.
 Editing physical association or command routing requires a second confirmation.
+If the saved mappings change while a reconfiguration session is open, that
+session stops without overwriting the newer configuration.
 
 When the explicit HomeKit temperature sensor is selected, the Unified climate
 advertises tenths precision only while the sensor passes the local consistency

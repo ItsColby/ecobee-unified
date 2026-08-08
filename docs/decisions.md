@@ -30,6 +30,7 @@
 | D-024 | Require supported HomeKit serial and Ecobee identifier equality for every active cross-backend mapping. | An explicit selection is user intent, not physical-identity proof. Known mismatches are rejected; later loss or drift preserves local HomeKit control but blocks cloud reads, actions, notification writes, and target-step fusion until identity recovers. |
 | D-025 | Keep a filtered unchanged-report listener for cadence-backed stale recovery as well as pending confirmation. | A stale source otherwise has no projection timer left and may remain stale after an unchanged recovery report. Refresh only stale or operation-owned mappings, and cancel the listener on unload, so healthy cadence reports do not churn state or Recorder. |
 | D-026 | Serialize effect dispatch per mapping and make successful writer completion the confirmation/timeout boundary. | Revision guards alone protect diagnostics, not physical ordering: a slow earlier call could otherwise finish after a newer one, and an in-flight matching report could falsely confirm a command whose writer later fails. |
+| D-027 | Retain one native config entry containing all thermostat mappings rather than migrate mappings to config subentries. | The mappings share one integration lifecycle and need atomic cross-mapping validation, while already surfacing as distinct thermostat devices. Subentries add migration and device-relinking complexity under Core 2026.8's one-entry/one-subentry device ownership without improving setup or routine use. |
 
 ## Deferred Until Evidence Exists
 
@@ -38,7 +39,6 @@
 | Automatic write failover | Off. Add only with an idempotency design and proven need. |
 | Additional cloud projections | Add only when they are non-duplicate, bounded, capability-proven, and have a clear device-surface role. |
 | Derived room-temperature metrics | Post-MVP, after explicit room mapping and consumer definitions. |
-| Config subentries | Do not add unless current Home Assistant UX/lifecycle requirements make them materially better. |
 | Public HACS catalog listing | Not planned; a public repository plus custom-repository install is sufficient unless later value is demonstrated. |
 | Reclaiming legacy entity IDs | Do not do during initial migration; consider only after successful migration validation and an explicit Recorder/rollback decision. |
 

@@ -95,7 +95,26 @@
     "sensor": {
       "air_quality_index": {"name": "Air quality index"},
       "co2": {"name": "Carbon dioxide"},
-      "equipment_stage": {"name": "Equipment stage"},
+      "equipment_stage": {
+        "name": "Equipment stage",
+        "state": {
+          "idle": "Idle",
+          "fan": "Fan",
+          "cool_stage_1": "Cooling stage 1",
+          "cool_stage_2": "Cooling stage 2",
+          "heat_pump_stage_1": "Heat pump stage 1",
+          "heat_pump_stage_2": "Heat pump stage 2",
+          "heat_pump_stage_3": "Heat pump stage 3",
+          "aux_heat_stage_1": "Auxiliary heat stage 1",
+          "aux_heat_stage_2": "Auxiliary heat stage 2",
+          "aux_heat_stage_3": "Auxiliary heat stage 3",
+          "humidifying": "Humidifying",
+          "dehumidifying": "Dehumidifying",
+          "ventilating": "Ventilating",
+          "multiple": "Multiple",
+          "unknown": "Unknown"
+        }
+      },
       "voc": {"name": "Volatile organic compounds"}
     }
   },

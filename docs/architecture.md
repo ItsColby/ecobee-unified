@@ -31,9 +31,12 @@ It must use Home Assistant's public state machine, registry, event, and service
 interfaces. It must not import another integration's runtime data object,
 write `.storage`, call the Ecobee API, or scrape diagnostics.
 
-Use one config entry to hold multiple thermostat mappings unless current Home
-Assistant UX or lifecycle evidence demonstrates that independent entries are
-materially better. A mapping contains:
+Use one config entry to hold multiple thermostat mappings. This keeps the
+cross-mapping identity and concurrency rules atomic and uses Home Assistant's
+native single-entry integration flow. Config subentries are not used: the
+mappings do not have independent authentication or lifecycle, already surface
+as separate thermostat devices, and Core 2026.8 restricts a device to one
+config entry and at most one subentry. A mapping contains:
 
 - required HomeKit climate source;
 - required Ecobee climate source for the intended full feature set;
@@ -94,7 +97,7 @@ Repair until the supported registry identities match again.
 | Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
 | Preset/current mode | HomeKit current-mode select | none | Capability-advertised climate preset; local writer only. |
 | Ecobee preset/climate context | Ecobee climate | none | Bounded vendor diagnostic context, not the preset writer. |
-| Equipment stage | Ecobee climate | none | Project a bounded first-class sensor; do not retain raw equipment text in Recorder. |
+| Equipment stage | Ecobee climate | none | Project a bounded translated enum sensor; do not retain raw equipment text in Recorder. |
 | Minimum fan runtime | Ecobee climate/action | none | First-class number and the sole Ecobee writer; accept only the writer's advertised five-minute increments. |
 | Active comfort sensors | Ecobee climate | none | Do not infer from occupancy. |
 | Scheduled profile/next transition | Beestat entities on the device | none | First-class Beestat presentation; never duplicate as climate attributes. |

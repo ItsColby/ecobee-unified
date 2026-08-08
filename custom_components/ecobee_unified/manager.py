@@ -535,20 +535,26 @@ class MappingManager:
             ) from None
 
     async def async_set_minimum_fan_runtime(
-        self, mapping_id: str, minutes: int, context: Context | None
+        self, mapping_id: str, minutes: float, context: Context | None
     ) -> None:
         """Route the documented Ecobee fan-minimum action."""
 
-        if not 0 <= minutes <= 60:
+        if (
+            not isfinite(minutes)
+            or minutes != int(minutes)
+            or not 0 <= minutes <= 60
+            or int(minutes) % 5 != 0
+        ):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="invalid_fan_runtime",
             )
+        aligned_minutes = int(minutes)
         await self.async_vendor_command(
             mapping_id,
             "set_fan_min_on_time",
-            {"fan_min_on_time": minutes},
-            {"minimum_fan_runtime": minutes},
+            {"fan_min_on_time": aligned_minutes},
+            {"minimum_fan_runtime": aligned_minutes},
             context,
         )
 

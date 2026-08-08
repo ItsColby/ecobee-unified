@@ -25,7 +25,8 @@ validation, consumer migration, outbound effects, or rollback.
   precise temperature/preset plus vendor-only projections, and recent command
   status. Quiet HomeKit push/event age remains diagnostic; cadence-backed
   Ecobee freshness uses Core's `last_reported` semantics and lifecycle-owned
-  stale-boundary reevaluation.
+  stale-boundary reevaluation. Ecobee health and command confirmation both
+  default to 30 minutes based on read-only live reporting-tail evidence.
 - One climate, minimum-fan number, bounded equipment-stage sensor, and optional
   AQI/CO2/VOC sensors plus thermostat-display notification project the snapshot
   without property I/O and link to the selected HomeKit thermostat device. An
@@ -41,7 +42,8 @@ validation, consumer migration, outbound effects, or rollback.
   blocks cloud fallback, vendor actions, notification writes, and target-step
   fusion until registry evidence recovers.
 - Standard climate, preset, and clear-hold commands call only their explicitly
-  mapped HomeKit entities. The minimum-fan number calls only Ecobee
+  mapped HomeKit entities. The minimum-fan number rejects non-finite,
+  off-step, and out-of-range values before I/O and calls only Ecobee
   `set_fan_min_on_time`. No path retries or fails over to a second writer.
 - Bounded vacation, occupancy-policy, and comfort-sensor-participation actions
   inject only the mapped Ecobee climate and issue one call. Effects not fully
@@ -78,7 +80,7 @@ validation, consumer migration, outbound effects, or rollback.
 |---|---|---|
 | Multiple mappings in one entry | Proven locally | Real Core flow manager creates two registry-ID mappings in one entry. |
 | Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, honest primary precision, no averaging, and semantic current temperature. |
-| Quiet-source health and recovery | Proven locally | Exact-Core manager tests keep quiet HomeKit push/event state healthy across multiple elapsed/cloud boundaries, degrade only on actual unavailable/missing state, recover ownership, and prevent oscillation. |
+| Quiet-source health and recovery | Proven locally | Exact-Core manager tests keep quiet HomeKit push/event state healthy, keep Ecobee healthy through its 30-minute default boundary, degrade immediately after it or on actual unavailable/missing state, recover ownership, and prevent oscillation. |
 | Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, writer-owned temperature unit/bounds, and identity-proven same-device step fusion without freshness or precision substitution. |
 | Precise local current temperature | Proven locally | Pure and exact-Core tests cover explicit same-device capability validation, unit conversion, source-dependent climate-state precision, preserved decimals, quiet-source ownership, climate/cloud fallback, rename, move/detach, disappearance, and recovery without apparent-precision or freshness selection. |
 | Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover physical identity, preset capability, the native Unified resume button, minimum fan number, bounded equipment stage, device-class/unit-valid AQI/CO2/VOC, notification, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
@@ -203,7 +205,8 @@ release, or live-instance state.
   config entry before the source service is invoked. Core retains final
   thermostat-membership enforcement.
 - **Product-specific Core consequence:** cadence-backed Ecobee health uses
-  `last_reported`, while quiet HomeKit age remains diagnostic; unchanged reports
+  `last_reported` with a read-only-live-calibrated 30-minute default, while
+  quiet HomeKit age remains diagnostic; unchanged reports
   can confirm only the operation-owned pending revision, and elapsed-time cloud
   degradation still has a no-new-event boundary test.
 - **Product-specific Recorder consequence:** volatile source-age,

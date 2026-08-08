@@ -86,8 +86,10 @@ also advertises tenths precision so Home Assistant preserves the source's honest
 fractional value in climate state instead of rounding it back to whole degrees.
 
 Options expose the cadence-backed Ecobee freshness threshold and the
-command-confirmation window. HomeKit push/event silence remains diagnostic age;
-only actual source unavailability changes HomeKit health or read ownership.
+command-confirmation window. Both default to 30 minutes, calibrated above the
+observed cloud-reporting tail while retaining a bounded silent-wedge and effect
+deadline. HomeKit push/event silence remains diagnostic age; only actual source
+unavailability changes HomeKit health or read ownership.
 
 ## Actions
 
@@ -103,7 +105,8 @@ raw HomeKit button. It is available only while both the clear-hold writer and
 the current-mode observation source needed for confirmation are usable.
 
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
-mapped Ecobee `set_fan_min_on_time` action exactly once.
+mapped Ecobee `set_fan_min_on_time` action exactly once. Values must align to
+the writer's advertised five-minute step; off-step requests fail before I/O.
 
 The optional notification entity sends one non-empty message through the mapped
 Ecobee notification entity. It never calls the Ecobee API directly, retries,
@@ -157,8 +160,9 @@ green until a separately authorized public repository runs them.
 
 ## Known limits
 
-- The Ecobee cadence-health and confirmation defaults need private
-  shadow-deployment measurement before a release.
+- The 30-minute Ecobee cadence-health and confirmation defaults were calibrated
+  from read-only live reporting evidence and still require command-specific
+  shadow validation before a release.
 - No automatic write failover exists.
 - Ecobee microphone and daylight-saving administration remain outside the
   routine Unified surface.

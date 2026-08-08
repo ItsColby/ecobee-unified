@@ -89,7 +89,7 @@ Repair until the supported registry identities match again.
 | Preset/current mode | HomeKit current-mode select | none | Capability-advertised climate preset; local writer only. |
 | Ecobee preset/climate context | Ecobee climate | none | Bounded vendor diagnostic context, not the preset writer. |
 | Equipment stage | Ecobee climate | none | Project a bounded first-class sensor; do not retain raw equipment text in Recorder. |
-| Minimum fan runtime | Ecobee climate/action | none | First-class number and the sole Ecobee writer. |
+| Minimum fan runtime | Ecobee climate/action | none | First-class number and the sole Ecobee writer; accept only the writer's advertised five-minute increments. |
 | Active comfort sensors | Ecobee climate | none | Do not infer from occupancy. |
 | Scheduled profile/next transition | Beestat entities on the device | none | First-class Beestat presentation; never duplicate as climate attributes. |
 | Room motion/occupancy/battery | HomeKit sibling entities | none | Keep as linked sibling entities; do not copy into climate attributes. |
@@ -126,8 +126,10 @@ push/event source without a heartbeat contract, so a quiet but available state
 remains healthy regardless of `last_reported` age; its age is diagnostic and
 command-observation evidence only. Ecobee cloud sources have a cadence contract,
 so their freshness uses `last_reported` and lifecycle-owned timers reevaluate
-their stale boundaries even when no new state-change event arrives. Event
-handlers use the event-owned stable timestamp rather than Core's intentionally
+their stale boundaries even when no new state-change event arrives. The
+calibrated default is 30 minutes: above the observed cloud-reporting tail while
+remaining a bounded silent-wedge guard. Event handlers use the event-owned
+stable timestamp rather than Core's intentionally
 mutable `State.last_reported` field. Age never makes a source look more precise
 or changes deterministic ownership by itself.
 
@@ -151,9 +153,10 @@ for confirmation. Give every command a monotonically increasing revision and
 update confirmation state only if the observation still belongs to the current
 revision. A late cloud update must not confirm or fail a superseded command. A
 timeout reports an unconfirmed command; it must not send a second write. The
-initial confirmation window should exceed two normal Ecobee cloud refresh
-intervals and be validated against live behavior. Normal source processing must
-continue while confirmation is pending. A matching Ecobee state report counts
+default confirmation window is 30 minutes, calibrated above the observed
+cloud-reporting tail and still subject to command-specific shadow validation.
+Normal source processing must continue while confirmation is pending. A
+matching Ecobee state report counts
 as a new observation even when state and attributes are unchanged; report-event
 handling is limited to pending mapped commands and retains the same revision
 guard.

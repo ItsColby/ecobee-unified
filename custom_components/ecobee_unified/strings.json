@@ -102,7 +102,7 @@
     "ecobee_writer_unavailable": {"message": "The mapped Ecobee writer is unavailable."},
     "homekit_command_failed": {"message": "The HomeKit command failed."},
     "homekit_writer_unavailable": {"message": "The mapped HomeKit writer is unavailable; no fallback write was attempted."},
-    "invalid_fan_runtime": {"message": "Minimum fan runtime must be between 0 and 60 minutes."},
+    "invalid_fan_runtime": {"message": "Minimum fan runtime must be between 0 and 60 minutes in five-minute increments."},
     "invalid_humidity": {"message": "The requested humidity is outside the mapped HomeKit climate's supported bounds."},
     "invalid_occupancy_modes": {"message": "Select at least one valid Ecobee occupancy policy."},
     "invalid_sensor_selection": {"message": "Select one or more distinct Ecobee sensor devices for this thermostat."},

@@ -47,7 +47,8 @@ These are verification tasks, not unresolved product choices:
 - Helper-device linking, config-entry lifecycle, optional-source behavior, and
   public Ecobee action semantics were resolved for installed Core 2026.8.1 in
   `upstream-contracts.md` before implementation.
-- Measure realistic Ecobee cadence-staleness and command-confirmation thresholds
-  in the private shadow deployment.
+- Revalidate the read-only-live-calibrated 30-minute Ecobee staleness and
+  confirmation defaults during the private shadow deployment, including
+  command-specific confirmation latency.
 - Recheck the integration name/domain and publication destination before any
   public repository is created.

@@ -54,7 +54,8 @@ decimal places or a newer timestamp.
 - each standard climate method makes exactly one HomeKit service call;
 - preset and both Unified clear-hold entry points each make exactly one mapped
   HomeKit service call; the native button exists only for an explicit mapping;
-- minimum fan runtime makes exactly one Ecobee action call;
+- minimum fan runtime accepts only 0-60 in exact five-minute increments, rejects
+  non-finite/off-step/out-of-range values before I/O, and makes one Ecobee call;
 - thermostat-display notification makes exactly one mapped Ecobee notification
   call, rejects empty/unavailable/misassociated writers before any effect, and
   never retries or fails over;
@@ -91,8 +92,10 @@ decimal places or a newer timestamp.
 - quiet HomeKit push/event sources remain healthy across elapsed-age and cloud
   stale-boundary reevaluations, while actual unavailable state degrades and
   recovery restores ownership without oscillation;
-- `last_reported` freshness across unchanged cadence-backed reports plus
-  stale-boundary reevaluation without another source-change event;
+- `last_reported` freshness across unchanged cadence-backed reports, including
+  healthy state through the 30-minute default boundary and stale transition
+  immediately after it without another source-change event;
+- the 30-minute default confirmation window and persisted option overrides;
 - volatile source-age, active-sensor, and command-confirmation attributes are
   excluded from Recorder;
 - schedule/transition and vendor control/detail are not duplicated in climate

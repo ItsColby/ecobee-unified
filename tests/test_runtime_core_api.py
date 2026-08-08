@@ -77,6 +77,8 @@ from custom_components.ecobee_unified.const import (
     CONF_HOMEKIT_TEMPERATURE_ENTITY,
     CONF_MAPPINGS,
     CONF_NAME,
+    DEFAULT_CONFIRMATION_SECONDS,
+    DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
     SUFFIX_AIR_QUALITY_INDEX,
 )
@@ -1370,6 +1372,11 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.options.async_init(entry.entry_id)
         self.assertIs(FlowResultType.FORM, result["type"])
+        defaults = result["data_schema"]({})
+        self.assertEqual(1800, DEFAULT_ECOBEE_STALE_SECONDS)
+        self.assertEqual(1800, DEFAULT_CONFIRMATION_SECONDS)
+        self.assertEqual(1800, defaults[CONF_ECOBEE_STALE_SECONDS])
+        self.assertEqual(1800, defaults[CONF_CONFIRMATION_SECONDS])
         options = {
             CONF_ECOBEE_STALE_SECONDS: 1200,
             CONF_CONFIRMATION_SECONDS: 720,
@@ -1722,7 +1729,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         calls.clear()
         number = EcobeeMinimumFanRuntimeNumber(self.manager, self.mapping)
-        await number.async_set_native_value(7.5)
+        for invalid in (-5, 2.5, 7.5, 65, float("nan")):
+            with (
+                self.subTest(invalid=invalid),
+                self.assertRaises(ServiceValidationError),
+            ):
+                await number.async_set_native_value(invalid)
+        self.assertEqual([], calls)
+
+        await number.async_set_native_value(10)
         self.assertEqual(1, len(calls))
         self.assertEqual(
             {"entity_id": self.ecobee.entity_id, "fan_min_on_time": 10},
@@ -2132,13 +2147,18 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             calls.append(call)
 
         self.hass.services.async_register("climate", "set_temperature", capture)
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
+        with patch(
+            "custom_components.ecobee_unified.manager.async_call_later",
+            return_value=Mock(),
+        ) as schedule:
+            await self.manager.async_standard_command(
+                "mapping_a",
+                "set_temperature",
+                {"temperature": 22.0},
+                {"target_temperature": 22.0},
+                None,
+            )
+        self.assertEqual(DEFAULT_CONFIRMATION_SECONDS + 1, schedule.call_args.args[1])
         revision = self.manager.snapshot("mapping_a").command.revision
         self.manager._handle_timeout("mapping_a", revision)
         timed_out = self.manager.snapshot("mapping_a").command
@@ -2366,14 +2386,17 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, len(calls))
         self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
-    async def test_quiet_homekit_remains_healthy_across_cloud_stale_boundaries(
+    async def test_default_cadence_keeps_quiet_homekit_and_cloud_tail_healthy(
         self,
     ) -> None:
         await self.manager.async_stop()
         homekit_state = self.hass.states.get(self.homekit.entity_id)
+        ecobee_state = self.hass.states.get(self.ecobee.entity_id)
         self.assertIsNotNone(homekit_state)
+        self.assertIsNotNone(ecobee_state)
         assert homekit_state is not None
-        base_time = homekit_state.last_reported + timedelta(seconds=4)
+        assert ecobee_state is not None
+        base_time = ecobee_state.last_reported
         unsubscribe = Mock()
         with (
             patch(
@@ -2389,9 +2412,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 self.hass,
                 "stale_entry",
                 (self.mapping,),
-                {
-                    CONF_ECOBEE_STALE_SECONDS: 100,
-                },
+                {},
             )
             await manager.async_start()
             self.assertEqual(
@@ -2400,15 +2421,16 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(schedule.called)
             with patch(
                 "custom_components.ecobee_unified.manager.dt_util.utcnow",
-                return_value=base_time + timedelta(seconds=2),
+                return_value=base_time + timedelta(seconds=1800),
             ):
                 manager._handle_stale_refresh("mapping_a")
             quiet = manager.snapshot("mapping_a")
             self.assertEqual("healthy", quiet.source_health["homekit"].value)
+            self.assertEqual("healthy", quiet.source_health["ecobee"].value)
             self.assertEqual("homekit", quiet.provenance["hvac_mode"])
             with patch(
                 "custom_components.ecobee_unified.manager.dt_util.utcnow",
-                return_value=base_time + timedelta(seconds=200),
+                return_value=base_time + timedelta(seconds=1801),
             ):
                 manager._handle_stale_refresh("mapping_a")
             later = manager.snapshot("mapping_a")

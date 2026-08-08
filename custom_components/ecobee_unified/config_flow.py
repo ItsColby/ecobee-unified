@@ -53,7 +53,7 @@ from .const import (
     DOMAIN,
     NAME,
 )
-from .models import MappingConfig
+from .models import MappingConfig, merge_mapping_data
 from .source_contracts import (
     AIR_QUALITY_SENSOR_CONTRACTS,
     PhysicalIdentityStatus,
@@ -223,11 +223,14 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                updated = _mapping_from_input(
-                    self.hass,
-                    user_input,
-                    mapping_id=str(current[CONF_MAPPING_ID]),
-                    preserved=MappingConfig.from_dict(current),
+                updated = merge_mapping_data(
+                    current,
+                    _mapping_from_input(
+                        self.hass,
+                        user_input,
+                        mapping_id=str(current[CONF_MAPPING_ID]),
+                        preserved=MappingConfig.from_dict(current),
+                    ),
                 )
                 others = [
                     mapping
@@ -347,16 +350,28 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
     """Manage cadence-backed freshness and confirmation thresholds."""
 
+    def __init__(self) -> None:
+        self._original_options: dict[str, Any] | None = None
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        if self._original_options is None:
+            self._original_options = deepcopy(dict(self.config_entry.options))
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            if dict(self.config_entry.options) != self._original_options:
+                return self.async_abort(reason="configuration_changed")
+            accepted_options = deepcopy(self._original_options)
+            accepted_options.update(user_input)
+            return self.async_create_entry(title="", data=accepted_options)
+
+        original_options = self._original_options
+        assert original_options is not None
         defaults = {
-            CONF_ECOBEE_STALE_SECONDS: self.config_entry.options.get(
+            CONF_ECOBEE_STALE_SECONDS: original_options.get(
                 CONF_ECOBEE_STALE_SECONDS, DEFAULT_ECOBEE_STALE_SECONDS
             ),
-            CONF_CONFIRMATION_SECONDS: self.config_entry.options.get(
+            CONF_CONFIRMATION_SECONDS: original_options.get(
                 CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS
             ),
         }

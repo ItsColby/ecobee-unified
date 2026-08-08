@@ -46,6 +46,7 @@ from custom_components.ecobee_unified.button import (
     async_setup_entry as async_setup_button_entry,
 )
 from custom_components.ecobee_unified.climate import (
+    CREATE_VACATION_SCHEMA,
     EcobeeUnifiedClimate,
 )
 from custom_components.ecobee_unified.climate import (
@@ -66,6 +67,7 @@ from custom_components.ecobee_unified.config_flow import (
 )
 from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
+    CONF_CONFIRM_CHANGE,
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_AQI_ENTITY,
     CONF_ECOBEE_CO2_ENTITY,
@@ -77,6 +79,7 @@ from custom_components.ecobee_unified.const import (
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
     CONF_HOMEKIT_TEMPERATURE_ENTITY,
+    CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
     DEFAULT_CONFIRMATION_SECONDS,
@@ -512,10 +515,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
-        self.assertEqual(2, len(result["data"][CONF_MAPPINGS]))
+        mappings = result["data"][CONF_MAPPINGS]
+        self.assertEqual(2, len(mappings))
+        self.assertEqual(2, len({mapping[CONF_MAPPING_ID] for mapping in mappings}))
         self.assertEqual(
             self.homekit.id,
-            result["data"][CONF_MAPPINGS][0][CONF_HOMEKIT_ENTITY],
+            mappings[0][CONF_HOMEKIT_ENTITY],
         )
 
     async def test_config_flow_rejects_duplicate_mapping_and_second_entry(self) -> None:
@@ -1435,6 +1440,11 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             result["flow_id"], {"mapping_id": mapping_b.mapping_id}
         )
         result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"confirm_change": False}
+        )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("confirmation_required", result["errors"]["base"])
+        result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"confirm_change": True}
         )
         self.assertIs(FlowResultType.MENU, result["type"])
@@ -1445,6 +1455,78 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
         self.assertEqual("Zone A updated", entry.data[CONF_MAPPINGS][0][CONF_NAME])
+
+    async def test_reconfigure_adds_mapping_and_rejects_last_removal(self) -> None:
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_reconfigure_add",
+            device=True,
+            physical_identity="thermostat_reconfigure_add",
+        )
+        ecobee_b = self._source(
+            "ecobee",
+            "ec_reconfigure_add",
+            device=True,
+            physical_identity="thermostat_reconfigure_add",
+        )
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_add"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Zone B",
+                CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
+                CONF_ECOBEE_ENTITY: ecobee_b.entity_id,
+            },
+        )
+        self.assertIs(FlowResultType.MENU, result["type"])
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_finish"}
+        )
+        self.assertIs(FlowResultType.ABORT, result["type"])
+        mappings = entry.data[CONF_MAPPINGS]
+        self.assertEqual(2, len(mappings))
+        self.assertEqual(2, len({mapping[CONF_MAPPING_ID] for mapping in mappings}))
+
+        added_mapping_id = next(
+            mapping[CONF_MAPPING_ID]
+            for mapping in mappings
+            if mapping[CONF_NAME] == "Zone B"
+        )
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_remove"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_MAPPING_ID: added_mapping_id}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONFIRM_CHANGE: True}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_remove"}
+        )
+        self.assertIs(FlowResultType.ABORT, result["type"])
+        self.assertEqual("one_mapping_required", result["reason"])
+        self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
 
     async def test_reconfigure_requires_confirmation_only_for_writer_change(
         self,
@@ -1616,12 +1698,16 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reconfigure_preserves_accepted_unknown_entry_data(self) -> None:
         future_data = {"opaque": ["preserve", 1]}
+        future_mapping_data = {"opaque": ["preserve", 2]}
+        stored_mapping = self.mapping.as_dict() | {
+            "future_mapping_field": future_mapping_data
+        }
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={
-                CONF_MAPPINGS: [self.mapping.as_dict()],
+                CONF_MAPPINGS: [stored_mapping],
                 "future_field": future_data,
             },
             version=1,
@@ -1645,7 +1731,6 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 CONF_NAME: "Updated zone",
                 CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
                 CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
-                CONF_ECOBEE_AQI_ENTITY: self.ecobee_aqi.entity_id,
                 CONF_HOMEKIT_PRESET_ENTITY: self.homekit_preset.entity_id,
                 CONF_HOMEKIT_CLEAR_HOLD_ENTITY: self.homekit_clear_hold.entity_id,
                 "confirm_change": False,
@@ -1665,6 +1750,11 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(future_data, entry.data["future_field"])
         self.assertEqual("Updated zone", entry.data[CONF_MAPPINGS][0][CONF_NAME])
+        self.assertNotIn(CONF_ECOBEE_AQI_ENTITY, entry.data[CONF_MAPPINGS][0])
+        self.assertEqual(
+            future_mapping_data,
+            entry.data[CONF_MAPPINGS][0]["future_mapping_field"],
+        )
 
     async def test_reconfigure_rejects_duplicate_mapping_name(self) -> None:
         homekit_b = self._source(
@@ -1713,11 +1803,13 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("duplicate_mapping_name", result["errors"]["base"])
 
     async def test_options_flow_updates_only_timing_policy(self) -> None:
+        future_option = {"opaque": ["preserve", 3]}
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            options={"future_option": future_option},
             version=1,
             minor_version=1,
         )
@@ -1738,29 +1830,99 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         await self.hass.async_block_till_done()
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
-        self.assertEqual(options, entry.options)
+        self.assertEqual(options | {"future_option": future_option}, entry.options)
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
+
+    async def test_options_flow_rejects_concurrent_and_external_updates(self) -> None:
+        original_options = {
+            CONF_ECOBEE_STALE_SECONDS: 1800,
+            CONF_CONFIRMATION_SECONDS: 1800,
+            "future_option": {"opaque": "preserve"},
+        }
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            options=original_options,
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+
+        first = await self.hass.config_entries.options.async_init(entry.entry_id)
+        stale = await self.hass.config_entries.options.async_init(entry.entry_id)
+        winning_options = {
+            CONF_ECOBEE_STALE_SECONDS: 1200,
+            CONF_CONFIRMATION_SECONDS: 720,
+        }
+        first = await self.hass.config_entries.options.async_configure(
+            first["flow_id"], winning_options
+        )
+        self.assertIs(FlowResultType.CREATE_ENTRY, first["type"])
+        accepted_options = winning_options | {
+            "future_option": original_options["future_option"]
+        }
+        self.assertEqual(accepted_options, entry.options)
+
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            stale = await self.hass.config_entries.options.async_configure(
+                stale["flow_id"],
+                {
+                    CONF_ECOBEE_STALE_SECONDS: 900,
+                    CONF_CONFIRMATION_SECONDS: 600,
+                },
+            )
+        schedule_reload.assert_not_called()
+        self.assertIs(FlowResultType.ABORT, stale["type"])
+        self.assertEqual("configuration_changed", stale["reason"])
+        self.assertEqual(accepted_options, entry.options)
+
+        external = await self.hass.config_entries.options.async_init(entry.entry_id)
+        externally_updated = accepted_options | {"external_field": "winner"}
+        self.hass.config_entries.async_update_entry(entry, options=externally_updated)
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            external = await self.hass.config_entries.options.async_configure(
+                external["flow_id"], winning_options
+            )
+        schedule_reload.assert_not_called()
+        self.assertIs(FlowResultType.ABORT, external["type"])
+        self.assertEqual("configuration_changed", external["reason"])
+        self.assertEqual(externally_updated, entry.options)
 
     async def test_minor_schema_migration_normalizes_mapping_data(self) -> None:
         self.assertEqual(3, EcobeeUnifiedConfigFlow.MINOR_VERSION)
         legacy = self.mapping.as_dict() | {
             "scheduled_profile_entity": "",
             "next_transition_entity": "",
+            "future_mapping_field": {"opaque": "preserve"},
         }
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [legacy]},
+            data={CONF_MAPPINGS: [legacy], "future_field": ["preserve"]},
             version=1,
             minor_version=0,
-            options={"beestat_stale_seconds": 24_000},
+            options={
+                "homekit_stale_seconds": 300,
+                "beestat_stale_seconds": 24_000,
+                "future_option": {"opaque": "preserve"},
+            },
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await async_migrate_entry(self.hass, entry))
         self.assertEqual(3, entry.minor_version)
-        self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
-        self.assertEqual({}, entry.options)
+        self.assertEqual(
+            [self.mapping.as_dict() | {"future_mapping_field": {"opaque": "preserve"}}],
+            entry.data[CONF_MAPPINGS],
+        )
+        self.assertEqual(["preserve"], entry.data["future_field"])
+        self.assertEqual({"future_option": {"opaque": "preserve"}}, entry.options)
 
     async def test_future_schema_fails_closed_without_rewriting_data(self) -> None:
         original_data = {CONF_MAPPINGS: [self.mapping.as_dict()]}
@@ -2335,6 +2497,13 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             entity.async_create_vacation("Trip", 82.0, 58.0, "2026-9-01", "08:00:00"),
             entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", "08:00"),
             entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", None),
+            entity.async_create_vacation("Trip", 82.0, 58.0, fan_min_on_time=True),
+            entity.async_create_vacation(
+                "Trip",
+                82.0,
+                58.0,
+                fan_min_on_time=2.5,  # type: ignore[arg-type]
+            ),
             entity.async_set_occupancy_modes(),
             entity.async_set_sensors_used_in_climate(["unknown_device"]),
             entity.async_set_sensors_used_in_climate(
@@ -2349,6 +2518,17 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ServiceValidationError):
                 await call
         self.assertEqual([], calls)
+
+    def test_vacation_service_schema_rejects_fractional_fan_runtime(self) -> None:
+        schema = vol.Schema(CREATE_VACATION_SCHEMA)
+        payload = {
+            "vacation_name": "Trip",
+            "cool_temp": 82,
+            "heat_temp": 58,
+        }
+        self.assertEqual(2, schema(payload | {"fan_min_on_time": 2})["fan_min_on_time"])
+        with self.assertRaises(vol.Invalid):
+            schema(payload | {"fan_min_on_time": 2.5})
 
     async def test_vendor_action_requires_registered_service_and_healthy_source(
         self,

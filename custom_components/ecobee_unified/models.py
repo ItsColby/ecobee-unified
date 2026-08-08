@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from math import isclose, isfinite
 from types import MappingProxyType
@@ -29,6 +29,10 @@ TEMPERATURE_CONFIRMATION_FIELDS = frozenset(
 )
 DEFAULT_NUMERIC_CONFIRMATION_TOLERANCE = 0.11
 FLOAT_COMPARISON_EPSILON = 1e-9
+RETIRED_MAPPING_DATA_KEYS = frozenset(
+    {"scheduled_profile_entity", "next_transition_entity"}
+)
+
 ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.500001}
 
 
@@ -115,6 +119,23 @@ class MappingConfig:
             }
         )
         return result
+
+
+MAPPING_DATA_KEYS = frozenset(item.name for item in fields(MappingConfig))
+
+
+def merge_mapping_data(
+    original: Mapping[str, Any], replacement: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Apply a mapping delta without dropping future or unrecognized fields."""
+
+    preserved = {
+        key: value
+        for key, value in original.items()
+        if key not in MAPPING_DATA_KEYS and key not in RETIRED_MAPPING_DATA_KEYS
+    }
+    preserved.update(replacement)
+    return preserved
 
 
 @dataclass(frozen=True, slots=True)

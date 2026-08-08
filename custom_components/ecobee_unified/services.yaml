@@ -64,6 +64,7 @@ create_vacation:
         number:
           min: 0
           max: 60
+          step: 1
           unit_of_measurement: min
 
 delete_vacation:

@@ -22,8 +22,12 @@ validation, consumer migration, outbound effects, or rollback.
   or writer changes. Reconfiguration captures the complete config-entry data
   snapshot, compares it with current data at completion, and fails closed rather
   than overwriting a concurrent session or external update. A successful save
-  reconstructs data from that accepted snapshot and changes only the mapping
-  collection, preserving additive or unrecognized fields. Selector results are
+  reconstructs data from that accepted snapshot and changes only the intended
+  mapping fields, preserving additive or unrecognized fields both at entry and
+  nested mapping scope. The timing-options flow applies the same complete-owner
+  comparison and preservation rule, while migration removes only documented
+  retired fields and retains unrecognized entry, mapping, and option data.
+  Selector results are
   filtered to their owning HomeKit or Ecobee integration before backend
   contract checks run.
 - One normalized immutable snapshot per mapping owns field selection,
@@ -114,7 +118,7 @@ validation, consumer migration, outbound effects, or rollback.
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred eleven bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred fourteen bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
 | Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, confirmation source selection, the writer-acceptance phase, an in-flight matching report followed by success or failure, and serialized overlapping effects. |
 
@@ -125,7 +129,7 @@ Published PyPI metadata was re-read on 2026-08-08:
 2026.8.0, while harness 0.13.355 requires exact Core 2026.8.1. The workflow
 keeps those dependency-closed environments separate and requires final
 `pip check` in both. Local isolated environments prove dependency closure,
-strict typing, and all 111 direct tests in both exact lanes. The Windows host
+strict typing, and all 114 direct tests in both exact lanes. The Windows host
 still cannot import the full Home
 Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
 and WSL has no installed distribution. Bounded real Core API tests run directly
@@ -203,12 +207,14 @@ Unified accounted for nine passes and two installed-Core support-lane gaps;
 the other six failures belonged to the separate Beestat and Free Library
 product owners. It is not a current cross-portfolio green or failure claim.
 
-The product-scoped portfolio audit for clean Ecobee implementation commit
-`ead1fd080b099c47f227d6333cad7ad03eb14680` reports 12 passes and no
-failures, warnings, or unavailable checks in candidate posture. Canonical
-posture reports 11 passes, no failures or warnings, and one expected
-`audit-provenance` unavailable result because this product has no remote.
-The receipt does not prove product remote Git integration, publication,
+The latest Home-owner closure at Home commit
+`076412817b1c09db1dd6eb74faf46b1e02d70608` records clean Ecobee product
+commit `26cb2e7e84af508db45764bb7cb00b42ea25ba60`, 111 tests, and a
+product-scoped candidate audit with 12 passes and no failures, warnings, or
+unavailable checks. That is a historical checkpoint because the product source
+and direct evidence have since advanced; the final clean commit requires a
+refreshed Home-owner receipt. The receipt does not prove product remote Git
+integration, publication,
 release, or live-instance state.
 
 ## Learning classification
@@ -230,8 +236,15 @@ release, or live-instance state.
 - **Product-specific lifecycle refinements under existing capabilities:** use
   stable source registry references to observe removal/restoration, ignore
   unrelated registry events, resynchronize only owned helper records, remove
-  only entry-owned orphan entities after reconfigure, and surface disabled or
-  detached selections as recoverable Repairs.
+  only entry-owned orphan entities after reconfigure, surface disabled or
+  detached selections as recoverable Repairs, preserve future or unrecognized
+  entry/mapping/option fields, and reject concurrent data or option replacement
+  without a stale write or reload.
+- **Existing normalized-model capability remains observed:** supported config
+  and reconfigure paths generate stable opaque mapping IDs and reject duplicate
+  names and required/optional source identities before persistence, so no
+  repeated-identity effective-row policy or external-statistics normalization
+  applies.
 - **Product-specific action validation under the existing single-writer
   capability:** selected comfort-sensor devices must share the mapped Ecobee
   config entry before the source service is invoked. Core retains final
@@ -252,7 +265,8 @@ release, or live-instance state.
   precision or freshest-source rule.
 - **Product-specific command refinements:** Clear Hold is submitted after one
   successful local press without preset dependence; vacation temperatures use
-  mapped Ecobee writer units/bounds; temperature confirmation alone admits the
+  mapped Ecobee writer units/bounds and vacation fan runtime rejects fractional
+  values instead of truncating them; temperature confirmation alone admits the
   writer's half-step quantization envelope.
 - **Product-specific fallback refinement:** cloud read fallback never expands
   the HomeKit writer's advertised HVAC or fan modes; unavailable writer-owned

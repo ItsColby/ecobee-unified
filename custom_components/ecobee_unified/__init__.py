@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -10,8 +11,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
-    CONF_CONFIRMATION_SECONDS,
-    CONF_ECOBEE_STALE_SECONDS,
     CONF_MAPPINGS,
     DOMAIN,
     PLATFORMS,
@@ -24,7 +23,7 @@ from .const import (
     SUFFIX_VOC,
 )
 from .manager import MappingManager
-from .models import MappingConfig
+from .models import MappingConfig, merge_mapping_data
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 
 
@@ -74,23 +73,20 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry.version != 1 or entry.minor_version > 3:
         return False
     normalized = [
-        MappingConfig.from_dict(item).as_dict()
+        merge_mapping_data(item, MappingConfig.from_dict(item).as_dict())
         for item in entry.data.get(CONF_MAPPINGS, [])
     ]
     if not normalized:
         return False
+    updated_data = deepcopy(dict(entry.data))
+    updated_data[CONF_MAPPINGS] = normalized
+    updated_options = deepcopy(dict(entry.options))
+    for retired_key in ("homekit_stale_seconds", "beestat_stale_seconds"):
+        updated_options.pop(retired_key, None)
     hass.config_entries.async_update_entry(
         entry,
-        data={CONF_MAPPINGS: normalized},
-        options={
-            key: value
-            for key, value in entry.options.items()
-            if key
-            in {
-                CONF_ECOBEE_STALE_SECONDS,
-                CONF_CONFIRMATION_SECONDS,
-            }
-        },
+        data=updated_data,
+        options=updated_options,
         version=1,
         minor_version=3,
     )

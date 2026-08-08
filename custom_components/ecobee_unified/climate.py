@@ -92,7 +92,7 @@ CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
     vol.Inclusive(ATTR_END_TIME, "end"): _time_string,
     vol.Optional(ATTR_FAN_MODE, default="auto"): vol.In({"auto", "on"}),
     vol.Optional(ATTR_FAN_MIN_ON_TIME, default=0): vol.All(
-        vol.Coerce(int), vol.Range(min=0, max=60)
+        int, vol.Range(min=0, max=60)
     ),
 }
 DELETE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {

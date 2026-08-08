@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date as dt_date
 from datetime import time as dt_time
 from math import isfinite
-from typing import Any, override
+from typing import Any, NoReturn, override
 
 import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity
@@ -84,8 +84,8 @@ def _time_string(value: Any) -> str:
 
 CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
     vol.Required(ATTR_VACATION_NAME): vol.All(cv.string, vol.Length(min=1, max=12)),
-    vol.Required(ATTR_COOL_TEMP): vol.All(vol.Coerce(float), vol.Range(min=7, max=95)),
-    vol.Required(ATTR_HEAT_TEMP): vol.All(vol.Coerce(float), vol.Range(min=7, max=95)),
+    vol.Required(ATTR_COOL_TEMP): vol.Coerce(float),
+    vol.Required(ATTR_HEAT_TEMP): vol.Coerce(float),
     vol.Inclusive(ATTR_START_DATE, "start"): _date_string,
     vol.Inclusive(ATTR_START_TIME, "start"): _time_string,
     vol.Inclusive(ATTR_END_DATE, "end"): _date_string,
@@ -658,12 +658,27 @@ class EcobeeUnifiedClimate(ClimateEntity):
         if isinstance(value, bool) or not isinstance(value, int | float):
             self._raise_validation("invalid_vacation_temperature")
         temperature = float(value)
-        if not isfinite(temperature) or not 7 <= temperature <= 95:
+        if not isfinite(temperature):
             self._raise_validation("invalid_vacation_temperature")
+        minimum = self._snapshot.ecobee_min_temp
+        maximum = self._snapshot.ecobee_max_temp
+        unit = self._snapshot.ecobee_temperature_unit
+        if minimum is None or maximum is None or unit is None:
+            self._raise_validation("ecobee_writer_unavailable")
+        if not minimum <= temperature <= maximum:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_vacation_temperature_bounds",
+                translation_placeholders={
+                    "minimum": f"{minimum:g}",
+                    "maximum": f"{maximum:g}",
+                    "unit": unit,
+                },
+            )
         return temperature
 
     @staticmethod
-    def _raise_validation(translation_key: str) -> None:
+    def _raise_validation(translation_key: str) -> NoReturn:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key=translation_key,

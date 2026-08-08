@@ -25,7 +25,9 @@ through one mapped Home Assistant Ecobee entity; Ecobee remains the delivery
 transport owner.
 
 HomeKit remains the standard climate-state/control, precise local temperature,
-preset, and clear-hold owner. The Ecobee integration remains the vendor-detail,
+preset, and clear-hold owner. A duplicate same-device temperature sensor refines
+the local climate only while both readings agree within the climate
+serialization envelope. The Ecobee integration remains the vendor-detail,
 minimum-fan action, and thermostat-notification transport owner.
 Beestat-derived entities remain the first-class
 schedule/history/filter/alert surface and keep Recorder/import ownership. The
@@ -94,7 +96,9 @@ non-duplicate vendor projections on the same user-facing device.
 - Validate AQI, CO2, and VOC device classes and units at configuration and
   runtime; a same-device but semantically different sensor must not be relabeled
   by the Unified projection.
-- Standard climate, preset, and clear-hold commands use HomeKit only. The
+- Standard climate, preset, and clear-hold commands use HomeKit only. Clear Hold
+  becomes submitted after one successful press because its source button has no
+  supported resulting-state contract; it does not depend on Current Mode. The
   minimum-fan number and notification facade use their explicitly mapped Ecobee
   paths. Read fallback never implies write failover, and a timeout never causes
   a second-backend retry.

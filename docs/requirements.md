@@ -35,13 +35,13 @@ justify ambiguous values or dual writes.
 | F-16 | Revision-guard pending commands so stale observations cannot update a superseded command. |
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
-| F-19 | When explicitly mapped and capability-advertised, expose HomeKit current-mode presets and local clear-hold/resume through the Unified climate action and a native Unified button, with exactly one local writer. |
+| F-19 | When explicitly mapped, expose HomeKit current-mode presets and local clear-hold/resume through the Unified climate action and a native Unified button, with exactly one local writer. Clear Hold depends only on its same-device writer and reports successful dispatch as submitted because no source state proves its effect. |
 | F-20 | Project only justified Ecobee-only detail: minimum fan runtime, bounded equipment stage, explicitly selected device-class/unit-valid AQI/CO2/VOC sensors, and an optional thermostat-display notification facade; do not create duplicate temperature, humidity, occupancy, weather, schedule, or history entities. |
 | F-21 | Treat quiet HomeKit push/event observation age as diagnostic rather than unavailability; only cadence-backed sources may become stale by elapsed time. |
 | F-22 | Expose standard target humidity only through capability-advertised HomeKit bounds, one HomeKit writer, and revision-guarded HomeKit confirmation. |
-| F-23 | Permit target-temperature step fusion only as an explicit same-physical-device metadata exception with proven HomeKit writer granularity and reconciled units/bounds; never as generic freshness fallback. |
-| F-24 | Expose bounded Unified-domain facades for vacation, occupancy-policy, and comfort-sensor-participation actions through the explicitly mapped Ecobee climate, with input/capability validation, exactly one write, and honest submitted-not-confirmed status where source state cannot prove the effect. |
-| F-25 | When explicitly mapped, use a finite, unit-compatible, temperature-class HomeKit sensor on the same physical device as the precise primary `current_temperature` and advertise sufficient climate precision to preserve its honest fractional state; otherwise fall back to the HomeKit climate semantic and then the documented Ecobee read fallback without fabricating precision. |
+| F-23 | Permit target-temperature step fusion only as an explicit same-physical-device metadata exception with proven HomeKit writer granularity and reconciled units/bounds; use half that writer step as the maximum cross-source temperature-confirmation tolerance, never as generic read freshness fallback. |
+| F-24 | Expose bounded Unified-domain facades for vacation, occupancy-policy, and comfort-sensor-participation actions through the explicitly mapped Ecobee climate, with input/capability validation, exactly one write, writer-unit vacation bounds, and honest submitted-not-confirmed status where source state cannot prove the effect. |
+| F-25 | When explicitly mapped, use a finite, unit-compatible, temperature-class HomeKit sensor on the same physical device as the precise primary `current_temperature` only while it agrees with the usable HomeKit climate inside Core's unit-specific serialization envelope; otherwise degrade and fall back to the HomeKit climate semantic and then the documented Ecobee read fallback without fabricating precision. |
 | F-26 | When explicitly mapped, expose one Unified thermostat-display notification entity that forwards a non-empty message to exactly one same-device Ecobee notification writer and degrades safely across rename, association drift, disappearance, and recovery. |
 
 ## Non-functional Requirements
@@ -71,7 +71,8 @@ MVP is complete when all of the following are true:
 2. The climate entity reports every standard field from the documented owner
    and uses only the documented fallback under tested failure conditions.
 3. Standard climate commands produce exactly one HomeKit service call.
-4. Preset and clear-hold operations produce exactly one HomeKit action;
+4. Preset and clear-hold operations produce exactly one HomeKit action, with
+   Clear Hold reported as submitted rather than falsely confirmed;
    minimum-fan, vacation, occupancy-policy, and sensor-participation controls
    and thermostat-display notifications produce exactly one mapped Ecobee
    action, with no failover.

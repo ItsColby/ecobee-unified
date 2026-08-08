@@ -20,9 +20,11 @@ depend on them.
 
 ## Ownership and behavior
 
-- HomeKit Controller owns standard climate state/control, optional precise
-  same-device current temperature, current-mode presets, and the optional local
-  clear-hold action.
+- HomeKit Controller owns standard climate state/control, current-mode presets,
+  and the optional local clear-hold action. An optional same-device HomeKit
+  temperature sensor may refine current temperature only while it agrees with
+  the local climate within that climate state's unit-specific serialization
+  envelope.
 - Ecobee owns vendor detail, thermostat-display notifications, and the
   minimum-fan-runtime cloud action.
 - Bounded Unified actions route vacation, occupancy-policy, and comfort-sensor
@@ -55,10 +57,12 @@ optional thermostat-display notification entity, all linked to the selected
 HomeKit device using the Core 2026.8 helper pattern. The climate uses its
 translated `Unified climate` sibling name rather than repeating the mapping
 name. The minimum-fan control declares duration semantics in minutes. A mapped
-same-device HomeKit temperature sensor can supply the climate's precise
-current-temperature value without creating another temperature entity; it must
-advertise a temperature device class and compatible unit. Current-humidity,
-occupancy, weather, schedule, and transition entities are not duplicated. The canonical
+same-device HomeKit temperature sensor can supply the climate's precise current
+temperature without creating another temperature entity only while it remains
+finite, unit-compatible, and consistent with the local climate's serialized
+reading. Divergence or loss of proof degrades explicitly to the local climate,
+then to the documented Ecobee read fallback. Current-humidity, occupancy,
+weather, schedule, and transition entities are not duplicated. The canonical
 climate also exposes the mapped HomeKit target-humidity capability. Its
 presentation step remains unset because the supported HomeKit entity contract
 does not expose writer granularity. Entity properties project one immutable
@@ -86,8 +90,10 @@ roles. Reconfiguration supports explicit add, edit, and remove operations.
 Editing physical association or command routing requires a second confirmation.
 
 When the explicit HomeKit temperature sensor is selected, the Unified climate
-also advertises tenths precision so Home Assistant preserves the source's honest
-fractional value in climate state instead of rounding it back to whole degrees.
+advertises tenths precision only while the sensor passes the local consistency
+guard. This preserves an honest fractional value without choosing a source
+because it merely looks more precise or allowing a quiet duplicate sensor to
+silently diverge from the thermostat climate.
 
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. Both default to 30 minutes, calibrated above the
@@ -103,10 +109,12 @@ once and only for an advertised option.
 `ecobee_unified.resume_program` targets a unified climate entity and presses the
 mapped local HomeKit Clear Hold button exactly once.
 
-The same operation is available as an optional **Resume program** button on the
-Unified thermostat device, so dashboards do not need to expose or target the
-raw HomeKit button. It is available only while both the clear-hold writer and
-the current-mode observation source needed for confirmation are usable.
+The same operation is available as an optional **Resume program** button on
+the Unified thermostat device, so dashboards do not need to expose or target
+the raw HomeKit button. It is available whenever the mapped clear-hold writer
+is usable, independently of Current Mode. Because the button has no supported
+resulting-state contract, a successful press is reported as `submitted`, not
+falsely `confirmed`.
 
 The minimum-fan-runtime number accepts 0 through 60 minutes and calls the
 mapped Ecobee `set_fan_min_on_time` action exactly once. Values must align to
@@ -121,15 +129,19 @@ with the source entity.
 `set_occupancy_modes`, and `set_sensors_used_in_climate` target a Unified
 climate entity and inject its explicitly mapped Ecobee climate writer. Inputs
 are bounded and capability-checked before exactly one call; comfort sensors
-must belong to the mapped Ecobee config entry. Because public
-source state cannot prove the complete resulting vacation or policy,
-successful dispatch is reported as `submitted`, not `confirmed`.
+must belong to the mapped Ecobee config entry, and vacation temperatures must
+fit the mapped writer's advertised unit and safety bounds. Because public source
+state cannot prove the complete resulting vacation or policy, successful
+dispatch is reported as `submitted`, not `confirmed`.
 
 Standard HVAC mode, temperature/range, target-humidity, fan, turn-on, and
 turn-off operations call only the selected HomeKit climate. Temperature unit
 and safety bounds remain writer-owned. When the mapped HomeKit adapter omits
 its proven native step, the matching Ecobee climate may supply only that static
 same-device presentation metadata; it never replaces the primary reading.
+Temperature-command confirmation accepts only the writer's half-step
+quantization envelope, while other numeric fields retain the stricter default
+tolerance.
 
 ## Validation
 

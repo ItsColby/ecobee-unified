@@ -20,6 +20,16 @@ TEMPERATURE_UNITS = frozenset({"°C", "°F"})
 TARGET_TEMPERATURE_FEATURE = 1
 TARGET_TEMPERATURE_RANGE_FEATURE = 2
 TARGET_HUMIDITY_FEATURE = 4
+TEMPERATURE_CONFIRMATION_FIELDS = frozenset(
+    {
+        "target_temperature",
+        "target_temperature_low",
+        "target_temperature_high",
+    }
+)
+DEFAULT_NUMERIC_CONFIRMATION_TOLERANCE = 0.11
+FLOAT_COMPARISON_EPSILON = 1e-9
+ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.500001}
 
 
 class SourceHealth(StrEnum):
@@ -166,6 +176,9 @@ class NormalizedSnapshot:
     max_temp: float | None
     target_temperature_step: float | None
     temperature_unit: str | None
+    ecobee_min_temp: float | None
+    ecobee_max_temp: float | None
+    ecobee_temperature_unit: str | None
     preset_mode: str | None
     preset_modes: tuple[str, ...]
     ecobee_preset_mode: str | None
@@ -266,6 +279,9 @@ def build_snapshot(
     )
     provenance.update(metadata_provenance)
     degradation.update(metadata_degradation)
+    ecobee_min_temp, ecobee_max_temp, ecobee_temperature_unit = (
+        _ecobee_temperature_metadata(ecobee)
+    )
 
     source_health = MappingProxyType(
         {
@@ -331,6 +347,9 @@ def build_snapshot(
         max_temp=temperature_values["max_temp"],
         target_temperature_step=temperature_values["target_temperature_step"],
         temperature_unit=temperature_values["temperature_unit"],
+        ecobee_min_temp=ecobee_min_temp,
+        ecobee_max_temp=ecobee_max_temp,
+        ecobee_temperature_unit=ecobee_temperature_unit,
         preset_mode=_optional_source_state(homekit_preset),
         preset_modes=(
             _bounded_strings(homekit_preset.attributes.get("options"))
@@ -378,14 +397,43 @@ def _select_current_temperature(
     homekit: RawSource,
     ecobee: RawSource,
 ) -> tuple[float | None, str | None, set[str]]:
-    """Select an honest temperature without treating precision as freshness."""
+    """Use local precision only while the local climate proves its semantics."""
 
     degradation: set[str] = set()
-    value = _optional_source_finite_number(homekit_temperature)
-    if value is not None:
-        return value, "homekit_temperature", degradation
-    if homekit_temperature is not None and not homekit_temperature.usable:
+    precise_value = _optional_source_finite_number(homekit_temperature)
+    homekit_value = (
+        _normalize_field(homekit.attributes.get("current_temperature"), "number")
+        if homekit.usable
+        else None
+    )
+    homekit_unit = (
+        _normalize_field(
+            homekit.attributes.get("unit_of_measurement"), "temperature_unit"
+        )
+        if homekit.usable
+        else None
+    )
+    rounding_envelope = ROUNDING_ENVELOPE.get(homekit_unit or "")
+    if precise_value is not None:
+        if (
+            homekit_value is not None
+            and rounding_envelope is not None
+            and isclose(
+                precise_value,
+                homekit_value,
+                rel_tol=0.0,
+                abs_tol=rounding_envelope,
+            )
+        ):
+            return precise_value, "homekit_temperature", degradation
+        degradation.add(
+            "homekit_temperature_diverged"
+            if homekit_value is not None and rounding_envelope is not None
+            else "homekit_temperature_unverifiable"
+        )
+    elif homekit_temperature is not None and not homekit_temperature.usable:
         degradation.add("homekit_temperature_unavailable")
+
     value, owner = _select_attribute(homekit, ecobee, "current_temperature", "number")
     if owner == "ecobee":
         degradation.add("homekit_read_fallback")
@@ -395,7 +443,7 @@ def _select_current_temperature(
 
 
 def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -> bool:
-    """Return whether an Ecobee observation confirms the current revision."""
+    """Return whether the operation-owned observation confirms this revision."""
 
     for field_name, wanted in expected.items():
         actual = snapshot.confirmation_values.get(field_name)
@@ -406,7 +454,20 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
             if actual is None:
                 return False
         elif isinstance(wanted, int | float) and isinstance(actual, int | float):
-            if not isclose(float(actual), float(wanted), abs_tol=0.11):
+            tolerance = DEFAULT_NUMERIC_CONFIRMATION_TOLERANCE
+            if (
+                field_name in TEMPERATURE_CONFIRMATION_FIELDS
+                and snapshot.target_temperature_step is not None
+            ):
+                tolerance = (
+                    snapshot.target_temperature_step / 2 + FLOAT_COMPARISON_EPSILON
+                )
+            if not isclose(
+                float(actual),
+                float(wanted),
+                rel_tol=0.0,
+                abs_tol=tolerance,
+            ):
                 return False
         elif actual != wanted:
             return False
@@ -524,6 +585,19 @@ def _temperature_metadata(
         provenance,
         degradation,
     )
+
+
+def _ecobee_temperature_metadata(
+    ecobee: RawSource,
+) -> tuple[float | None, float | None, str | None]:
+    """Normalize vacation bounds from the mapped Ecobee command writer."""
+
+    minimum = _writer_attribute(ecobee, "min_temp", "number")
+    maximum = _writer_attribute(ecobee, "max_temp", "number")
+    unit = _writer_attribute(ecobee, "unit_of_measurement", "temperature_unit")
+    if minimum is None or maximum is None or minimum > maximum or unit is None:
+        return None, None, None
+    return minimum, maximum, unit
 
 
 def _humidity_metadata(

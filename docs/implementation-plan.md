@@ -66,8 +66,10 @@ Exit: mappings survive reload and rename; loss/recovery is tested.
 - Preserve honest primary precision and HomeKit-writer-owned unit/min/max. When
   explicitly selected, validate and unit-normalize a same-device HomeKit
   temperature sensor before using its unrounded value as the unified climate's
-  current temperature, and advertise tenths precision while a fractional source
-  is selected so Core preserves the value in climate state; otherwise retain
+  current temperature. Require agreement with the usable HomeKit climate inside
+  Core's unit-specific serialization envelope before advertising tenths
+  precision; divergence or an unverifiable local climate follows the documented
+  fallback chain instead. Otherwise retain
   the documented climate fallback chain and whole-degree presentation.
 - Add the explicit same-device target-step fusion only when the HomeKit adapter
   omits its independently proven writer granularity and units/bounds reconcile.
@@ -82,16 +84,21 @@ Exit: the complete availability matrix and field-selection tests pass.
 - Route preset selection and clear-hold only to explicitly mapped HomeKit
   select/button entities, exposing clear-hold through both the Unified climate
   action and a native Unified resume-program button without adding a writer.
+  Clear Hold does not depend on the select and becomes submitted after one
+  successful button call because its complete effect is not state-confirmable.
 - Route standard target humidity only to the capability-advertised HomeKit
   climate, validate its writer-owned bounds, and confirm from HomeKit reports.
 - Expose minimum fan runtime as the sole Ecobee-backed number writer.
 - Expose bounded Unified-domain vacation, occupancy-policy, and
-  comfort-sensor-participation actions through the mapped Ecobee climate. Mark
-  successful unprojectable effects submitted rather than confirmed.
+  comfort-sensor-participation actions through the mapped Ecobee climate.
+  Validate vacation temperatures against that writer's current unit and bounds,
+  and mark successful unprojectable effects submitted rather than confirmed.
 - Expose an optional thermostat-display notification entity through exactly one
   explicitly mapped same-device Ecobee notification writer.
 - Implement revision-guarded pending-command observation, confirmation,
-  timeout, supersession, and diagnostics.
+  timeout, supersession, and diagnostics. Temperature confirmation tolerates at
+  most half the proven HomeKit target step; other numeric fields retain the
+  strict fixed tolerance.
 - Inject the resolved mapped target after validating caller data so no service
   payload can redirect the one writer.
 - Do not retry through another backend.

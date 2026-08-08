@@ -36,9 +36,11 @@ For every standard and vendor field, test:
   same-device step fusion, Celsius/Fahrenheit climate-unit enforcement, and
   rejection when proof/unit reconciliation is absent;
 - explicit same-device HomeKit temperature selection, unit conversion,
-  malformed/non-finite rejection, climate fallback, cloud fallback, quiet-source
-  health, source-dependent climate-state precision/rounding, rename,
-  move/detach, disappearance, and recovery;
+  malformed/non-finite rejection, Fahrenheit/Celsius serialization-envelope
+  agreement and stable boundaries, explicit divergence/unverifiable
+  degradation, climate fallback, cloud fallback, quiet-source health,
+  source-dependent climate-state precision/rounding, rename, move/detach,
+  disappearance, and recovery;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, recovery, and no fabricated
   presentation step when the supported writer contract exposes none.
@@ -47,7 +49,8 @@ For every standard and vendor field, test:
 
 Include fixtures where climate `current_temperature` intentionally differs from
 an explicitly mapped same-device HomeKit temperature sensor and an unmapped raw
-sensor. The unified climate uses only the explicit, capability-valid mapping;
+sensor. The unified climate uses only the explicit, capability-valid mapping
+while it agrees with the local climate's unit-specific serialization envelope;
 it never guesses a source or substitutes a value merely because it has more
 decimal places or a newer timestamp.
 
@@ -55,7 +58,9 @@ decimal places or a newer timestamp.
 
 - each standard climate method makes exactly one HomeKit service call;
 - preset and both Unified clear-hold entry points each make exactly one mapped
-  HomeKit service call; the native button exists only for an explicit mapping;
+  HomeKit service call; Clear Hold works without the preset source, becomes
+  submitted rather than confirmed, and the native button exists only for an
+  explicit usable mapping;
 - minimum fan runtime declares duration semantics in minutes, accepts only 0-60
   in exact five-minute increments, rejects non-finite/off-step/out-of-range
   values before I/O, and makes one Ecobee call;
@@ -68,13 +73,17 @@ decimal places or a newer timestamp.
   writer target;
 - unprojectable vendor effects become `submitted`, never `confirmed`, and a
   late completion cannot mutate a newer command revision;
-- vacation names/temperatures/date-time pairs, occupancy policy, source
-  service availability, and Ecobee sensor device selections fail before any
-  effect when invalid or owned by another Ecobee config entry;
+- vacation names, writer-unit temperature bounds in Celsius and Fahrenheit,
+  date-time pairs, occupancy policy, source service availability, and Ecobee
+  sensor device selections fail before any effect when invalid or owned by
+  another Ecobee config entry;
 - writer unavailable fails clearly without fallback;
 - confirmation observes the operation-owned source without issuing another
   call: Ecobee for cloud-observed standard operations, HomeKit for target
-  humidity, and the HomeKit select for preset/resume;
+  humidity, and the HomeKit select for preset; Clear Hold has no supported
+  confirmation source and remains submitted;
+- temperature confirmation accepts only half of the writer's target step for
+  quantization while other numeric fields retain the stricter default tolerance;
 - confirmation success, mismatch, timeout, reload, and source loss;
 - confirmation from a fresh matching report whose state and attributes are
   unchanged;

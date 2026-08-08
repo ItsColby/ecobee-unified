@@ -1,7 +1,7 @@
 # Upstream Contract Refresh
 
 Verified against installed Home Assistant Core 2026.8.1 on
-2026-08-07. These are implementation inputs, not proof of live deployment.
+2026-08-08. These are implementation inputs, not proof of live deployment.
 
 ## Resolved implementation checks
 
@@ -45,10 +45,11 @@ Verified against installed Home Assistant Core 2026.8.1 on
    without rebuilding healthy mappings.
 8. **HomeKit humidity and temperature metadata:** Core 2026.8 exposes the
    standard target-humidity feature and writer-owned humidity bounds. The
-   Ecobee HomeKit accessory's native temperature granularity is honored by the
-   writer even though its HA climate adapter omits `target_temp_step`; the
-   mapped same-device Ecobee step is therefore an explicit static presentation
-   fusion, not read fallback or a precision substitution.
+   installed Core 2026.8.1 HomeKit climate exposes the writer's native
+   `target_temperature_step`. Native writer metadata is primary; a mapped
+   same-device Ecobee step is only a guarded static presentation fallback when
+   a supported adapter instance omits the step, never read fallback or a
+   precision substitution.
    Home Assistant climate writers expose Celsius or Fahrenheit units; Kelvin
    remains valid for an explicitly mapped temperature sensor only through
    conversion into the writer's supported unit.
@@ -63,14 +64,21 @@ Verified against installed Home Assistant Core 2026.8.1 on
     present fewer decimal places than a same-accessory HomeKit temperature
     sensor. Unified may consume that sensor only through an explicit mapping
     with temperature device class, compatible unit, finite state, and matching
-    HomeKit device. This is a local semantic refinement inside the canonical
-    climate, not a freshest-value or apparent-precision heuristic.
-11. **Notification entity contract:** Core 2026.8's `NotifyEntity` exposes
+    HomeKit device, and only while it agrees with the local climate within the
+    climate state's unit-specific serialization envelope. Divergence or missing
+    local proof degrades explicitly. This is a local semantic refinement inside
+    the canonical climate, not a freshest-value or apparent-precision heuristic.
+11. **Vacation temperature units:** Core 2026.8.1 converts the public Ecobee
+    vacation action from Home Assistant's configured temperature unit to the
+    backend's Fahrenheit contract. Unified therefore validates caller values in
+    the mapped Ecobee climate writer's advertised unit and bounds before one
+    service call; it does not impose a hard-coded cross-unit range.
+12. **Notification entity contract:** Core 2026.8's `NotifyEntity` exposes
     `async_send_message(message, title=None)` and the Ecobee implementation
     delegates messages to its owned backend while ignoring titles. Unified
     therefore forwards one non-empty message to one explicitly mapped Ecobee
     notification entity and lets Core own notification entity state semantics.
-12. **Cross-backend physical identity:** Installed Core 2026.8.1 stores the
+13. **Cross-backend physical identity:** Installed Core 2026.8.1 stores the
     HomeKit accessory serial in `DeviceEntry.serial_number` and the Ecobee
     thermostat identifier in the Ecobee device's `(ecobee, identifier)` pair.
     Unified compares those supported registry fields at configuration and after

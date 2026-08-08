@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from math import inf, nan
+from types import MappingProxyType
 
 from custom_components.ecobee_unified.models import (
     CommandStatus,
@@ -11,6 +13,7 @@ from custom_components.ecobee_unified.models import (
     RawSource,
     SourceHealth,
     build_snapshot,
+    command_matches,
 )
 
 
@@ -359,11 +362,14 @@ class SnapshotTests(unittest.TestCase):
     def test_explicit_homekit_temperature_sensor_preserves_local_precision(
         self,
     ) -> None:
-        homekit = source("heat", {"current_temperature": 20.0})
-        ecobee = source("heat", {"current_temperature": 20.6})
+        homekit = source(
+            "heat",
+            {"current_temperature": 72.0, "unit_of_measurement": "°F"},
+        )
+        ecobee = source("heat", {"current_temperature": 72.3})
         precise = RawSource(
-            "20.63",
-            {"device_class": "temperature", "unit_of_measurement": "°C"},
+            "72.4",
+            {"device_class": "temperature", "unit_of_measurement": "°F"},
             age_seconds=86_400,
             health=SourceHealth.HEALTHY,
         )
@@ -375,7 +381,7 @@ class SnapshotTests(unittest.TestCase):
             homekit_temperature=precise,
         )
 
-        self.assertEqual(20.63, snapshot.current_temperature)
+        self.assertEqual(72.4, snapshot.current_temperature)
         self.assertEqual(
             "homekit_temperature", snapshot.provenance["current_temperature"]
         )
@@ -383,6 +389,156 @@ class SnapshotTests(unittest.TestCase):
             SourceHealth.HEALTHY, snapshot.source_health["homekit_temperature"]
         )
         self.assertNotIn("homekit_temperature_unavailable", snapshot.degradation)
+
+    def test_precise_temperature_requires_current_homekit_semantic_agreement(
+        self,
+    ) -> None:
+        homekit = source(
+            "cool",
+            {"current_temperature": 76.0, "unit_of_measurement": "°F"},
+        )
+        ecobee = source("cool", {"current_temperature": 76.6})
+        diverged = RawSource(
+            "77.72",
+            {"device_class": "temperature", "unit_of_measurement": "°F"},
+            health=SourceHealth.HEALTHY,
+        )
+
+        snapshot = build_snapshot(
+            "mapping_a",
+            homekit,
+            ecobee,
+            homekit_temperature=diverged,
+        )
+
+        self.assertEqual(76.0, snapshot.current_temperature)
+        self.assertEqual("homekit", snapshot.provenance["current_temperature"])
+        self.assertIn("homekit_temperature_diverged", snapshot.degradation)
+
+    def test_precise_temperature_rounding_envelope_is_unit_aware(self) -> None:
+        cases = (
+            ("°F", 72.0, 72.5, True),
+            ("°F", 72.0, 72.52, False),
+            ("°C", 20.0, 20.05, True),
+            ("°C", 20.0, 20.06, False),
+        )
+        for unit, climate_value, sensor_value, accepted in cases:
+            with self.subTest(unit=unit, sensor_value=sensor_value):
+                snapshot = build_snapshot(
+                    "mapping_a",
+                    source(
+                        "heat",
+                        {
+                            "current_temperature": climate_value,
+                            "unit_of_measurement": unit,
+                        },
+                    ),
+                    source("heat", {"current_temperature": climate_value}),
+                    homekit_temperature=RawSource(
+                        str(sensor_value), health=SourceHealth.HEALTHY
+                    ),
+                )
+                expected_owner = "homekit_temperature" if accepted else "homekit"
+                self.assertEqual(
+                    expected_owner,
+                    snapshot.provenance["current_temperature"],
+                )
+                self.assertEqual(
+                    not accepted,
+                    "homekit_temperature_diverged" in snapshot.degradation,
+                )
+
+    def test_precise_temperature_is_not_used_without_local_climate_proof(
+        self,
+    ) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            RawSource(None, health=SourceHealth.UNAVAILABLE),
+            source("heat", {"current_temperature": 72.3}),
+            homekit_temperature=RawSource("74.8", health=SourceHealth.HEALTHY),
+        )
+
+        self.assertEqual(72.3, snapshot.current_temperature)
+        self.assertEqual("ecobee", snapshot.provenance["current_temperature"])
+        self.assertIn("homekit_temperature_unverifiable", snapshot.degradation)
+
+    def test_temperature_confirmation_uses_writer_step_tolerance(self) -> None:
+        homekit = source(
+            "heat_cool",
+            {
+                "current_temperature": 72.0,
+                "min_temp": 45.0,
+                "max_temp": 95.0,
+                "target_temp_step": 0.5,
+                "unit_of_measurement": "°F",
+            },
+        )
+        quantized = build_snapshot(
+            "mapping_a",
+            homekit,
+            source(
+                "heat_cool",
+                {"current_temperature": 72.1, "target_temp_low": 69.2},
+            ),
+        )
+        half_step = build_snapshot(
+            "mapping_a",
+            homekit,
+            source(
+                "heat_cool",
+                {"current_temperature": 72.1, "target_temp_low": 69.25},
+            ),
+        )
+        wrong_target = build_snapshot(
+            "mapping_a",
+            homekit,
+            source(
+                "heat_cool",
+                {"current_temperature": 72.1, "target_temp_low": 69.26},
+            ),
+        )
+
+        expected = {"target_temperature_low": 69.0}
+        self.assertTrue(command_matches(quantized, expected))
+        self.assertTrue(command_matches(half_step, expected))
+        self.assertFalse(command_matches(wrong_target, expected))
+
+        fine_step = build_snapshot(
+            "mapping_a",
+            source(
+                "heat",
+                {
+                    "current_temperature": 20.0,
+                    "min_temp": 7.0,
+                    "max_temp": 35.0,
+                    "target_temp_step": 0.1,
+                    "unit_of_measurement": "\N{DEGREE SIGN}C",
+                },
+            ),
+            source("heat", {"current_temperature": 20.0}),
+        )
+        fine_step = replace(
+            fine_step,
+            confirmation_values=MappingProxyType({"target_temperature": 20.05}),
+        )
+        self.assertTrue(command_matches(fine_step, {"target_temperature": 20.0}))
+        fine_step = replace(
+            fine_step,
+            confirmation_values=MappingProxyType({"target_temperature": 20.051}),
+        )
+        self.assertFalse(command_matches(fine_step, {"target_temperature": 20.0}))
+
+    def test_non_temperature_confirmation_keeps_strict_tolerance(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source(
+                "heat",
+                {"current_temperature": 20.0, "humidity": 36.2},
+            ),
+            source("heat", {"current_temperature": 20.0}),
+        )
+
+        self.assertFalse(command_matches(snapshot, {"target_humidity": 36.0}))
 
     def test_explicit_temperature_falls_back_only_on_actual_unavailability(
         self,

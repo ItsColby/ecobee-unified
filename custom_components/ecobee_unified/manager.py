@@ -249,15 +249,9 @@ class MappingManager:
                 (mapping.ecobee_voc_entity, "voc"),
             )
         )
-        homekit_preset_writable = bool(
-            homekit_preset is not None and homekit_preset.usable
-        )
-        homekit_clear_hold_writable = bool(
-            homekit_preset_writable
-            and self._writer_available(
-                mapping.homekit_clear_hold_entity,
-                required_device_id=homekit_device_id,
-            )
+        homekit_clear_hold_writable = self._writer_available(
+            mapping.homekit_clear_hold_entity,
+            required_device_id=homekit_device_id,
         )
         snapshot = build_snapshot(
             mapping_id,
@@ -432,43 +426,23 @@ class MappingManager:
     async def async_resume_program(
         self, mapping_id: str, context: Context | None
     ) -> None:
-        """Press the explicitly mapped local HomeKit clear-hold button once."""
+        """Submit one mapped local clear-hold action without false confirmation."""
 
         mapping = self._mapping_by_id[mapping_id]
-        preset = self._optional_raw_source(
-            mapping.homekit_preset_entity,
-            None,
-            now=dt_util.utcnow(),
-            report_times=None,
-            required_device_id=self._source_device_id(mapping.homekit_entity),
-            require_matching_device=True,
-        )
         button_id = (
             self.resolve_entity_id(mapping.homekit_clear_hold_entity)
             if mapping.homekit_clear_hold_entity
             else None
         )
-        button_entry = (
-            er.async_get(self.hass).async_get(button_id) if button_id else None
-        )
-        if (
-            preset is None
-            or not preset.usable
-            or not self._writer_available(
-                mapping.homekit_clear_hold_entity,
-                required_device_id=self._source_device_id(mapping.homekit_entity),
-            )
-            or button_entry is None
-            or button_entry.disabled
+        if button_id is None or not self._writer_available(
+            mapping.homekit_clear_hold_entity,
+            required_device_id=self._source_device_id(mapping.homekit_entity),
         ):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="homekit_writer_unavailable",
             )
-        revision = self._tracker.begin(
-            mapping_id, "clear_hold", {"preset_mode": "__reported__"}
-        )
-        self._subscribe_state_reports()
+        revision = self._tracker.begin(mapping_id, "clear_hold", {})
         self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
         try:
@@ -488,6 +462,10 @@ class MappingManager:
                 translation_domain=DOMAIN,
                 translation_key="homekit_command_failed",
             ) from None
+        if self._tracker.submit(mapping_id, revision):
+            self._cancel_timeout(mapping_id)
+            self._subscribe_state_reports()
+            self.refresh_mapping(mapping_id)
 
     async def async_set_preset_mode(
         self, mapping_id: str, preset_mode: str, context: Context | None
@@ -1086,7 +1064,7 @@ class MappingManager:
     ) -> str | None:
         """Return the one source allowed to confirm the pending operation."""
 
-        if operation in {"set_preset_mode", "clear_hold"}:
+        if operation == "set_preset_mode":
             return mapping.homekit_preset_entity
         if operation == "set_humidity":
             return mapping.homekit_entity

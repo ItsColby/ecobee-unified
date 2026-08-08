@@ -82,7 +82,7 @@ Repair until the supported registry identities match again.
 |---|---|---|---|
 | HVAC mode and action | HomeKit climate | Ecobee climate | Local state is canonical for normal operation. |
 | Target temperature/range | HomeKit climate | Ecobee climate | Reads may fall back, but unit and safety bounds remain HomeKit-writer-owned. The Ecobee target step is an explicit same-device metadata fusion only when Core writer granularity is independently proven and the HomeKit adapter omits the step. |
-| Current temperature | Explicit same-device HomeKit temperature sensor when mapped and valid; otherwise HomeKit climate | Ecobee climate `current_temperature` only when the local chain is unavailable | The explicit sensor preserves the local accessory's honest precision without creating a duplicate entity. Require the temperature device class, a compatible unit, finite state, and same-device association; never select by apparent precision or freshness. |
+| Current temperature | Explicit same-device HomeKit temperature sensor when mapped, valid, and consistent with the current HomeKit climate serialization envelope; otherwise HomeKit climate | Ecobee climate `current_temperature` only when the local climate chain is unavailable | The explicit sensor preserves honest accessory precision without trusting a silent divergent duplicate projection. Require temperature class, compatible unit, finite state, same-device association, and agreement within half of Core's unit-specific climate display step; otherwise degrade explicitly and fall back. |
 | Current humidity | HomeKit climate | Ecobee climate | Expose only when valid. |
 | Target humidity and bounds | HomeKit climate | none | Advertise and write only when the mapped HomeKit writer exposes the capability and valid bounds; confirm from its report. |
 | Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
@@ -146,7 +146,7 @@ Exactly one backend writes each operation:
 | Set temperature/range | HomeKit climate | No automatic fallback. |
 | Set fan mode | HomeKit climate | No automatic fallback. |
 | Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. |
-| Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; confirmation observes the mapped mode source. |
+| Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; a successful button call is reported as submitted because no source state can prove the hold cleared. It does not require the independent current-mode select. |
 | Set minimum fan runtime | Ecobee action through unified number | Vendor-specific action exactly once. |
 | Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |
 | Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
@@ -158,6 +158,10 @@ revision. A late cloud update must not confirm or fail a superseded command. A
 timeout reports an unconfirmed command; it must not send a second write. The
 default confirmation window is 30 minutes, calibrated above the observed
 cloud-reporting tail and still subject to command-specific shadow validation.
+Temperature observations use a writer-step-aware tolerance capped at half of
+the mapped HomeKit target step so ordinary HomeKit/Ecobee quantization can
+confirm without accepting a different target. Non-temperature confirmation
+retains its strict fixed tolerance. Clear Hold is submitted, not state-confirmed.
 Normal source processing must continue while confirmation is pending. A
 matching Ecobee state report counts
 as a new observation even when state and attributes are unchanged; report-event
@@ -183,8 +187,9 @@ Source candidate per thermostat:
 Unified climate actions also expose bounded vacation creation/deletion,
 Smart Home/Away and Follow Me policy, and comfort-sensor participation. They
 always inject the mapping's Ecobee climate target and issue one Ecobee service
-call. Because the public source state cannot prove the complete resulting
-vacation or policy definition, a successful action is reported as `submitted`,
+call. Vacation temperatures use that mapped writer's current unit and advertised
+bounds. Because public source state cannot prove the complete resulting vacation
+or policy definition, a successful action is reported as `submitted`,
 not falsely `confirmed`; service errors remain `failed`. Microphone and
 daylight-saving administration remain outside the routine thermostat surface.
 

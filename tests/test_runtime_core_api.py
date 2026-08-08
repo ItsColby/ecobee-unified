@@ -181,7 +181,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.hass.states.async_set(
             self.homekit_temperature.entity_id,
-            "20.63",
+            "20.04",
             {
                 ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
                 ATTR_UNIT_OF_MEASUREMENT: "°C",
@@ -866,7 +866,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         await manager.async_start()
         try:
             precise = manager.snapshot(mapping.mapping_id)
-            self.assertEqual(20.63, precise.current_temperature)
+            self.assertEqual(20.04, precise.current_temperature)
             self.assertEqual(
                 "homekit_temperature", precise.provenance["current_temperature"]
             )
@@ -918,15 +918,26 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
             self.hass.states.async_set(
                 self.homekit_temperature.entity_id,
-                "19.75",
+                "20.04",
                 {
                     ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
                     ATTR_UNIT_OF_MEASUREMENT: "°C",
                 },
             )
             await self.hass.async_block_till_done()
+            unverified = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.0, unverified.current_temperature)
+            self.assertEqual("ecobee", unverified.provenance["current_temperature"])
+            self.assertIn("homekit_temperature_unverifiable", unverified.degradation)
+
+            self.hass.states.async_set(
+                self.homekit.entity_id,
+                "heat",
+                self._attributes(20.0),
+            )
+            await self.hass.async_block_till_done()
             recovered = manager.snapshot(mapping.mapping_id)
-            self.assertEqual(19.75, recovered.current_temperature)
+            self.assertEqual(20.04, recovered.current_temperature)
             self.assertEqual(
                 "homekit_temperature", recovered.provenance["current_temperature"]
             )
@@ -1022,6 +1033,11 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             {"entity_id": self.homekit_clear_hold.entity_id},
             dict(calls[0].data),
         )
+        self.assertEqual(
+            CommandStatus.SUBMITTED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
         self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unavailable")
         await self.hass.async_block_till_done()
@@ -1032,9 +1048,62 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unknown")
         self.hass.states.async_set(self.homekit_preset.entity_id, "unavailable")
         await self.hass.async_block_till_done()
-        self.assertFalse(entity.available)
-        with self.assertRaises(ServiceValidationError):
-            await entity.async_press()
+        self.assertTrue(entity.available)
+        await entity.async_press()
+        self.assertEqual(2, len(calls))
+        self.assertEqual(
+            CommandStatus.SUBMITTED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+
+        preset_state = self.hass.states.get(self.homekit_preset.entity_id)
+        assert preset_state is not None
+        self.manager._handle_state_report_event(
+            Mock(
+                data={
+                    "entity_id": self.homekit_preset.entity_id,
+                    "last_reported": preset_state.last_reported,
+                }
+            )
+        )
+        self.assertEqual(
+            CommandStatus.SUBMITTED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+
+    async def test_clear_hold_cannot_confirm_during_awaited_call(self) -> None:
+        """A Current Mode event cannot confirm an unprojectable button effect."""
+
+        async def report_preset_during_call(_call: ServiceCall) -> None:
+            self.hass.states.async_set(
+                self.homekit_preset.entity_id,
+                "Away",
+                {"options": ["Home", "Away"]},
+            )
+            state = self.hass.states.get(self.homekit_preset.entity_id)
+            assert state is not None
+            self.manager._handle_state_event(
+                Mock(
+                    data={
+                        "entity_id": self.homekit_preset.entity_id,
+                        "new_state": state,
+                    }
+                )
+            )
+            self.assertEqual(
+                CommandStatus.PENDING,
+                self.manager.snapshot("mapping_a").command.status,
+            )
+
+        self.hass.services.async_register("button", "press", report_preset_during_call)
+
+        await self.manager.async_resume_program("mapping_a", None)
+
+        self.assertEqual(
+            CommandStatus.SUBMITTED,
+            self.manager.snapshot("mapping_a").command.status,
+        )
+        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
     async def test_button_platform_creates_only_explicitly_mapped_entities(
         self,
@@ -1181,7 +1250,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         try:
             initial = manager.snapshot(mapping.mapping_id)
-            self.assertEqual(20.63, initial.current_temperature)
+            self.assertEqual(20.04, initial.current_temperature)
             self.assertEqual(
                 "homekit_temperature", initial.provenance["current_temperature"]
             )
@@ -1268,7 +1337,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
             self.hass.states.async_set(
                 "sensor.zone_a_precise_temperature",
-                "21.125",
+                "20.04",
                 {
                     ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
                     ATTR_UNIT_OF_MEASUREMENT: "°C",
@@ -1277,7 +1346,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.hass.states.async_set("notify.zone_a_thermostat", "unknown")
             await self.hass.async_block_till_done()
             renamed = manager.snapshot(mapping.mapping_id)
-            self.assertEqual(21.125, renamed.current_temperature)
+            self.assertEqual(20.04, renamed.current_temperature)
             self.assertEqual(
                 "sensor.zone_a_precise_temperature",
                 manager.resolve_entity_id(mapping.homekit_temperature_entity or ""),
@@ -1296,7 +1365,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
             self.hass.states.async_set(
                 "sensor.zone_a_precise_temperature",
-                "20.875",
+                "19.96",
                 {
                     ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
                     ATTR_UNIT_OF_MEASUREMENT: "°C",
@@ -1305,7 +1374,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.hass.states.async_set("notify.zone_a_thermostat", "unknown")
             await self.hass.async_block_till_done()
             restored = manager.snapshot(mapping.mapping_id)
-            self.assertEqual(20.875, restored.current_temperature)
+            self.assertEqual(19.96, restored.current_temperature)
             self.assertTrue(notification.available)
             self.assertIsNone(
                 ir.async_get(self.hass).async_get_issue(
@@ -1943,8 +2012,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         await entity.async_create_vacation(
             "Trip",
-            82.0,
-            58.0,
+            28.0,
+            15.0,
             "2026-09-01",
             "08:00:00",
             "2026-09-05",
@@ -1958,8 +2027,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             {
                 "entity_id": self.ecobee.entity_id,
                 "vacation_name": "Trip",
-                "cool_temp": 82.0,
-                "heat_temp": 58.0,
+                "cool_temp": 28.0,
+                "heat_temp": 15.0,
                 "start_date": "2026-09-01",
                 "start_time": "08:00:00",
                 "end_date": "2026-09-05",
@@ -2010,6 +2079,59 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             },
             dict(calls[0].data),
         )
+
+    async def test_vacation_temperature_bounds_follow_ecobee_writer_unit(
+        self,
+    ) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("ecobee", "create_vacation", capture)
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        entity.hass = self.hass
+
+        await entity.async_create_vacation("Trip", 28.0, 15.0)
+        self.assertEqual(1, len(calls))
+        with self.assertRaises(ServiceValidationError) as celsius_error:
+            await entity.async_create_vacation("Trip", 45.0, 10.0)
+        self.assertEqual(
+            {
+                "minimum": "7",
+                "maximum": "35",
+                "unit": "°C",
+            },
+            celsius_error.exception.translation_placeholders,
+        )
+        self.assertEqual(1, len(calls))
+
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        fahrenheit = self._attributes(72.0) | {
+            "min_temp": 45.0,
+            "max_temp": 95.0,
+            "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+        }
+        self.hass.states.async_set(self.homekit.entity_id, "heat", fahrenheit)
+        self.hass.states.async_set(self.ecobee.entity_id, "heat", fahrenheit)
+        await self.hass.async_block_till_done()
+
+        calls.clear()
+        await entity.async_create_vacation("Trip", 82.0, 58.0)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(82.0, calls[0].data["cool_temp"])
+        self.assertEqual(58.0, calls[0].data["heat_temp"])
+        with self.assertRaises(ServiceValidationError) as fahrenheit_error:
+            await entity.async_create_vacation("Trip", 82.0, 7.0)
+        self.assertEqual(
+            {
+                "minimum": "45",
+                "maximum": "95",
+                "unit": "°F",
+            },
+            fahrenheit_error.exception.translation_placeholders,
+        )
+        self.assertEqual(1, len(calls))
 
     async def test_vendor_action_facade_rejects_invalid_or_unprovable_inputs(
         self,
@@ -2161,6 +2283,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.hass.states.async_set(self.homekit_preset.entity_id, "unavailable", {})
+        self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unavailable")
         await self.hass.async_block_till_done()
         with self.assertRaises(ServiceValidationError):
             await self.manager.async_resume_program("mapping_a", None)

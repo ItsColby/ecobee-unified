@@ -1,12 +1,12 @@
 {
+  "domain": "ecobee_unified",
+  "name": "Ecobee Unified",
   "codeowners": ["@ItsColby"],
   "config_flow": true,
   "documentation": "https://github.com/ItsColby/ecobee-unified",
-  "domain": "ecobee_unified",
   "integration_type": "helper",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/ItsColby/ecobee-unified/issues",
-  "name": "Ecobee Unified",
   "requirements": [],
-  "version": "0.0.0"
+  "version": "2026.8.0"
 }

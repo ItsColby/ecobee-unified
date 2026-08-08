@@ -1,15 +1,14 @@
-# Validated Source Candidate Status
+# Historical Validated Candidate Checkpoint
 
 Date: 2026-08-08
 
-Ecobee Unified is implemented as an unreleased, public-safe source candidate
-with Core 2026.8.0 as its distribution minimum and dependency-closed formal
-minimum lane. Installed Core 2026.8.1 has a second exact lane using its matching
-published harness. The installed-Core structural evidence gap is closed; hosted
-execution and every publication, release, and live gate remain blocked. A local
-candidate commit is not remote Git integration. This status does not
-authorize or claim publication, release, installation, reload/restart, live
-validation, consumer migration, outbound effects, or rollback.
+This dated checkpoint records the public-safe source candidate before its first
+publication workflow. It is retained as historical engineering evidence, not as
+the current release, repository, HACS, installation, or live-state owner. Core
+2026.8.0 was the dependency-closed distribution minimum and installed Core
+2026.8.1 had a second exact lane using its matching published harness. Use the
+current repository, GitHub release, HACS, and Home Assistant readbacks for later
+lifecycle states.
 
 ## Implemented product surface
 

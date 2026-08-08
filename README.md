@@ -1,16 +1,15 @@
 # Ecobee Unified
 
-Ecobee Unified is an unreleased Home Assistant helper integration that presents
-one canonical user-facing device surface for each explicitly mapped physical
+Ecobee Unified is a Home Assistant helper integration that presents one
+canonical user-facing device surface for each explicitly mapped physical
 thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
 
 The candidate keeps Home Assistant Core 2026.8.0 as its distribution minimum
 and dependency-closed minimum lane. A second dependency-closed lane targets the
-maintained Core 2026.8.1 patch with its matching published harness. A local
-candidate commit is not remote Git integration, publication,
-release, deployment, or HACS availability; none of those later states is
-claimed here.
+maintained Core 2026.8.1 patch with its matching published harness. Source
+publication, an immutable GitHub release, HACS installation, and live deployment
+remain separately verifiable lifecycle states.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
@@ -214,8 +213,8 @@ green until a separately authorized public repository runs them.
 ## Known limits
 
 - The 30-minute Ecobee cadence-health and confirmation defaults were calibrated
-  from read-only live reporting evidence and still require command-specific
-  shadow validation before a release.
+  from read-only live reporting evidence and remain subject to command-specific
+  shadow validation after installation and before consumer migration.
 - No automatic write failover exists.
 - Ecobee microphone and daylight-saving administration remain outside the
   routine Unified surface.

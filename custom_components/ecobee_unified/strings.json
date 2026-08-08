@@ -23,6 +23,9 @@
       "physical_device_mismatch": "The selected HomeKit and Ecobee climates represent different thermostats."
     },
     "step": {
+      "user": {
+        "description": "Map at least one physical thermostat to create the unified surface."
+      },
       "mapping": {
         "data": {
           "add_another": "Add another thermostat",

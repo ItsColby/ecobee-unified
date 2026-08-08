@@ -12,8 +12,8 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
+    UnitOfDensity,
+    UnitOfRatio,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -60,7 +60,7 @@ PROJECTIONS = {
         "co2",
         lambda snapshot: snapshot.co2,
         SensorDeviceClass.CO2,
-        CONCENTRATION_PARTS_PER_MILLION,
+        UnitOfRatio.PARTS_PER_MILLION,
         SensorStateClass.MEASUREMENT,
     ),
     SUFFIX_VOC: Projection(
@@ -68,7 +68,7 @@ PROJECTIONS = {
         "voc",
         lambda snapshot: snapshot.voc,
         SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         SensorStateClass.MEASUREMENT,
     ),
 }

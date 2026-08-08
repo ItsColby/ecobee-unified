@@ -40,7 +40,7 @@
 | Derived room-temperature metrics | Post-MVP, after explicit room mapping and consumer definitions. |
 | Config subentries | Do not add unless current Home Assistant UX/lifecycle requirements make them materially better. |
 | Public HACS catalog listing | Not planned; a public repository plus custom-repository install is sufficient unless later value is demonstrated. |
-| Reclaiming legacy entity IDs | Do not do during initial migration; consider only after a stable soak and explicit Recorder/rollback decision. |
+| Reclaiming legacy entity IDs | Do not do during initial migration; consider only after successful migration validation and an explicit Recorder/rollback decision. |
 
 ## Open Implementation Checks
 

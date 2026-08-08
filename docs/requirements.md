@@ -84,8 +84,9 @@ MVP is complete when all of the following are true:
    baseline.
 8. Diagnostics are useful and privacy-redacted.
 9. All repository and Home Assistant test/quality workflows are terminal green.
-10. A private shadow deployment completes its soak and comparison criteria
-    before any existing consumer is migrated.
+10. A private shadow deployment passes the current comparison and safety
+    criteria before any existing consumer is migrated; acceptance has no
+    mandatory elapsed-time minimum.
 11. A report cannot confirm a command before writer success, and a late
     observation, writer result, or timeout cannot confirm, fail, clear, or
     physically overwrite a newer command.

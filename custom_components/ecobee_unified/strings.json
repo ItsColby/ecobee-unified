@@ -1,7 +1,6 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Ecobee Unified is already configured.",
       "configuration_changed": "The thermostat mappings changed in another configuration session. Start reconfiguration again.",
       "one_mapping_required": "At least one thermostat mapping must remain."
     },

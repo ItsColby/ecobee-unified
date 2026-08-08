@@ -157,6 +157,11 @@ class PublicSafetyTests(unittest.TestCase):
             encoding="utf-8"
         )
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (root / "custom_components/ecobee_unified/manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
         icons = json.loads(
             (root / "custom_components/ecobee_unified/icons.json").read_text(
                 encoding="utf-8"
@@ -165,6 +170,7 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
         self.assertEqual("homeassistant==2026.8.1", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
+        self.assertIs(True, manifest["single_config_entry"])
         self.assertIn(
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )

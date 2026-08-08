@@ -136,27 +136,29 @@ parity. That is preserved as historical provenance, not a current portfolio
 green claim. The later shared-contract convergence identified a Beestat
 `helper-device-linking` gap. Beestat product commit
 `532462a295b2b3f5c01bf474bdabab8471df9c7e` completes that remediation, and
-the current Home registry records its evidence as observed. That separate
+A later Home registry receipt recorded its evidence as observed. That separate
 product and Home integration state does not turn either product into an
 Ecobee Unified runtime dependency or establish publication/release/live state.
-The Beestat canonical product branch is now locally fast-forwarded through
+At a later historical receipt, the Beestat canonical product branch was locally
+fast-forwarded through
 `1019f4567991962be6b2349b48013de8002c7391`, which also completes cached
 temporal projection and exact-Core harness corrections; that local integration
 is not a public push, release, install, or live validation claim.
 
-## Home registry handoff
+## Home registry handoff snapshot
 
-The current Home registry lifecycle classification is `active_unreleased`.
-Home owner commit
-`9eed407b9584acd976288a9f9696845072b36cbb` records the support fields
-below and is clean and privately integrated with its configured remote.
-The product repository still has no configured remote, so
-`repository.public_url` remains `null`; the Home registry record is not remote
-Git integration or product publication.
+Home owner commit `9eed407b9584acd976288a9f9696845072b36cbb`
+historically classified Ecobee Unified as `active_unreleased` and recorded the
+support fields and product-relative evidence below. This product receipt
+intentionally does not mirror a moving current Home commit, portfolio result,
+or sibling-product status; the Home-owned registry and auditor are authoritative
+for those current facts. The product repository still has no configured remote,
+so the handoff's `repository.public_url` was `null`; the registry receipt is not
+remote Git integration or product publication.
 
 Exact support owners for portfolio schema v2:
 
-| Field | Final value |
+| Field | Handoff value |
 |---|---|
 | `policy` | `explicit_broader` |
 | `hacs_metadata` | `hacs.json` |
@@ -165,7 +167,7 @@ Exact support owners for portfolio schema v2:
 | `test_workflow` | `.github/workflows/validate.yaml` |
 | `broader_support_reason` | `The product maintains its declared distribution floor and the current stable patch of the same Home Assistant monthly release.` |
 
-All controlled capability dispositions and product-relative evidence paths:
+Handoff capability dispositions and product-relative evidence paths:
 
 | Capability | Applicability / status | Evidence or reason |
 |---|---|---|
@@ -219,7 +221,7 @@ release, or live-instance state.
   foreign source device must react when that source moves, detaches, disappears,
   or returns. Ecobee now reconciles the entity registry and uses the supported
   in-place registry path without recreating or reloading the config entry; the
-  current Home registry records this under `helper-device-linking`.
+  historical Home handoff recorded this under `helper-device-linking`.
 - **Product-specific lifecycle refinements under existing capabilities:** use
   stable source registry references to observe removal/restoration, ignore
   unrelated registry events, resynchronize only owned helper records, remove

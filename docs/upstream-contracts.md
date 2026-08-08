@@ -45,12 +45,14 @@ Verified against installed Home Assistant Core 2026.8.1 on
    also recovers an already-stale cadence source from its next unchanged report
    without rebuilding healthy mappings.
 8. **HomeKit humidity and temperature metadata:** Core 2026.8 exposes the
-   standard target-humidity feature and writer-owned humidity bounds. The
-   installed Core 2026.8.1 HomeKit climate exposes the writer's native
-   `target_temperature_step`. Native writer metadata is primary; a mapped
-   same-device Ecobee step is only a guarded static presentation fallback when
-   a supported adapter instance omits the step, never read fallback or a
-   precision substitution.
+   standard target-humidity feature and writer-owned humidity bounds. Its
+   HomeKit Heater/Cooler entity exposes a native `target_temperature_step`, but
+   the thermostat-service `HomeKitClimateEntity` used by the mapped Ecobee
+   accessories does not override that property; the live mapped climate states
+   therefore omit `target_temp_step`. Native writer metadata remains primary
+   whenever present. A mapped same-device Ecobee step is only a guarded static
+   presentation fallback for this omission, never read fallback or a precision
+   substitution.
    Home Assistant climate writers expose Celsius or Fahrenheit units; Kelvin
    remains valid for an explicitly mapped temperature sensor only through
    conversion into the writer's supported unit.

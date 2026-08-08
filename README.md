@@ -49,6 +49,25 @@ match. If that proof later disappears, local HomeKit state and control remain
 usable while every Ecobee read, action, notification, and metadata fusion fails
 closed until the registry pairing recovers.
 
+## Daily-use surface
+
+After a separately authorized release, installation, and consumer migration,
+routine thermostat interaction should target the Unified climate from
+dashboards, widgets, Assist, automations, and scripts. Users do not need to open
+or control the raw HomeKit or Ecobee device pages during normal operation.
+
+Temperature graphs may continue to plot the explicitly mapped precise HomeKit
+sensor, while Beestat schedule, transition, filter, alert, and historical
+entities can appear beside the Unified climate on the same dashboard and
+physical device. Those source and enrichment entities remain independently
+owned data surfaces rather than duplicate Unified controls. Raw HomeKit and
+Ecobee entities stay enabled for acquisition, diagnostics, and rollback and may
+be hidden from routine presentation only after every consumer has migrated.
+
+This provides one coherent human-facing thermostat surface without merging or
+duplicating the underlying transports, credentials, config entries, or
+Recorder ownership.
+
 ## Entity surface
 
 Each mapping creates one climate, one minimum-fan-runtime number, one bounded

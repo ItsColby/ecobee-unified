@@ -20,8 +20,8 @@ from homeassistant.config_entries import SOURCE_USER, ConfigEntries
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
+    UnitOfDensity,
+    UnitOfRatio,
     UnitOfTemperature,
     UnitOfTime,
 )
@@ -745,7 +745,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             device_id=self.ecobee.device_id,
             suggested_object_id="ec_a_co2",
             original_device_class=SensorDeviceClass.CO2,
-            unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+            unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         )
         voc = registry.async_get_or_create(
             "sensor",
@@ -755,7 +755,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             device_id=self.ecobee.device_id,
             suggested_object_id="ec_a_voc",
             original_device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-            unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+            unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         )
         self.hass.states.async_set(co2.entity_id, "850")
         self.hass.states.async_set(voc.entity_id, "125")

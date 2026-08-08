@@ -10,8 +10,8 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
+    UnitOfDensity,
+    UnitOfRatio,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -36,10 +36,10 @@ class SensorContract:
 
 AIR_QUALITY_SENSOR_CONTRACTS = {
     "aqi": SensorContract(SensorDeviceClass.AQI, None),
-    "co2": SensorContract(SensorDeviceClass.CO2, CONCENTRATION_PARTS_PER_MILLION),
+    "co2": SensorContract(SensorDeviceClass.CO2, UnitOfRatio.PARTS_PER_MILLION),
     "voc": SensorContract(
         SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
     ),
 }
 

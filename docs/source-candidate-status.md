@@ -56,7 +56,11 @@ validation, consumer migration, outbound effects, or rollback.
   half-step quantization envelope. The minimum-fan number rejects non-finite,
   off-step, and out-of-range values before I/O and calls only Ecobee
   `set_fan_min_on_time`. Resolved mapped targets override any caller-provided
-  `entity_id`; no path retries or fails over to a second writer.
+  `entity_id`; no path retries or fails over to a second writer. Commands that
+  can reach the same physical thermostat are dispatched in user order. A
+  matching report observed while a writer is in flight is retained, but it can
+  confirm only after that writer succeeds; a failed writer remains failed and
+  confirmation timeouts do not start before writer acceptance.
 - Bounded vacation, occupancy-policy, and comfort-sensor-participation actions
   inject only the mapped Ecobee climate and issue one call. Effects not fully
   projected in source state are reported as submitted rather than confirmed.
@@ -72,7 +76,8 @@ validation, consumer migration, outbound effects, or rollback.
 - Confirmation observes the operation-owned normalized source, uses monotonically increasing
   revisions, and guards observation, timeout, and failure updates against
   superseded commands. A fresh matching unchanged Ecobee report can confirm
-  only the current pending revision.
+  only the current pending revision after its writer succeeds, and overlapping
+  effects cannot complete out of dispatch order.
 - Diagnostics are allow-listed and mapping-indexed. Repairs cover removed or
   user-disabled required/optional registry sources, invalid semantic contracts,
   missing device links, and physical-identity drift, and clear when valid
@@ -92,21 +97,21 @@ validation, consumer migration, outbound effects, or rollback.
 | Item | Disposition | Evidence |
 |---|---|---|
 | Multiple mappings in one entry | Proven locally | Real Core flow manager creates two registry-ID mappings in one entry. |
-| Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, honest primary precision, no averaging, and semantic current temperature. |
+| Deterministic standard fields and fallback | Proven locally | Table-driven pure tests cover every standard field, unequal values, missing fields, stale/unavailable sources, honest primary precision, no averaging, semantic current temperature, and writer-owned HomeKit modes/options that are never expanded by cloud read fallback. |
 | Quiet-source health and recovery | Proven locally | Exact-Core manager tests keep quiet HomeKit push/event state healthy, keep Ecobee healthy through its 30-minute default boundary, degrade immediately after it or on actual unavailable/missing state, recover cadence sources on unchanged reports, suppress healthy-report churn, clean listeners on unload, and prevent oscillation. |
 | Target humidity and temperature metadata | Proven locally | Pure and exact-Core tests cover capability/bounds gating, exactly one HomeKit humidity writer, HomeKit report confirmation, no fabricated humidity step when the supported writer contract exposes none, Celsius/Fahrenheit climate-writer units, writer-owned bounds, identity-proven same-device temperature-step fusion without freshness or precision substitution, and half-step temperature confirmation quantization. |
 | Precise local current temperature | Proven locally | Pure and exact-Core tests cover explicit same-device capability validation, unit conversion, source-dependent climate-state precision, preserved decimals, Fahrenheit/Celsius serialization-envelope boundaries, quiet-source ownership, explicit divergence/unverifiable degradation, climate/cloud fallback, rename, move/detach, disappearance, and recovery without apparent-precision or freshness selection. |
 | Canonical device surface without duplicate semantics | Proven locally | Config/model/entity tests cover translated climate sibling naming, physical identity, preset capability, the native Unified resume button, duration-class minimum fan number, bounded equipment stage, device-class/unit-valid AQI/CO2/VOC, notification, and linking for all created platforms; schedule/transition remain first-class Beestat entities. |
-| Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; adversarial payloads cannot override the mapped target, and the direct exact-Core suite covers the full climate method matrix. |
+| Exactly one HomeKit call per standard command | Proven locally | Real Core service registry observes one call and no Ecobee call; adversarial payloads cannot override the mapped target, the direct exact-Core suite covers the full climate method matrix, and delayed overlapping calls reach the physical writer in user order. |
 | Exactly one local/vendor call per specialized action | Proven locally | Real Core service registry proves one HomeKit select, one submitted HomeKit clear-hold press from each Unified entry point without preset dependence, and one mapped Ecobee call for minimum fan, notification, unit-aware bounded vacation, occupancy policy, and sensor participation. Unprojectable effects remain submitted. |
 | Observation never retries | Proven locally | Command tracker and service-registry tests prove confirmation is read-only and timeouts issue no service call. |
 | Reload, rename, loss/recovery, removal | Proven locally | Real Core config-entry and registry/state tests prove unload/reload with stable ID, owned orphan cleanup, registry rename, filtered source/helper events, physical-identity and semantic-contract drift/recovery, capability loss/recovery, disabled/detached source Repairs, source removal/restoration, preserved missing selection, and Repair deletion after restoration. |
 | Correct Core 2026.8 device linkage | Proven locally | Real Core device/entity registry tests verify initial `device_entry`, in-place move/detach/remove/restore relinking, stable config/entity identity, and no foreign `device_info`. |
 | Useful, privacy-redacted diagnostics | Proven locally | Real Core diagnostics test plus working-tree/exact-index-archive and commit-metadata/filename/reachable-blob public-safety scans. |
 | Recorder/presentation hygiene | Proven locally | Climate tests and source inspection prove volatile ages are unrecorded and schedule/transition, equipment stage, and minimum-fan state are absent from climate attributes. |
-| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred four bounded tests pass directly on Core 2026.8.1. The workflow now owns separate exact Core 2026.8.0 minimum/harness 0.13.354 and Core 2026.8.1 current/harness 0.13.355 jobs; each installs product tooling last, requires final `pip check`, and runs the complete HA test surface. Strict mypy, host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
+| Repository and HA workflows terminal green | Local subset green; hosted gates blocked | One hundred eight bounded tests pass in isolated exact Core 2026.8.0/harness 0.13.354 and Core 2026.8.1/harness 0.13.355 environments; both lanes pass final `pip check` and strict mypy. Host Ruff, compile, JSON, working-tree/exact-index-archive, and complete reachable-history privacy checks pass locally. Linux pytest, Hassfest, and HACS remain hosted-only. |
 | Private shadow soak before migration | Deferred live gate | Requires separately authorized installation and at least seven days of private evidence. |
-| Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, and confirmation source selection. |
+| Late observation cannot mutate newer command | Proven locally | Revision supersession tests cover observation, timeout, failure, confirmation source selection, the writer-acceptance phase, an in-flight matching report followed by success or failure, and serialized overlapping effects. |
 
 ## Validation boundary
 
@@ -114,7 +119,9 @@ Published PyPI metadata was re-read on 2026-08-08:
 `pytest-homeassistant-custom-component==0.13.354` requires exact Core
 2026.8.0, while harness 0.13.355 requires exact Core 2026.8.1. The workflow
 keeps those dependency-closed environments separate and requires final
-`pip check` in both. The Windows host still cannot import the full Home
+`pip check` in both. Local isolated environments prove dependency closure,
+strict typing, and all 108 direct tests in both exact lanes. The Windows host
+still cannot import the full Home
 Assistant pytest plugin because Core imports POSIX `fcntl`; Docker is absent
 and WSL has no installed distribution. Bounded real Core API tests run directly
 under `unittest` without a fake harness; complete pytest execution remains
@@ -141,7 +148,7 @@ is not a public push, release, install, or live validation claim.
 
 The current Home registry lifecycle classification is `active_unreleased`.
 Home owner commit
-`008a869a944f75be3b8610dfb600d191a06fde14` records the support fields
+`9eed407b9584acd976288a9f9696845072b36cbb` records the support fields
 below and is clean and privately integrated with its configured remote.
 The product repository still has no configured remote, so
 `repository.public_url` remains `null`; the Home registry record is not remote
@@ -189,8 +196,8 @@ Unified accounted for nine passes and two installed-Core support-lane gaps;
 the other six failures belonged to the separate Beestat and Free Library
 product owners. It is not a current cross-portfolio green or failure claim.
 
-The product-scoped portfolio audit for clean Ecobee commit
-`c2235ff46d5f968a8b7dc2b2740aa8caaf4f0131` reports 12 passes and no
+The product-scoped portfolio audit for clean Ecobee implementation commit
+`ead1fd080b099c47f227d6333cad7ad03eb14680` reports 12 passes and no
 failures, warnings, or unavailable checks in candidate posture. Canonical
 posture reports 11 passes, no failures or warnings, and one expected
 `audit-provenance` unavailable result because this product has no remote.
@@ -240,6 +247,15 @@ release, or live-instance state.
   successful local press without preset dependence; vacation temperatures use
   mapped Ecobee writer units/bounds; temperature confirmation alone admits the
   writer's half-step quantization envelope.
+- **Product-specific fallback refinement:** cloud read fallback never expands
+  the HomeKit writer's advertised HVAC or fan modes; unavailable writer-owned
+  options remain unavailable even when a readable cloud state exists.
+- **Conditional shared action pattern, existing capability:** when overlapping
+  commands can reach one physical effect owner, serialize dispatch per ownership
+  unit and make confirmation and its timeout eligible only after writer success.
+  A matching in-flight observation may bridge a successful write, but writer
+  failure remains authoritative. This is evidence under `single-writer-actions`,
+  not a new capability ID, and still requires Home-owner disposition.
 - **Product-specific identity consequence:** explicit selection is not proof
   that HomeKit and Ecobee represent the same thermostat. Supported registry
   identity equality gates every cloud read/action and cross-interface metadata

@@ -16,7 +16,7 @@ HVAC_MODES = frozenset({"off", "heat", "cool", "heat_cool", "auto", "dry", "fan_
 HVAC_ACTIONS = frozenset(
     {"cooling", "defrosting", "drying", "fan", "heating", "idle", "off", "preheating"}
 )
-TEMPERATURE_UNITS = frozenset({"°C", "°F", "K"})
+TEMPERATURE_UNITS = frozenset({"°C", "°F"})
 TARGET_TEMPERATURE_FEATURE = 1
 TARGET_TEMPERATURE_RANGE_FEATURE = 2
 TARGET_HUMIDITY_FEATURE = 4

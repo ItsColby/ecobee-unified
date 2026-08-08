@@ -45,13 +45,15 @@ Exit: the empty integration configures/unloads cleanly and all CI is green.
 - Implement one config entry with add/edit/remove mapping flows.
 - Use typed mapping and snapshot models.
 - Track source entity changes through supported registry/event APIs.
-- Validate domains/integrations and reject loops/duplicates.
+- Validate domains/integrations and reject loops, reused sources, and
+  case-insensitively duplicate mapping names.
 - Compare the supported HomeKit device serial with the Ecobee device identifier;
   reject mismatched or unproven new pairings and reevaluate the proof on
   registry lifecycle changes.
 - Implement source availability separately from observation age: quiet HomeKit
   remains healthy, while cadence-backed Ecobee sources retain bounded stale
-  reevaluation and redacted diagnostics.
+  reevaluation, filtered unchanged-report recovery, healthy-report suppression,
+  and redacted diagnostics.
 - Build one normalized per-mapping snapshot as the only projection input for
   climate, number, sensor, and diagnostics surfaces.
 
@@ -90,6 +92,8 @@ Exit: the complete availability matrix and field-selection tests pass.
   explicitly mapped same-device Ecobee notification writer.
 - Implement revision-guarded pending-command observation, confirmation,
   timeout, supersession, and diagnostics.
+- Inject the resolved mapped target after validating caller data so no service
+  payload can redirect the one writer.
 - Do not retry through another backend.
 
 Exit: every command path proves exactly one service call, including failures,

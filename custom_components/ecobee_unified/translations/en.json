@@ -7,6 +7,7 @@
     "error": {
       "confirmation_required": "Confirm this physical thermostat or command-writer change.",
       "duplicate_ecobee_source": "This Ecobee climate is already mapped.",
+      "duplicate_mapping_name": "Use a unique thermostat mapping name.",
       "duplicate_optional_source": "Each optional source entity can be mapped only once.",
       "duplicate_homekit_source": "This HomeKit climate is already mapped.",
       "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",

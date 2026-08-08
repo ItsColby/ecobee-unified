@@ -102,12 +102,13 @@ non-duplicate vendor projections on the same user-facing device.
   await or source event, update confirmation only if that revision is still
   current so a late cloud observation cannot confirm, fail, or clear a newer
   command.
-- Treat Core's unchanged state-report event as a fresh Ecobee observation only
-  while that mapped command is pending. Use `last_reported`, not
-  `last_updated`, for health cadence so stable values do not become false stale
-  failures; use the stable timestamp carried by the event rather than its
-  mutable `State` object, and retain bounded timer-owned reevaluation when no
-  event arrives.
+- Treat Core's unchanged state-report event as a fresh Ecobee observation while
+  that mapped command is pending or its cadence-backed source is already stale.
+  Use `last_reported`, not `last_updated`, for health cadence so stable values do
+  not become false stale failures; use the stable timestamp carried by the event
+  rather than its mutable `State` object, retain bounded timer-owned
+  reevaluation when no event arrives, and suppress healthy-report snapshot
+  rebuilds so the recovery listener does not create churn.
 - Do not generalize cadence health to quiet push/event sources. Without a
   heartbeat contract, HomeKit observation age is diagnostic and command
   evidence; only actual source availability changes health or read ownership.

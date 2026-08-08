@@ -9,7 +9,7 @@ import unittest
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import voluptuous as vol
 from homeassistant import loader
@@ -366,7 +366,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.homekit.device_id,
             er.async_get(self.hass).async_get(entity_id).device_id,
         )
+        entry_manager = entry.runtime_data.manager
+        self.assertIsNotNone(entry_manager._unsub_state_report)
         self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+        self.assertIsNone(entry_manager._unsub_state_report)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
         await self.hass.async_block_till_done()
         self.assertEqual(
@@ -558,6 +561,45 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIs(FlowResultType.ABORT, duplicate_entry["type"])
         self.assertEqual("already_configured", duplicate_entry["reason"])
+
+    async def test_config_flow_rejects_duplicate_mapping_names(self) -> None:
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_name_b",
+            device=True,
+            physical_identity="thermostat_name_b",
+        )
+        ecobee_b = self._source(
+            "ecobee",
+            "ec_name_b",
+            device=True,
+            physical_identity="thermostat_name_b",
+        )
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Zone A",
+                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                CONF_ADD_ANOTHER: True,
+            },
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "  zone a  ",
+                CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
+                CONF_ECOBEE_ENTITY: ecobee_b.entity_id,
+                CONF_ADD_ANOTHER: False,
+            },
+        )
+
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("duplicate_mapping_name", result["errors"]["base"])
+        self.hass.config_entries.flow.async_abort(result["flow_id"])
 
     async def test_mapping_validation_rejects_wrong_domains_and_reused_sources(
         self,
@@ -835,6 +877,19 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 {
                     ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
                     ATTR_UNIT_OF_MEASUREMENT: "°F",
+                },
+            )
+            await self.hass.async_block_till_done()
+            self.assertEqual(
+                20.0, manager.snapshot(mapping.mapping_id).current_temperature
+            )
+
+            self.hass.states.async_set(
+                self.homekit_temperature.entity_id,
+                "293.15",
+                {
+                    ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                    ATTR_UNIT_OF_MEASUREMENT: "K",
                 },
             )
             await self.hass.async_block_till_done()
@@ -1380,6 +1435,52 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replacement_homekit.id, updated[CONF_HOMEKIT_ENTITY])
         self.assertEqual(replacement_ecobee.id, updated[CONF_ECOBEE_ENTITY])
 
+    async def test_reconfigure_rejects_duplicate_mapping_name(self) -> None:
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_reconfigure_name_b",
+            device=True,
+            physical_identity="thermostat_reconfigure_name_b",
+        )
+        ecobee_b = self._source(
+            "ecobee",
+            "ec_reconfigure_name_b",
+            device=True,
+            physical_identity="thermostat_reconfigure_name_b",
+        )
+        mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_edit"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"mapping_id": mapping_b.mapping_id}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "ZONE A",
+                CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
+                CONF_ECOBEE_ENTITY: ecobee_b.entity_id,
+                "confirm_change": False,
+            },
+        )
+
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("duplicate_mapping_name", result["errors"]["base"])
+
     async def test_options_flow_updates_only_timing_policy(self) -> None:
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -1774,6 +1875,48 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             dict(calls[0].data),
         )
 
+    async def test_mapped_writer_target_cannot_be_overridden_by_service_data(
+        self,
+    ) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("climate", "set_temperature", capture)
+        self.hass.services.async_register("ecobee", "set_fan_min_on_time", capture)
+        self.hass.services.async_register("ecobee", "create_vacation", capture)
+
+        await self.manager.async_standard_command(
+            "mapping_a",
+            "set_temperature",
+            {"entity_id": "climate.foreign", "temperature": 22.0},
+            {"target_temperature": 22.0},
+            None,
+        )
+        await self.manager.async_vendor_command(
+            "mapping_a",
+            "set_fan_min_on_time",
+            {"entity_id": "climate.foreign", "fan_min_on_time": 10},
+            {"minimum_fan_runtime": 10},
+            None,
+        )
+        await self.manager.async_vendor_action(
+            "mapping_a",
+            "create_vacation",
+            {"entity_id": "climate.foreign", "vacation_name": "Trip"},
+            None,
+        )
+
+        self.assertEqual(
+            [
+                self.homekit.entity_id,
+                self.ecobee.entity_id,
+                self.ecobee.entity_id,
+            ],
+            [call.data["entity_id"] for call in calls],
+        )
+
     async def test_vendor_action_facade_routes_exactly_one_mapped_call(self) -> None:
         calls: list[ServiceCall] = []
 
@@ -1957,7 +2100,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         await started.wait()
-        self.assertIsNone(self.manager._unsub_state_report)
+        self.assertIsNotNone(self.manager._unsub_state_report)
         revision = self.manager._tracker.current_revision("mapping_a")
         assert revision is not None
 
@@ -2186,10 +2329,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(calls))
         self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
-    async def test_unchanged_report_subscription_exists_only_while_pending(
+    async def test_unchanged_report_subscription_covers_cadence_recovery_and_pending(
         self,
     ) -> None:
-        self.assertIsNone(self.manager._unsub_state_report)
+        self.assertIsNotNone(self.manager._unsub_state_report)
 
         async def capture(_call: ServiceCall) -> None:
             return None
@@ -2206,7 +2349,105 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         revision = self.manager.snapshot("mapping_a").command.revision
         self.manager._handle_timeout("mapping_a", revision)
-        self.assertIsNone(self.manager._unsub_state_report)
+        self.assertIsNotNone(self.manager._unsub_state_report)
+
+    async def test_unchanged_reports_recover_only_stale_cadence_sources(self) -> None:
+        ecobee_state = self.hass.states.get(self.ecobee.entity_id)
+        aqi_state = self.hass.states.get(self.ecobee_aqi.entity_id)
+        self.assertIsNotNone(ecobee_state)
+        self.assertIsNotNone(aqi_state)
+        assert ecobee_state is not None
+        assert aqi_state is not None
+        future = max(ecobee_state.last_reported, aqi_state.last_reported) + timedelta(
+            seconds=1801
+        )
+
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=future,
+        ):
+            self.manager.refresh_mapping("mapping_a")
+        stale = self.manager.snapshot("mapping_a")
+        self.assertEqual("stale", stale.source_health["ecobee"].value)
+        self.assertEqual("stale", stale.source_health["air_quality_index"].value)
+
+        ecobee_state.last_reported = future
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=future,
+        ):
+            self.manager._handle_state_report_event(
+                Mock(
+                    data={
+                        "entity_id": self.ecobee.entity_id,
+                        "last_reported": future,
+                    }
+                )
+            )
+        recovered = self.manager.snapshot("mapping_a")
+        self.assertEqual("healthy", recovered.source_health["ecobee"].value)
+        self.assertEqual("stale", recovered.source_health["air_quality_index"].value)
+
+        aqi_state.last_reported = future
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=future,
+        ):
+            self.manager._handle_state_report_event(
+                Mock(
+                    data={
+                        "entity_id": self.ecobee_aqi.entity_id,
+                        "last_reported": future,
+                    }
+                )
+            )
+        self.assertEqual(
+            "healthy",
+            self.manager.snapshot("mapping_a").source_health["air_quality_index"].value,
+        )
+
+        with patch.object(self.manager, "refresh_mapping") as refresh:
+            self.manager._handle_state_report_event(
+                Mock(
+                    data={
+                        "entity_id": self.ecobee.entity_id,
+                        "last_reported": future + timedelta(seconds=1),
+                    }
+                )
+            )
+        refresh.assert_not_called()
+
+    async def test_ecobee_sensor_devices_require_same_config_entry_owner(self) -> None:
+        ecobee_entry = self.hass.config_entries.async_get_entry(
+            self.ecobee.config_entry_id
+        )
+        homekit_entry = self.hass.config_entries.async_get_entry(
+            self.homekit.config_entry_id
+        )
+        assert ecobee_entry is not None
+        assert homekit_entry is not None
+        registry = dr.async_get(self.hass)
+        owned = registry.async_get_or_create(
+            config_entry_id=ecobee_entry.entry_id,
+            identifiers={("ecobee", "owned_sensor")},
+        )
+        foreign = registry.async_get_or_create(
+            config_entry_id=homekit_entry.entry_id,
+            identifiers={("ecobee", "foreign_sensor")},
+        )
+
+        with patch.object(
+            type(owned),
+            "config_entries",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("deprecated plural owner accessed"),
+        ):
+            self.assertTrue(
+                self.manager.ecobee_sensor_devices_valid("mapping_a", [owned.id])
+            )
+            self.assertFalse(
+                self.manager.ecobee_sensor_devices_valid("mapping_a", [foreign.id])
+            )
 
     async def test_report_handler_uses_stable_event_timestamp(self) -> None:
         state = self.hass.states.get(self.ecobee.entity_id)

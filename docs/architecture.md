@@ -130,8 +130,11 @@ their stale boundaries even when no new state-change event arrives. The
 calibrated default is 30 minutes: above the observed cloud-reporting tail while
 remaining a bounded silent-wedge guard. Event handlers use the event-owned
 stable timestamp rather than Core's intentionally
-mutable `State.last_reported` field. Age never makes a source look more precise
-or changes deterministic ownership by itself.
+mutable `State.last_reported` field. A filtered report listener rebuilds a
+mapping only while its cadence-backed source is stale or while that exact
+source owns pending command confirmation; ordinary healthy unchanged reports
+do not dispatch snapshot updates or create Recorder churn. Age never makes a
+source look more precise or changes deterministic ownership by itself.
 
 ## Command Policy
 
@@ -158,8 +161,9 @@ cloud-reporting tail and still subject to command-specific shadow validation.
 Normal source processing must continue while confirmation is pending. A
 matching Ecobee state report counts
 as a new observation even when state and attributes are unchanged; report-event
-handling is limited to pending mapped commands and retains the same revision
-guard.
+handling retains the same revision guard. Every service facade injects its
+resolved mapped entity after validating caller data, so caller-provided service
+data cannot redirect a command to another entity.
 
 ## Entity Surface
 

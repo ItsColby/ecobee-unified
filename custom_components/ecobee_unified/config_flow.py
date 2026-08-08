@@ -676,10 +676,13 @@ def _validate_no_duplicate_sources(
     existing: list[dict[str, str]], candidate: dict[str, str]
 ) -> None:
     _validate_candidate_optional_sources(candidate)
+    candidate_name = candidate[CONF_NAME].strip().casefold()
     candidate_optional = {
         reference for key in OPTIONAL_SOURCE_KEYS if (reference := candidate.get(key))
     }
     for mapping in existing:
+        if mapping[CONF_NAME].strip().casefold() == candidate_name:
+            raise vol.Invalid("duplicate_mapping_name")
         if mapping[CONF_HOMEKIT_ENTITY] == candidate[CONF_HOMEKIT_ENTITY]:
             raise vol.Invalid("duplicate_homekit_source")
         if mapping[CONF_ECOBEE_ENTITY] == candidate[CONF_ECOBEE_ENTITY]:

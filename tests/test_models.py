@@ -131,6 +131,31 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("homekit_temperature_metadata_unavailable", snapshot.degradation)
         self.assertIn("homekit_humidity_bounds_unavailable", snapshot.degradation)
 
+    def test_climate_writer_rejects_non_climate_temperature_unit(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source(
+                "heat",
+                {
+                    "current_temperature": 293.15,
+                    "temperature": 294.15,
+                    "min_temp": 280.15,
+                    "max_temp": 308.15,
+                    "target_temp_step": 0.5,
+                    "unit_of_measurement": "K",
+                    "supported_features": 385,
+                },
+            ),
+            source("heat", {"current_temperature": 20.0}),
+        )
+
+        self.assertIsNone(snapshot.temperature_unit)
+        self.assertIsNone(snapshot.min_temp)
+        self.assertIsNone(snapshot.max_temp)
+        self.assertIsNone(snapshot.target_temperature_step)
+        self.assertEqual(384, snapshot.supported_features)
+        self.assertIn("homekit_temperature_metadata_unavailable", snapshot.degradation)
+
     def test_primary_owns_standard_fields_even_when_values_disagree(self) -> None:
         snapshot = build_snapshot(
             "mapping_a",

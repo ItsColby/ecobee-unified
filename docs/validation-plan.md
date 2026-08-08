@@ -4,7 +4,7 @@
 
 ### Configuration and Lifecycle
 
-- create, abort, duplicate, edit, remove, reload, unload;
+- create, abort, duplicate source/name, edit, remove, reload, unload;
 - multiple mappings in one entry;
 - invalid domain/integration and circular mapping rejection;
 - entity rename, device rename, source removal/re-add, and registry disable;
@@ -33,7 +33,8 @@ For every standard and vendor field, test:
 - both unavailable;
 - unequal values that prove no averaging/freshest-wins behavior;
 - honest primary precision, writer-owned temperature units/bounds, explicit
-  same-device step fusion and rejection when proof/unit reconciliation is absent;
+  same-device step fusion, Celsius/Fahrenheit climate-unit enforcement, and
+  rejection when proof/unit reconciliation is absent;
 - explicit same-device HomeKit temperature selection, unit conversion,
   malformed/non-finite rejection, climate fallback, cloud fallback, quiet-source
   health, source-dependent climate-state precision/rounding, rename,
@@ -63,6 +64,8 @@ decimal places or a newer timestamp.
   never retries or fails over;
 - vacation create/delete, occupancy policy, and sensor participation each
   inject the mapped Ecobee climate and make exactly one action call;
+- caller-supplied service data cannot override any mapped HomeKit or Ecobee
+  writer target;
 - unprojectable vendor effects become `submitted`, never `confirmed`, and a
   late completion cannot mutate a newer command revision;
 - vacation names/temperatures/date-time pairs, occupancy policy, source
@@ -98,7 +101,9 @@ decimal places or a newer timestamp.
   recovery restores ownership without oscillation;
 - `last_reported` freshness across unchanged cadence-backed reports, including
   healthy state through the 30-minute default boundary and stale transition
-  immediately after it without another source-change event;
+  immediately after it without another source-change event, recovery on the
+  next unchanged report, suppression of healthy-report refresh churn, and
+  listener cleanup on unload;
 - the 30-minute default confirmation window and persisted option overrides;
 - volatile source-age, active-sensor, and command-confirmation attributes are
   excluded from Recorder;

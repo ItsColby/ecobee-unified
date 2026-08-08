@@ -18,17 +18,17 @@ justify ambiguous values or dual writes.
 | ID | Requirement |
 |---|---|
 | F-01 | Configure multiple thermostat mappings through native config/options flows without credentials. |
-| F-02 | Validate source domains/integrations and semantic contracts, prove the HomeKit/Ecobee climates represent the same physical thermostat, and reject circular, duplicate, mismatched, or unproven new mappings. |
+| F-02 | Validate source domains/integrations and semantic contracts, prove the HomeKit/Ecobee climates represent the same physical thermostat, and reject circular, duplicate, ambiguously named, mismatched, or unproven new mappings. |
 | F-03 | Expose one stable unified climate plus justified sibling entities on the HomeKit-owned thermostat device. |
 | F-04 | Implement the deterministic field ownership and fallback table in `architecture.md`. |
 | F-05 | Route every command to exactly one documented backend service/entity. |
 | F-06 | Subscribe to source state changes; never perform I/O from entity properties. |
-| F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added. |
+| F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added, and recover a stale cadence-backed source from its next unchanged report without refreshing healthy reports. |
 | F-08 | Link every unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
 | F-09 | Expose compact provenance, source age/health, and command-confirmation status. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, and recent command state. |
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
-| F-12 | Preserve honest primary-source precision, writer-owned unit/target bounds, feature flags, and unavailable/unknown semantics. |
+| F-12 | Preserve honest primary-source precision, Home Assistant climate-writer units (Celsius or Fahrenheit), writer-owned target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
 | F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |

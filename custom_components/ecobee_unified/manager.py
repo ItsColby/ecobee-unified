@@ -348,7 +348,7 @@ class MappingManager:
             await self.hass.services.async_call(
                 "climate",
                 service,
-                {"entity_id": entity_id, **service_data},
+                {**service_data, "entity_id": entity_id},
                 blocking=True,
                 context=context,
             )
@@ -381,7 +381,7 @@ class MappingManager:
             await self.hass.services.async_call(
                 "ecobee",
                 service,
-                {"entity_id": entity_id, **service_data},
+                {**service_data, "entity_id": entity_id},
                 blocking=True,
                 context=context,
             )
@@ -413,7 +413,7 @@ class MappingManager:
             await self.hass.services.async_call(
                 "ecobee",
                 service,
-                {"entity_id": entity_id, **service_data},
+                {**service_data, "entity_id": entity_id},
                 blocking=True,
                 context=context,
             )
@@ -670,7 +670,7 @@ class MappingManager:
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:
-        """Observe a fresh unchanged Ecobee report only for pending commands."""
+        """Observe command confirmation or recovery from cadence-backed staleness."""
 
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
@@ -681,15 +681,30 @@ class MappingManager:
                 if expected_reference
                 else None
             )
-            if operation is None or entity_id != expected_observer:
-                continue
-            revision = self._tracker.pending_revision(mapping.mapping_id)
-            if revision is not None:
-                self.refresh_mapping(
-                    mapping.mapping_id,
-                    observation_revision=revision,
-                    report_times={entity_id: event.data["last_reported"]},
+            revision = (
+                self._tracker.pending_revision(mapping.mapping_id)
+                if operation is not None and entity_id == expected_observer
+                else None
+            )
+            stale_recovery = any(
+                entity_id == self.resolve_entity_id(reference)
+                and self.snapshot(mapping.mapping_id).source_health.get(health_key)
+                is SourceHealth.STALE
+                for reference, health_key in (
+                    (mapping.ecobee_entity, "ecobee"),
+                    (mapping.ecobee_aqi_entity, "air_quality_index"),
+                    (mapping.ecobee_co2_entity, "co2"),
+                    (mapping.ecobee_voc_entity, "voc"),
                 )
+                if reference is not None
+            )
+            if revision is None and not stale_recovery:
+                continue
+            self.refresh_mapping(
+                mapping.mapping_id,
+                observation_revision=revision,
+                report_times={entity_id: event.data["last_reported"]},
+            )
 
     @callback
     def _handle_entity_registry_event(
@@ -816,6 +831,16 @@ class MappingManager:
             self._unsub_state_report = None
         observed_entity_ids: set[str] = set()
         for mapping in self.mappings:
+            observed_entity_ids.update(
+                resolved
+                for reference in (
+                    mapping.ecobee_entity,
+                    mapping.ecobee_aqi_entity,
+                    mapping.ecobee_co2_entity,
+                    mapping.ecobee_voc_entity,
+                )
+                if reference and (resolved := self.resolve_entity_id(reference))
+            )
             operation = self._tracker.pending_operation(mapping.mapping_id)
             if operation is None:
                 continue
@@ -1116,7 +1141,7 @@ class MappingManager:
         device_registry = dr.async_get(self.hass)
         return all(
             (device := device_registry.async_get(device_id)) is not None
-            and source_config_entry_id in device.config_entries
+            and source_config_entry_id == device.config_entry_id
             and any(domain == "ecobee" for domain, _value in device.identifiers)
             for device_id in device_ids
         )

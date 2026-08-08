@@ -40,13 +40,18 @@ Verified against installed Home Assistant Core 2026.8.1 on
    push/event silence does not imply unavailability without a heartbeat
    contract. Report handlers use the event-owned stable timestamp rather than
    the mutable `State` field, and matching operation-owned reports can confirm
-   only the current pending command revision.
+   only the current pending command revision. A filtered persistent listener
+   also recovers an already-stale cadence source from its next unchanged report
+   without rebuilding healthy mappings.
 8. **HomeKit humidity and temperature metadata:** Core 2026.8 exposes the
    standard target-humidity feature and writer-owned humidity bounds. The
    Ecobee HomeKit accessory's native temperature granularity is honored by the
    writer even though its HA climate adapter omits `target_temp_step`; the
    mapped same-device Ecobee step is therefore an explicit static presentation
    fusion, not read fallback or a precision substitution.
+   Home Assistant climate writers expose Celsius or Fahrenheit units; Kelvin
+   remains valid for an explicitly mapped temperature sensor only through
+   conversion into the writer's supported unit.
 9. **Mapped vendor actions:** Core 2026.8.1 retains public Ecobee actions for
    vacation create/delete, Smart Home/Away and Follow Me policy, and comfort
    sensor participation. Unified mirrors their bounded public schemas, injects

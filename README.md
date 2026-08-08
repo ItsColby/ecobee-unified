@@ -56,10 +56,9 @@ HomeKit device using the Core 2026.8 helper pattern. The climate uses its
 translated `Unified climate` sibling name rather than repeating the mapping
 name. The minimum-fan control declares duration semantics in minutes. A mapped
 same-device HomeKit temperature sensor can supply the climate's precise
-current-temperature
-value without creating another temperature entity; it must advertise a
-temperature device class and compatible unit. Current-humidity, occupancy,
-weather, schedule, and transition entities are not duplicated. The canonical
+current-temperature value without creating another temperature entity; it must
+advertise a temperature device class and compatible unit. Current-humidity,
+occupancy, weather, schedule, and transition entities are not duplicated. The canonical
 climate also exposes the mapped HomeKit target-humidity capability. Its
 presentation step remains unset because the supported HomeKit entity contract
 does not expose writer granularity. Entity properties project one immutable

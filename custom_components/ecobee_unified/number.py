@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import override
 
-from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberMode,
+)
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -32,6 +36,7 @@ async def async_setup_entry(
 class EcobeeMinimumFanRuntimeNumber(EcobeeUnifiedEntity, NumberEntity):
     """Canonical Ecobee cloud writer for minimum fan runtime."""
 
+    _attr_device_class = NumberDeviceClass.DURATION
     _attr_native_min_value = 0
     _attr_native_max_value = 60
     _attr_native_step = 5

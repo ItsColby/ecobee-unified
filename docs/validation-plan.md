@@ -39,7 +39,8 @@ For every standard and vendor field, test:
   health, source-dependent climate-state precision/rounding, rename,
   move/detach, disappearance, and recovery;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
-  confirmation, invalid input, source loss, and recovery.
+  confirmation, invalid input, source loss, recovery, and no fabricated
+  presentation step when the supported writer contract exposes none.
 - AQI, CO2, and VOC device-class/unit contracts, non-finite/negative state,
   within-mapping source reuse, semantic drift, Repair creation, and recovery.
 
@@ -54,8 +55,9 @@ decimal places or a newer timestamp.
 - each standard climate method makes exactly one HomeKit service call;
 - preset and both Unified clear-hold entry points each make exactly one mapped
   HomeKit service call; the native button exists only for an explicit mapping;
-- minimum fan runtime accepts only 0-60 in exact five-minute increments, rejects
-  non-finite/off-step/out-of-range values before I/O, and makes one Ecobee call;
+- minimum fan runtime declares duration semantics in minutes, accepts only 0-60
+  in exact five-minute increments, rejects non-finite/off-step/out-of-range
+  values before I/O, and makes one Ecobee call;
 - thermostat-display notification makes exactly one mapped Ecobee notification
   call, rejects empty/unavailable/misassociated writers before any effect, and
   never retries or fails over;
@@ -82,6 +84,8 @@ decimal places or a newer timestamp.
 - no I/O in properties;
 - device linking and no foreign identifiers/connections;
 - stable unique IDs and entity categories;
+- translated sibling names compose with the HomeKit-owned device without
+  repeating the user mapping name;
 - capability-aware creation/projection of equipment stage, optional AQI/CO2/VOC,
   optional precise current temperature, and optional notification, with no
   duplicate temperature/humidity/occupancy/weather entities;

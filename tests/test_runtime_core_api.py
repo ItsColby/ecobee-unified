@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import voluptuous as vol
 from homeassistant import loader
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.number import NumberDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import SOURCE_USER, ConfigEntries
 from homeassistant.const import (
@@ -22,6 +23,7 @@ from homeassistant.const import (
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     CONCENTRATION_PARTS_PER_MILLION,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
@@ -226,6 +228,21 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             entity._unrecorded_attributes,
         )
 
+    async def test_climate_uses_translated_sibling_name(self) -> None:
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        entity.platform_data = SimpleNamespace(
+            component_translations={},
+            domain="climate",
+            platform_name=DOMAIN,
+            platform_translations={
+                "component.ecobee_unified.entity.climate.thermostat.name": (
+                    "Unified climate"
+                )
+            },
+        )
+
+        self.assertEqual("Unified climate", entity.name)
+
     async def test_climate_platform_registers_bounded_unified_actions(self) -> None:
         registrations: list[tuple[str, object, str]] = []
         platform = Mock()
@@ -319,6 +336,9 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(42.0, aqi.native_value)
             self.assertTrue(fan_runtime.available)
             self.assertEqual(15, fan_runtime.native_value)
+            self.assertIs(NumberDeviceClass.DURATION, fan_runtime.device_class)
+            self.assertIs(UnitOfTime.MINUTES, fan_runtime.native_unit_of_measurement)
+            self.assertIsNone(entity.target_humidity_step)
 
         self.hass.states.async_set(self.ecobee.entity_id, "unavailable")
         await self.hass.async_block_till_done()

@@ -165,7 +165,6 @@ class EcobeeUnifiedClimate(ClimateEntity):
         self._manager = manager
         self._mapping = mapping
         self._attr_unique_id = mapping.mapping_id
-        self._attr_name = mapping.name
         source_entity_id = manager.resolve_entity_id(mapping.homekit_entity)
         self.device_entry = (
             async_entity_id_to_device(manager.hass, source_entity_id)

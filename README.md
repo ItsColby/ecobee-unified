@@ -52,13 +52,18 @@ closed until the registry pairing recovers.
 Each mapping creates one climate, one minimum-fan-runtime number, one bounded
 equipment-stage sensor, optional explicitly mapped AQI/CO2/VOC sensors, and an
 optional thermostat-display notification entity, all linked to the selected
-HomeKit device using the Core 2026.8 helper pattern. A mapped same-device
-HomeKit temperature sensor can supply the climate's precise current-temperature
+HomeKit device using the Core 2026.8 helper pattern. The climate uses its
+translated `Unified climate` sibling name rather than repeating the mapping
+name. The minimum-fan control declares duration semantics in minutes. A mapped
+same-device HomeKit temperature sensor can supply the climate's precise
+current-temperature
 value without creating another temperature entity; it must advertise a
 temperature device class and compatible unit. Current-humidity, occupancy,
 weather, schedule, and transition entities are not duplicated. The canonical
-climate also exposes the mapped HomeKit target-humidity capability. Entity
-properties project one immutable normalized snapshot and perform no I/O.
+climate also exposes the mapped HomeKit target-humidity capability. Its
+presentation step remains unset because the supported HomeKit entity contract
+does not expose writer granularity. Entity properties project one immutable
+normalized snapshot and perform no I/O.
 Compact climate attributes expose field provenance, source age/health,
 degradation, bounded Ecobee context, and revision-guarded command confirmation.
 Volatile source-age, active-sensor, and command-confirmation attributes remain

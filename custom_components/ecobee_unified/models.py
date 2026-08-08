@@ -240,6 +240,7 @@ def build_snapshot(
     homekit_clear_hold_writable: bool = False,
     temperature_step_fusion_proven: bool = False,
     physical_identity_proven: bool = True,
+    physical_identity_mismatch: bool = False,
     homekit_temperature: RawSource | None = None,
     ecobee_notify_writable: bool = False,
 ) -> NormalizedSnapshot:
@@ -249,7 +250,11 @@ def build_snapshot(
     provenance: dict[str, str] = {}
     degradation: set[str] = set()
     if not physical_identity_proven:
-        degradation.add("physical_identity_unproven")
+        degradation.add(
+            "physical_identity_mismatch"
+            if physical_identity_mismatch
+            else "physical_identity_unproven"
+        )
 
     hvac_mode, owner = _select_state(homekit, ecobee)
     values["hvac_mode"] = hvac_mode
@@ -307,27 +312,16 @@ def build_snapshot(
         _ecobee_temperature_metadata(ecobee)
     )
 
-    source_health = MappingProxyType(
-        {
-            "homekit": homekit.health,
-            "ecobee": ecobee.health,
-            "homekit_preset": _optional_health(homekit_preset),
-            "homekit_temperature": _optional_health(homekit_temperature),
-            "air_quality_index": _optional_health(air_quality_index),
-            "co2": _optional_health(co2),
-            "voc": _optional_health(voc),
-        }
-    )
-    source_ages = MappingProxyType(
-        {
-            "homekit": homekit.age_seconds,
-            "ecobee": ecobee.age_seconds,
-            "homekit_preset": _optional_age(homekit_preset),
-            "homekit_temperature": _optional_age(homekit_temperature),
-            "air_quality_index": _optional_age(air_quality_index),
-            "co2": _optional_age(co2),
-            "voc": _optional_age(voc),
-        }
+    source_health, source_ages = _source_diagnostics(
+        homekit,
+        ecobee,
+        (
+            ("homekit_preset", homekit_preset),
+            ("homekit_temperature", homekit_temperature),
+            ("air_quality_index", air_quality_index),
+            ("co2", co2),
+            ("voc", voc),
+        ),
     )
 
     if not ecobee.usable:
@@ -807,9 +801,25 @@ def _optional_source_finite_number(source: RawSource | None) -> float | None:
     return value if isfinite(value) else None
 
 
-def _optional_health(source: RawSource | None) -> SourceHealth:
-    return source.health if source is not None else SourceHealth.MISSING
-
-
-def _optional_age(source: RawSource | None) -> int | None:
-    return source.age_seconds if source is not None else None
+def _source_diagnostics(
+    homekit: RawSource,
+    ecobee: RawSource,
+    optional_sources: tuple[tuple[str, RawSource | None], ...],
+) -> tuple[Mapping[str, SourceHealth], Mapping[str, int | None]]:
+    source_health = {
+        "homekit": homekit.health,
+        "ecobee": ecobee.health,
+    }
+    source_ages = {
+        "homekit": homekit.age_seconds,
+        "ecobee": ecobee.age_seconds,
+    }
+    for source_name, source in optional_sources:
+        if source is None:
+            continue
+        source_health[source_name] = source.health
+        source_ages[source_name] = source.age_seconds
+    return (
+        MappingProxyType(source_health),
+        MappingProxyType(source_ages),
+    )

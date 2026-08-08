@@ -125,7 +125,7 @@
           "confirmation_seconds": "Command confirmation window (seconds)",
           "ecobee_stale_seconds": "Ecobee stale after (seconds)"
         },
-        "description": "Freshness affects health and read fallback only. It never changes the command writer.",
+        "description": "Freshness affects health, read fallback, and whether a cadence-backed Ecobee writer is safely usable. It never changes the selected writer or causes write failover.",
         "title": "Source timing"
       }
     }

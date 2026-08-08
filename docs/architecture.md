@@ -145,6 +145,11 @@ source owns pending command confirmation; ordinary healthy unchanged reports
 do not dispatch snapshot updates or create Recorder churn. Age never makes a
 source look more precise or changes deterministic ownership by itself.
 
+Unconfigured optional sources are omitted from source-health diagnostics.
+Configured references that are currently absent remain present with `missing`
+health. Proven cross-backend identity mismatch is distinguished from temporarily
+unproven identity so diagnostics describe the actionable fault.
+
 ## Command Policy
 
 Exactly one backend writes each operation:

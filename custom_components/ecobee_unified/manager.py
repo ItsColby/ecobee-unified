@@ -196,12 +196,10 @@ class MappingManager:
         )
         homekit_device_id = self._source_device_id(mapping.homekit_entity)
         ecobee_device_id = self._source_device_id(mapping.ecobee_entity)
-        physical_identity_proven = (
-            physical_identity_status(
-                self.hass, mapping.homekit_entity, mapping.ecobee_entity
-            )
-            is PhysicalIdentityStatus.MATCH
+        identity_status = physical_identity_status(
+            self.hass, mapping.homekit_entity, mapping.ecobee_entity
         )
+        physical_identity_proven = identity_status is PhysicalIdentityStatus.MATCH
         homekit = self._raw_source(
             mapping.homekit_entity,
             None,
@@ -270,6 +268,9 @@ class MappingManager:
                 physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
             ),
             physical_identity_proven=physical_identity_proven,
+            physical_identity_mismatch=(
+                identity_status is PhysicalIdentityStatus.MISMATCH
+            ),
             ecobee_notify_writable=(
                 physical_identity_proven
                 and self._writer_available(
@@ -298,6 +299,9 @@ class MappingManager:
                     physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
                 ),
                 physical_identity_proven=physical_identity_proven,
+                physical_identity_mismatch=(
+                    identity_status is PhysicalIdentityStatus.MISMATCH
+                ),
                 ecobee_notify_writable=(
                     physical_identity_proven
                     and self._writer_available(
@@ -455,7 +459,8 @@ class MappingManager:
         """Route the documented Ecobee fan-minimum action."""
 
         if (
-            not isfinite(minutes)
+            isinstance(minutes, bool)
+            or not isfinite(minutes)
             or minutes != int(minutes)
             or not 0 <= minutes <= 60
             or int(minutes) % 5 != 0

@@ -67,8 +67,8 @@ decimal places or a newer timestamp.
   submitted rather than confirmed, and the native button exists only for an
   explicit usable mapping;
 - minimum fan runtime declares duration semantics in minutes, accepts only 0-60
-  in exact five-minute increments, rejects non-finite/off-step/out-of-range
-  values before I/O, and makes one Ecobee call;
+  in exact five-minute increments, rejects boolean/non-finite/off-step/
+  out-of-range values before I/O, and makes one Ecobee call;
 - thermostat-display notification makes exactly one mapped Ecobee notification
   call, rejects empty/unavailable/misassociated writers before any effect, and
   never retries or fails over;
@@ -123,6 +123,11 @@ decimal places or a newer timestamp.
   next unchanged report, suppression of healthy-report refresh churn, and
   listener cleanup on unload;
 - the 30-minute default confirmation window and persisted option overrides;
+- options accept only whole seconds aligned to their advertised selector step,
+  including direct or restored flow input that does not come from the rendered
+  selector UI;
+- unconfigured optional sources are absent from health/age diagnostics while a
+  configured but unresolved source reports `missing`;
 - volatile source-age, active-sensor, and command-confirmation attributes are
   excluded from Recorder;
 - schedule/transition and vendor control/detail are not duplicated in climate

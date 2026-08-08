@@ -673,8 +673,23 @@ class SnapshotTests(unittest.TestCase):
             SourceHealth.UNAVAILABLE,
             snapshot.source_health["co2"],
         )
-        self.assertEqual(SourceHealth.MISSING, snapshot.source_health["voc"])
+        self.assertNotIn("voc", snapshot.source_health)
+        self.assertNotIn("voc", snapshot.source_ages)
         self.assertEqual(CommandStatus.PENDING, snapshot.command.status)
+
+    def test_optional_health_distinguishes_unconfigured_from_missing(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("heat", {"current_temperature": 20.0}),
+            source("heat", {"current_temperature": 21.0}),
+            homekit_preset=None,
+            co2=RawSource(None, health=SourceHealth.MISSING),
+        )
+
+        self.assertNotIn("homekit_preset", snapshot.source_health)
+        self.assertNotIn("homekit_preset", snapshot.source_ages)
+        self.assertEqual(SourceHealth.MISSING, snapshot.source_health["co2"])
+        self.assertIsNone(snapshot.source_ages["co2"])
 
 
 if __name__ == "__main__":

@@ -117,10 +117,14 @@ because it merely looks more precise or allowing a quiet duplicate sensor to
 silently diverge from the thermostat climate.
 
 Options expose the cadence-backed Ecobee freshness threshold and the
-command-confirmation window. Both default to 30 minutes, calibrated above the
-observed cloud-reporting tail while retaining a bounded silent-wedge and effect
-deadline. HomeKit push/event silence remains diagnostic age; only actual source
-unavailability changes HomeKit health or read ownership.
+command-confirmation window. Saved values must be whole, selector-aligned
+seconds, so direct or restored flow input cannot be silently truncated. Both
+default to 30 minutes, calibrated above the observed cloud-reporting tail while
+retaining a bounded silent-wedge and effect deadline. HomeKit push/event silence
+remains diagnostic age; only actual source unavailability changes HomeKit
+health or read ownership. Ecobee freshness can make a cadence-backed vendor
+writer unsafe to use, but it never changes the selected writer or causes write
+failover.
 
 ## Actions
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from math import isfinite
 from typing import Any
@@ -769,14 +770,29 @@ def _resolved_or_reference(
 
 
 def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
-    def selector(minimum: int, maximum: int, step: int) -> NumberSelector:
-        return NumberSelector(
-            NumberSelectorConfig(
-                min=minimum,
-                max=maximum,
-                step=step,
-                mode=NumberSelectorMode.BOX,
-            )
+    def selector(minimum: int, maximum: int, step: int) -> Callable[[Any], int]:
+        def validate_step(value: Any) -> int:
+            if isinstance(value, bool):
+                raise vol.Invalid("timing value must be an integer")
+            number = float(value)
+            if (
+                not isfinite(number)
+                or number != int(number)
+                or (int(number) - minimum) % step != 0
+            ):
+                raise vol.Invalid(f"timing value must use {step}-second steps")
+            return int(number)
+
+        return vol.All(
+            NumberSelector(
+                NumberSelectorConfig(
+                    min=minimum,
+                    max=maximum,
+                    step=step,
+                    mode=NumberSelectorMode.BOX,
+                )
+            ),
+            validate_step,
         )
 
     return vol.Schema(

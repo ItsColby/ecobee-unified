@@ -63,6 +63,7 @@ from custom_components.ecobee_unified.config_flow import (
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
+    _options_schema,
     _validate_no_duplicate_sources,
 )
 from custom_components.ecobee_unified.const import (
@@ -1833,6 +1834,47 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options | {"future_option": future_option}, entry.options)
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
 
+    async def test_options_schema_rejects_fractional_and_off_step_timing(self) -> None:
+        schema = _options_schema(
+            {
+                CONF_ECOBEE_STALE_SECONDS: DEFAULT_ECOBEE_STALE_SECONDS,
+                CONF_CONFIRMATION_SECONDS: DEFAULT_CONFIRMATION_SECONDS,
+            }
+        )
+
+        self.assertEqual(
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            schema(
+                {
+                    CONF_ECOBEE_STALE_SECONDS: 1200.0,
+                    CONF_CONFIRMATION_SECONDS: 720.0,
+                }
+            ),
+        )
+        for invalid in (
+            {
+                CONF_ECOBEE_STALE_SECONDS: False,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200.5,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1210,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 721,
+            },
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
+                schema(invalid)
+
     async def test_options_flow_rejects_concurrent_and_external_updates(self) -> None:
         original_options = {
             CONF_ECOBEE_STALE_SECONDS: 1800,
@@ -2243,7 +2285,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         calls.clear()
         number = EcobeeMinimumFanRuntimeNumber(self.manager, self.mapping)
-        for invalid in (-5, 2.5, 7.5, 65, float("nan")):
+        for invalid in (False, -5, 2.5, 7.5, 65, float("nan")):
             with (
                 self.subTest(invalid=invalid),
                 self.assertRaises(ServiceValidationError),
@@ -2725,7 +2767,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(degraded.ecobee_writable)
         self.assertIsNone(degraded.air_quality_index)
         self.assertIsNone(degraded.target_temperature_step)
-        self.assertIn("physical_identity_unproven", degraded.degradation)
+        self.assertIn("physical_identity_mismatch", degraded.degradation)
+        self.assertNotIn("physical_identity_unproven", degraded.degradation)
         calls: list[ServiceCall] = []
 
         async def capture(call: ServiceCall) -> None:
@@ -2789,7 +2832,9 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 {"target_temperature": 22.0},
                 None,
             )
-        self.assertEqual(DEFAULT_CONFIRMATION_SECONDS + 1, schedule.call_args.args[1])
+        scheduled_delays = [call.args[1] for call in schedule.call_args_list]
+        self.assertIn(DEFAULT_CONFIRMATION_SECONDS, scheduled_delays)
+        self.assertIn(DEFAULT_ECOBEE_STALE_SECONDS + 1, scheduled_delays)
         revision = self.manager.snapshot("mapping_a").command.revision
         self.manager._handle_timeout("mapping_a", revision)
         timed_out = self.manager.snapshot("mapping_a").command

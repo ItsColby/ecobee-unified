@@ -214,6 +214,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(snapshot.available)
         self.assertFalse(snapshot.homekit_writable)
         self.assertEqual(0, snapshot.supported_features)
+        self.assertEqual((), snapshot.hvac_modes)
+        self.assertEqual((), snapshot.fan_modes)
         self.assertEqual("ecobee", snapshot.provenance["current_temperature"])
         self.assertIn("homekit_read_fallback", snapshot.degradation)
 

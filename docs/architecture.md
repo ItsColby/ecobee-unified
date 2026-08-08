@@ -101,6 +101,9 @@ Selection is semantic, not temporal. Do not average duplicate measurements or
 select a source merely because its event arrived last. Report chosen source and
 source age compactly so provenance remains inspectable without presenting
 duplicate normal-use entities.
+Writable features, safety bounds, modes, and options always come from the
+documented writer. A read fallback may preserve current state, but it never
+expands the controls advertised while that writer is unavailable.
 
 ## Updates and Availability
 
@@ -151,11 +154,17 @@ Exactly one backend writes each operation:
 | Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |
 | Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
 
-After a standard HomeKit command, mark it pending and observe the Ecobee state
-for confirmation. Give every command a monotonically increasing revision and
-update confirmation state only if the observation still belongs to the current
-revision. A late cloud update must not confirm or fail a superseded command. A
-timeout reports an unconfirmed command; it must not send a second write. The
+Serialize effect dispatch per mapping so a slower earlier writer call cannot
+finish after and overwrite a later user command. Give every command a
+monotonically increasing revision, mark it pending while its sole writer is
+awaited, and permit source confirmation only after that writer returns
+successfully. A matching observation received during dispatch may be retained
+and applied after success, but a later writer failure always leaves that
+revision failed. After a successful standard HomeKit command, observe the
+operation-owned source and update confirmation only if the observation still
+belongs to the current revision. A late cloud update must not confirm or fail a
+superseded command. Start the confirmation timeout after writer success; a
+timeout reports an unconfirmed command and must not send a second write. The
 default confirmation window is 30 minutes, calibrated above the observed
 cloud-reporting tail and still subject to command-specific shadow validation.
 Temperature observations use a writer-step-aware tolerance capped at half of

@@ -2924,23 +2924,110 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             await self.manager.async_resume_program("mapping_a", None)
         self.assertNotIn("private backend detail", str(vendor_raised.exception))
 
-    async def test_late_awaited_failure_cannot_cancel_newer_command(self) -> None:
-        first_started = asyncio.Event()
-        release_first = asyncio.Event()
-        call_count = 0
-
-        async def superseded_failure(_call: ServiceCall) -> None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                first_started.set()
-                await release_first.wait()
-                raise RuntimeError("old command failed")
+        self.hass.services.async_register(
+            "ecobee", "set_fan_min_on_time", fail_with_private_detail
+        )
+        with self.assertRaises(HomeAssistantError) as fan_raised:
+            await self.manager.async_set_minimum_fan_runtime("mapping_a", 10, None)
+        self.assertNotIn("private backend detail", str(fan_raised.exception))
+        self.assertEqual(
+            "failed", self.manager.snapshot("mapping_a").command.status.value
+        )
 
         self.hass.services.async_register(
-            "climate", "set_temperature", superseded_failure
+            "select", "select_option", fail_with_private_detail
         )
-        old_task = asyncio.create_task(
+        with self.assertRaises(HomeAssistantError) as preset_raised:
+            await self.manager.async_set_preset_mode("mapping_a", "Away", None)
+        self.assertNotIn("private backend detail", str(preset_raised.exception))
+        self.assertEqual(
+            "failed", self.manager.snapshot("mapping_a").command.status.value
+        )
+
+    async def test_matching_report_during_dispatch_confirms_after_writer_success(
+        self,
+    ) -> None:
+        async def report_then_succeed(_call: ServiceCall) -> None:
+            matching = self._attributes(20.0) | {"temperature": 22.0}
+            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
+            reported = self.hass.states.get(self.ecobee.entity_id)
+            assert reported is not None
+            self.manager._handle_state_report_event(
+                Mock(
+                    data={
+                        "entity_id": self.ecobee.entity_id,
+                        "last_reported": reported.last_reported,
+                    }
+                )
+            )
+
+        self.hass.services.async_register(
+            "climate", "set_temperature", report_then_succeed
+        )
+
+        await self.manager.async_standard_command(
+            "mapping_a",
+            "set_temperature",
+            {"temperature": 22.0},
+            {"target_temperature": 22.0},
+            None,
+        )
+
+        command = self.manager.snapshot("mapping_a").command
+        self.assertEqual("confirmed", command.status.value)
+        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
+
+    async def test_matching_report_cannot_confirm_before_writer_success(self) -> None:
+        async def report_then_fail(_call: ServiceCall) -> None:
+            matching = self._attributes(20.0) | {"temperature": 22.0}
+            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
+            reported = self.hass.states.get(self.ecobee.entity_id)
+            assert reported is not None
+            self.manager._handle_state_report_event(
+                Mock(
+                    data={
+                        "entity_id": self.ecobee.entity_id,
+                        "last_reported": reported.last_reported,
+                    }
+                )
+            )
+            raise RuntimeError("writer rejected the command")
+
+        self.hass.services.async_register(
+            "climate", "set_temperature", report_then_fail
+        )
+
+        with self.assertRaises(HomeAssistantError):
+            await self.manager.async_standard_command(
+                "mapping_a",
+                "set_temperature",
+                {"temperature": 22.0},
+                {"target_temperature": 22.0},
+                None,
+            )
+
+        command = self.manager.snapshot("mapping_a").command
+        self.assertEqual("failed", command.status.value)
+        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
+
+    async def test_overlapping_commands_are_dispatched_in_user_order(self) -> None:
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        second_started = asyncio.Event()
+        call_order: list[tuple[str, float]] = []
+
+        async def ordered_writer(call: ServiceCall) -> None:
+            temperature = float(call.data["temperature"])
+            call_order.append(("start", temperature))
+            if temperature == 22.0:
+                first_started.set()
+                await release_first.wait()
+            else:
+                second_started.set()
+            call_order.append(("finish", temperature))
+
+        self.hass.services.async_register("climate", "set_temperature", ordered_writer)
+        first_task = asyncio.create_task(
             self.manager.async_standard_command(
                 "mapping_a",
                 "set_temperature",
@@ -2950,19 +3037,31 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         await first_started.wait()
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 23.0},
-            {"target_temperature": 23.0},
-            None,
+        second_task = asyncio.create_task(
+            self.manager.async_standard_command(
+                "mapping_a",
+                "set_temperature",
+                {"temperature": 23.0},
+                {"target_temperature": 23.0},
+                None,
+            )
         )
-        self.assertEqual(2, self.manager.snapshot("mapping_a").command.revision)
-        self.assertIn("mapping_a", self.manager._unsub_timeouts)
+
+        with self.assertRaises(TimeoutError):
+            await asyncio.wait_for(second_started.wait(), timeout=0.01)
+        self.assertEqual([("start", 22.0)], call_order)
 
         release_first.set()
-        with self.assertRaises(HomeAssistantError):
-            await old_task
+        await asyncio.gather(first_task, second_task)
+        self.assertEqual(
+            [
+                ("start", 22.0),
+                ("finish", 22.0),
+                ("start", 23.0),
+                ("finish", 23.0),
+            ],
+            call_order,
+        )
         current = self.manager.snapshot("mapping_a").command
         self.assertEqual(2, current.revision)
         self.assertEqual("pending", current.status.value)

@@ -29,6 +29,7 @@
 | D-023 | Expose an optional Unified notification entity backed only by the mapped Ecobee notification writer. | Thermostat-display messages are a useful non-duplicate Ecobee capability. A single facade removes routine raw-entity targeting while preserving Ecobee transport ownership and exactly-one-write behavior. |
 | D-024 | Require supported HomeKit serial and Ecobee identifier equality for every active cross-backend mapping. | An explicit selection is user intent, not physical-identity proof. Known mismatches are rejected; later loss or drift preserves local HomeKit control but blocks cloud reads, actions, notification writes, and target-step fusion until identity recovers. |
 | D-025 | Keep a filtered unchanged-report listener for cadence-backed stale recovery as well as pending confirmation. | A stale source otherwise has no projection timer left and may remain stale after an unchanged recovery report. Refresh only stale or operation-owned mappings, and cancel the listener on unload, so healthy cadence reports do not churn state or Recorder. |
+| D-026 | Serialize effect dispatch per mapping and make successful writer completion the confirmation/timeout boundary. | Revision guards alone protect diagnostics, not physical ordering: a slow earlier call could otherwise finish after a newer one, and an in-flight matching report could falsely confirm a command whose writer later fails. |
 
 ## Deferred Until Evidence Exists
 

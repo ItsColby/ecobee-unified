@@ -18,6 +18,8 @@ class PendingCommand:
     operation: str
     expected: Mapping[str, Any]
     started: float
+    writer_accepted: bool = False
+    matching_observation_pending: bool = False
     status: CommandStatus = CommandStatus.PENDING
 
 
@@ -58,7 +60,25 @@ class CommandTracker:
             return False
         if not command_matches(snapshot, command.expected):
             return False
+        if not command.writer_accepted:
+            command.matching_observation_pending = True
+            return False
         command.status = CommandStatus.CONFIRMED
+        return True
+
+    def accept_write(self, mapping_id: str, revision: int) -> bool:
+        """Allow observations only after the current writer call succeeds."""
+
+        command = self._commands.get(mapping_id)
+        if (
+            command is None
+            or command.revision != revision
+            or command.status is not CommandStatus.PENDING
+        ):
+            return False
+        command.writer_accepted = True
+        if command.matching_observation_pending:
+            command.status = CommandStatus.CONFIRMED
         return True
 
     def fail(self, mapping_id: str, revision: int) -> bool:

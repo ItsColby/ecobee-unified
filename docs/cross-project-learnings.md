@@ -105,7 +105,10 @@ non-duplicate vendor projections on the same user-facing device.
 - Give each pending command a monotonically increasing revision. After every
   await or source event, update confirmation only if that revision is still
   current so a late cloud observation cannot confirm, fail, or clear a newer
-  command.
+  command. Serialize effect dispatch per mapping, permit confirmation only
+  after the sole writer succeeds, and start confirmation timeout ownership at
+  that success boundary. Retain a matching in-flight observation so it can
+  confirm after success, while a writer failure remains failed.
 - Treat Core's unchanged state-report event as a fresh Ecobee observation while
   that mapped command is pending or its cadence-backed source is already stale.
   Use `last_reported`, not `last_updated`, for health cadence so stable values do

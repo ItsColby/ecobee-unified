@@ -85,9 +85,13 @@ decimal places or a newer timestamp.
 - temperature confirmation accepts only half of the writer's target step for
   quantization while other numeric fields retain the stricter default tolerance;
 - confirmation success, mismatch, timeout, reload, and source loss;
+- matching report during an awaited writer followed by success or failure,
+  proving that only success permits confirmation and starts timeout ownership;
 - confirmation from a fresh matching report whose state and attributes are
   unchanged;
-- rapid repeated commands and superseded pending state;
+- rapid repeated commands, per-mapping writer dispatch order, and superseded
+  pending state, including a delayed first call that cannot finish after and
+  overwrite the second;
 - late observations for an older revision cannot mutate the current command;
 - service error propagation and diagnostics redaction.
 

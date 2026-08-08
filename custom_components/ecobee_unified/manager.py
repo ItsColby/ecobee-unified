@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from asyncio import Lock
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from math import isfinite
@@ -98,6 +99,7 @@ class MappingManager:
         self._mapping_by_id = {item.mapping_id: item for item in mappings}
         self._snapshots: dict[str, NormalizedSnapshot] = {}
         self._tracker = CommandTracker()
+        self._command_locks = {mapping.mapping_id: Lock() for mapping in self.mappings}
         self._options = options
         self._unsub_state: Callable[[], None] | None = None
         self._unsub_state_report: Callable[[], None] | None = None
@@ -325,36 +327,24 @@ class MappingManager:
     ) -> None:
         """Call exactly one HomeKit writer and observe Ecobee without retry."""
 
-        mapping = self._mapping_by_id[mapping_id]
-        snapshot = self.snapshot(mapping_id)
-        entity_id = self.resolve_entity_id(mapping.homekit_entity)
-        if not snapshot.homekit_writable or entity_id is None:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="homekit_writer_unavailable",
-            )
-
-        revision = self._tracker.begin(mapping_id, service, expected)
-        self._subscribe_state_reports()
-        self._replace_timeout(mapping_id, revision)
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
+        async with self._command_locks[mapping_id]:
+            mapping = self._mapping_by_id[mapping_id]
+            snapshot = self.snapshot(mapping_id)
+            entity_id = self.resolve_entity_id(mapping.homekit_entity)
+            if not snapshot.homekit_writable or entity_id is None:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="homekit_writer_unavailable",
+                )
+            await self._async_confirmable_call(
+                mapping_id,
                 "climate",
                 service,
                 {**service_data, "entity_id": entity_id},
-                blocking=True,
-                context=context,
+                expected,
+                context,
+                "homekit_command_failed",
             )
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
-                self._cancel_timeout(mapping_id)
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="homekit_command_failed",
-            ) from None
 
     async def async_vendor_command(
         self,
@@ -366,28 +356,17 @@ class MappingManager:
     ) -> None:
         """Call exactly one explicit Ecobee action with no fallback."""
 
-        entity_id = self._vendor_writer_entity(mapping_id, service)
-        revision = self._tracker.begin(mapping_id, service, expected)
-        self._subscribe_state_reports()
-        self._replace_timeout(mapping_id, revision)
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
+        async with self._command_locks[mapping_id]:
+            entity_id = self._vendor_writer_entity(mapping_id, service)
+            await self._async_confirmable_call(
+                mapping_id,
                 "ecobee",
                 service,
                 {**service_data, "entity_id": entity_id},
-                blocking=True,
-                context=context,
+                expected,
+                context,
+                "ecobee_command_failed",
             )
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
-                self._cancel_timeout(mapping_id)
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="ecobee_command_failed",
-            ) from None
 
     async def async_vendor_action(
         self,
@@ -398,119 +377,77 @@ class MappingManager:
     ) -> None:
         """Submit one Ecobee effect that has no honest state confirmation."""
 
-        entity_id = self._vendor_writer_entity(mapping_id, service)
-        revision = self._tracker.begin(mapping_id, service, {})
-        self._replace_timeout(mapping_id, revision)
-        self._subscribe_state_reports()
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
+        async with self._command_locks[mapping_id]:
+            entity_id = self._vendor_writer_entity(mapping_id, service)
+            await self._async_unconfirmable_call(
+                mapping_id,
                 "ecobee",
                 service,
                 {**service_data, "entity_id": entity_id},
-                blocking=True,
-                context=context,
+                context,
+                "ecobee_command_failed",
             )
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
-                self._cancel_timeout(mapping_id)
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="ecobee_command_failed",
-            ) from None
-        if self._tracker.submit(mapping_id, revision):
-            self._cancel_timeout(mapping_id)
-            self.refresh_mapping(mapping_id)
 
     async def async_resume_program(
         self, mapping_id: str, context: Context | None
     ) -> None:
         """Submit one mapped local clear-hold action without false confirmation."""
 
-        mapping = self._mapping_by_id[mapping_id]
-        button_id = (
-            self.resolve_entity_id(mapping.homekit_clear_hold_entity)
-            if mapping.homekit_clear_hold_entity
-            else None
-        )
-        if button_id is None or not self._writer_available(
-            mapping.homekit_clear_hold_entity,
-            required_device_id=self._source_device_id(mapping.homekit_entity),
-        ):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="homekit_writer_unavailable",
+        async with self._command_locks[mapping_id]:
+            mapping = self._mapping_by_id[mapping_id]
+            button_id = (
+                self.resolve_entity_id(mapping.homekit_clear_hold_entity)
+                if mapping.homekit_clear_hold_entity
+                else None
             )
-        revision = self._tracker.begin(mapping_id, "clear_hold", {})
-        self._replace_timeout(mapping_id, revision)
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
+            if button_id is None or not self._writer_available(
+                mapping.homekit_clear_hold_entity,
+                required_device_id=self._source_device_id(mapping.homekit_entity),
+            ):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="homekit_writer_unavailable",
+                )
+            await self._async_unconfirmable_call(
+                mapping_id,
                 "button",
                 "press",
                 {"entity_id": button_id},
-                blocking=True,
-                context=context,
+                context,
+                "homekit_command_failed",
             )
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
-                self._cancel_timeout(mapping_id)
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="homekit_command_failed",
-            ) from None
-        if self._tracker.submit(mapping_id, revision):
-            self._cancel_timeout(mapping_id)
-            self._subscribe_state_reports()
-            self.refresh_mapping(mapping_id)
 
     async def async_set_preset_mode(
         self, mapping_id: str, preset_mode: str, context: Context | None
     ) -> None:
         """Select one capability-advertised HomeKit preset exactly once."""
 
-        mapping = self._mapping_by_id[mapping_id]
-        snapshot = self.snapshot(mapping_id)
-        entity_id = (
-            self.resolve_entity_id(mapping.homekit_preset_entity)
-            if mapping.homekit_preset_entity
-            else None
-        )
-        if (
-            not snapshot.homekit_preset_writable
-            or entity_id is None
-            or preset_mode not in snapshot.preset_modes
-        ):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="unsupported_preset_mode",
+        async with self._command_locks[mapping_id]:
+            mapping = self._mapping_by_id[mapping_id]
+            snapshot = self.snapshot(mapping_id)
+            entity_id = (
+                self.resolve_entity_id(mapping.homekit_preset_entity)
+                if mapping.homekit_preset_entity
+                else None
             )
-        revision = self._tracker.begin(
-            mapping_id, "set_preset_mode", {"preset_mode": preset_mode}
-        )
-        self._subscribe_state_reports()
-        self._replace_timeout(mapping_id, revision)
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
+            if (
+                not snapshot.homekit_preset_writable
+                or entity_id is None
+                or preset_mode not in snapshot.preset_modes
+            ):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="unsupported_preset_mode",
+                )
+            await self._async_confirmable_call(
+                mapping_id,
                 "select",
                 "select_option",
                 {"entity_id": entity_id, "option": preset_mode},
-                blocking=True,
-                context=context,
+                {"preset_mode": preset_mode},
+                context,
+                "homekit_command_failed",
             )
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
-                self._cancel_timeout(mapping_id)
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="homekit_command_failed",
-            ) from None
 
     async def async_set_minimum_fan_runtime(
         self, mapping_id: str, minutes: float, context: Context | None
@@ -541,36 +478,111 @@ class MappingManager:
     ) -> None:
         """Forward one message to the explicitly mapped Ecobee notify entity."""
 
-        mapping = self._mapping_by_id[mapping_id]
-        entity_id = (
-            self.resolve_entity_id(mapping.ecobee_notify_entity)
-            if mapping.ecobee_notify_entity
-            else None
-        )
-        if (
-            not message.strip()
-            or entity_id is None
-            or not self.snapshot(mapping_id).ecobee_notify_writable
-            or not self.hass.services.has_service("notify", "send_message")
-        ):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="ecobee_notification_unavailable",
+        async with self._command_locks[mapping_id]:
+            mapping = self._mapping_by_id[mapping_id]
+            entity_id = (
+                self.resolve_entity_id(mapping.ecobee_notify_entity)
+                if mapping.ecobee_notify_entity
+                else None
             )
+            if (
+                not message.strip()
+                or entity_id is None
+                or not self.snapshot(mapping_id).ecobee_notify_writable
+                or not self.hass.services.has_service("notify", "send_message")
+            ):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="ecobee_notification_unavailable",
+                )
+            try:
+                await self.hass.services.async_call(
+                    "notify",
+                    "send_message",
+                    {"message": message},
+                    blocking=True,
+                    context=context,
+                    target={"entity_id": entity_id},
+                )
+            except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="ecobee_notification_failed",
+                ) from None
+
+    async def _async_confirmable_call(
+        self,
+        mapping_id: str,
+        domain: str,
+        service: str,
+        service_data: Mapping[str, Any],
+        expected: Mapping[str, Any],
+        context: Context | None,
+        error_key: str,
+    ) -> None:
+        """Dispatch one writer call before enabling source confirmation."""
+
+        revision = self._tracker.begin(mapping_id, service, expected)
+        self._cancel_timeout(mapping_id)
+        self.refresh_mapping(mapping_id)
         try:
             await self.hass.services.async_call(
-                "notify",
-                "send_message",
-                {"message": message},
+                domain,
+                service,
+                dict(service_data),
                 blocking=True,
                 context=context,
-                target={"entity_id": entity_id},
             )
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._subscribe_state_reports()
+                self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
-                translation_key="ecobee_notification_failed",
+                translation_key=error_key,
             ) from None
+
+        if not self._tracker.accept_write(mapping_id, revision):
+            return
+        self._subscribe_state_reports()
+        if self._tracker.pending_revision(mapping_id) == revision:
+            self._replace_timeout(mapping_id, revision)
+        self.refresh_mapping(mapping_id)
+
+    async def _async_unconfirmable_call(
+        self,
+        mapping_id: str,
+        domain: str,
+        service: str,
+        service_data: Mapping[str, Any],
+        context: Context | None,
+        error_key: str,
+    ) -> None:
+        """Dispatch one writer call before recording its submitted result."""
+
+        revision = self._tracker.begin(mapping_id, service, {})
+        self._cancel_timeout(mapping_id)
+        self.refresh_mapping(mapping_id)
+        try:
+            await self.hass.services.async_call(
+                domain,
+                service,
+                dict(service_data),
+                blocking=True,
+                context=context,
+            )
+        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
+            if self._tracker.fail(mapping_id, revision):
+                self._subscribe_state_reports()
+                self.refresh_mapping(mapping_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=error_key,
+            ) from None
+
+        if self._tracker.submit(mapping_id, revision):
+            self._subscribe_state_reports()
+            self.refresh_mapping(mapping_id)
 
     def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
         """Resolve one healthy mapped Ecobee writer for a supported action."""

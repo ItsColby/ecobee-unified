@@ -97,7 +97,10 @@ Exit: the complete availability matrix and field-selection tests pass.
 - Expose an optional thermostat-display notification entity through exactly one
   explicitly mapped same-device Ecobee notification writer.
 - Implement revision-guarded pending-command observation, confirmation,
-  timeout, supersession, and diagnostics. Temperature confirmation tolerates at
+  timeout, supersession, and diagnostics. Serialize effect dispatch per mapping,
+  enable confirmation and its timeout only after writer success, retain an
+  in-flight matching observation across that success boundary, and keep a
+  later writer failure authoritative. Temperature confirmation tolerates at
   most half the proven HomeKit target step; other numeric fields retain the
   strict fixed tolerance.
 - Inject the resolved mapped target after validating caller data so no service

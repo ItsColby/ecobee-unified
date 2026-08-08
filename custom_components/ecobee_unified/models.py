@@ -254,9 +254,12 @@ def build_snapshot(
         provenance["current_temperature"] = temperature_owner
     degradation.update(temperature_degradation)
 
-    primary_capabilities = homekit if homekit.usable else ecobee
-    hvac_modes = _bounded_strings(primary_capabilities.attributes.get("hvac_modes"))
-    fan_modes = _bounded_strings(primary_capabilities.attributes.get("fan_modes"))
+    hvac_modes = (
+        _bounded_strings(homekit.attributes.get("hvac_modes")) if homekit.usable else ()
+    )
+    fan_modes = (
+        _bounded_strings(homekit.attributes.get("fan_modes")) if homekit.usable else ()
+    )
     supported_features = _integer(
         homekit.attributes.get("supported_features") if homekit.usable else 0
     )

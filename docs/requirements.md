@@ -32,7 +32,7 @@ justify ambiguous values or dual writes.
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
 | F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |
-| F-16 | Revision-guard pending commands so stale observations cannot update a superseded command. |
+| F-16 | Serialize effect dispatch per mapping, revision-guard pending commands, and allow confirmation only after the current writer succeeds so stale observations, late failures, or out-of-order completions cannot override newer user intent. |
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |
 | F-19 | When explicitly mapped, expose HomeKit current-mode presets and local clear-hold/resume through the Unified climate action and a native Unified button, with exactly one local writer. Clear Hold depends only on its same-device writer and reports successful dispatch as submitted because no source state proves its effect. |
@@ -53,6 +53,8 @@ justify ambiguous values or dual writes.
 - No unbounded/high-churn Recorder attributes.
 - No automatic write failover in the initial release.
 - No duplicate command caused by retries, confirmation, or source changes.
+- No later user command may be physically overwritten by an earlier writer
+  call that completes out of order.
 - No household-specific values in source, tests, diagnostics fixtures, docs,
   Git history, release notes, or CI logs.
 - No raw backend response bodies or arbitrary backend exception text in logs,
@@ -84,7 +86,9 @@ MVP is complete when all of the following are true:
 9. All repository and Home Assistant test/quality workflows are terminal green.
 10. A private shadow deployment completes its soak and comparison criteria
     before any existing consumer is migrated.
-11. A late observation cannot confirm, fail, or clear a newer pending command.
+11. A report cannot confirm a command before writer success, and a late
+    observation, writer result, or timeout cannot confirm, fail, clear, or
+    physically overwrite a newer command.
 12. Physical-identity or optional-sensor semantic drift disables only the
     affected Ecobee capabilities before any effect and recovers from supported
     registry/state evidence without recreating the config entry.

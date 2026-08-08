@@ -91,6 +91,10 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
         if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
             continue
         relative = path.relative_to(root)
+        if _is_maintainer_agent_artifact(relative):
+            # Private local control overlays are allowed in a maintainer checkout.
+            # The exact tracked archive and history guards still reject them.
+            continue
         failures.extend(
             f"{relative}: filename {failure}"
             for failure in sorted(_text_failures(str(relative)))

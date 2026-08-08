@@ -5,11 +5,11 @@ canonical user-facing device surface for each explicitly mapped physical
 thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
 
-The candidate keeps Home Assistant Core 2026.8.0 as its distribution minimum
+The integration keeps Home Assistant Core 2026.8.0 as its distribution minimum
 and dependency-closed minimum lane. A second dependency-closed lane targets the
 maintained Core 2026.8.1 patch with its matching published harness. Source
-publication, an immutable GitHub release, HACS installation, and live deployment
-remain separately verifiable lifecycle states.
+state, immutable GitHub releases, HACS installation, and live deployment remain
+separately verifiable lifecycle states.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
@@ -34,6 +34,12 @@ depend on them.
   entities to the same physical device.
 - Each semantic has one deterministic source and documented read fallback.
   Values are never averaged and a newer timestamp never changes ownership.
+- Climate state values are interpreted in Home Assistant's configured
+  temperature unit, matching Core's serialized-state contract; the source
+  integrations' native units are not inferred from an absent state attribute.
+- An empty Ecobee equipment report is the healthy idle state. Missing or
+  unusable source state remains unavailable rather than being collapsed into
+  idle.
 - Read fallback never changes the command writer. A timeout never retries a
   command through another backend.
 

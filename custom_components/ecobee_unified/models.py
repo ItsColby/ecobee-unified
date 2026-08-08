@@ -382,7 +382,9 @@ def build_snapshot(
         climate_mode=_bounded_text(ecobee.attributes.get("climate_mode"))
         if ecobee.usable
         else None,
-        equipment_running=_bounded_text(ecobee.attributes.get("equipment_running"))
+        equipment_running=_bounded_equipment_running(
+            ecobee.attributes.get("equipment_running")
+        )
         if ecobee.usable
         else None,
         active_sensors=_bounded_strings(
@@ -733,6 +735,12 @@ def _optional_text(value: Any) -> str | None:
 def _bounded_text(value: Any) -> str | None:
     text = _text(value)
     return text[:MAX_ATTRIBUTE_TEXT] if text else None
+
+
+def _bounded_equipment_running(value: Any) -> str | None:
+    """Preserve an empty equipment report because it means the system is idle."""
+
+    return value[:MAX_ATTRIBUTE_TEXT] if isinstance(value, str) else None
 
 
 def _number(value: Any) -> float | None:

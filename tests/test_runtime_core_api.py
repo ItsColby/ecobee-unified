@@ -87,6 +87,7 @@ from custom_components.ecobee_unified.const import (
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
+    HOMEKIT_PAIR_SETTLE_SECONDS,
     SUFFIX_AIR_QUALITY_INDEX,
     SUFFIX_EQUIPMENT_STAGE,
 )
@@ -937,6 +938,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
             await self.hass.async_block_till_done()
+            await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.05)
             self.assertEqual(
                 20.0, manager.snapshot(mapping.mapping_id).current_temperature
             )
@@ -950,6 +952,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
             await self.hass.async_block_till_done()
+            await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.05)
             self.assertEqual(
                 20.0, manager.snapshot(mapping.mapping_id).current_temperature
             )
@@ -998,6 +1001,243 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 "homekit_temperature", recovered.provenance["current_temperature"]
             )
+        finally:
+            await manager.async_stop()
+
+    async def test_paired_homekit_updates_settle_without_transient_divergence(
+        self,
+    ) -> None:
+        """Sequential characteristics publish one final agreeing snapshot."""
+
+        mapping = MappingConfig(
+            "mapping_settle",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_settle", (mapping,), {})
+        await manager.async_start()
+        cancel = Mock()
+        try:
+            with (
+                patch(
+                    "custom_components.ecobee_unified.manager.async_call_later",
+                    return_value=cancel,
+                ) as schedule,
+                patch(
+                    "custom_components.ecobee_unified.manager.async_dispatcher_send"
+                ) as dispatch,
+            ):
+                self.hass.states.async_set(
+                    self.homekit.entity_id,
+                    "heat",
+                    self._attributes(21.0),
+                )
+                await self.hass.async_block_till_done()
+                self.assertEqual(
+                    20.04, manager.snapshot(mapping.mapping_id).current_temperature
+                )
+                self.assertNotIn(
+                    "homekit_temperature_diverged",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                self.assertEqual(
+                    [HOMEKIT_PAIR_SETTLE_SECONDS],
+                    [
+                        call.args[1]
+                        for call in schedule.call_args_list
+                        if call.args[1] == HOMEKIT_PAIR_SETTLE_SECONDS
+                    ],
+                )
+
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "20.96",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
+                    },
+                )
+                await self.hass.async_block_till_done()
+                settle_callback = schedule.call_args_list[-1].args[2]
+                self.assertEqual(
+                    2,
+                    sum(
+                        call.args[1] == HOMEKIT_PAIR_SETTLE_SECONDS
+                        for call in schedule.call_args_list
+                    ),
+                )
+                cancel.assert_called_once_with()
+                signal = f"{DOMAIN}_snapshot_updated_{mapping.mapping_id}"
+                self.assertNotIn(
+                    signal, [call.args[1] for call in dispatch.call_args_list]
+                )
+
+                settle_callback(None)
+                settled = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(20.96, settled.current_temperature)
+                self.assertEqual(
+                    "homekit_temperature", settled.provenance["current_temperature"]
+                )
+                self.assertNotIn("homekit_temperature_diverged", settled.degradation)
+                self.assertEqual(
+                    1,
+                    sum(call.args[1] == signal for call in dispatch.call_args_list),
+                )
+        finally:
+            await manager.async_stop()
+
+    async def test_paired_homekit_persistent_mismatch_and_lifecycle_are_honest(
+        self,
+    ) -> None:
+        """Persistent mismatch fails closed while lifecycle changes stay immediate."""
+
+        mapping = MappingConfig(
+            "mapping_settle_lifecycle",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_settle_lifecycle", (mapping,), {})
+        await manager.async_start()
+        try:
+            with patch(
+                "custom_components.ecobee_unified.manager.async_call_later",
+                return_value=Mock(),
+            ) as schedule:
+                self.hass.states.async_set(
+                    self.homekit.entity_id,
+                    "heat",
+                    self._attributes(22.0),
+                )
+                await self.hass.async_block_till_done()
+                settle_callback = schedule.call_args_list[-1].args[2]
+                settle_callback(None)
+                mismatched = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(22.0, mismatched.current_temperature)
+                self.assertEqual(
+                    "homekit", mismatched.provenance["current_temperature"]
+                )
+                self.assertIn("homekit_temperature_diverged", mismatched.degradation)
+
+                schedule.reset_mock()
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "unavailable",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
+                    },
+                )
+                await self.hass.async_block_till_done()
+                unavailable = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(22.0, unavailable.current_temperature)
+                self.assertIn(
+                    "homekit_temperature_unavailable", unavailable.degradation
+                )
+                self.assertNotIn(
+                    HOMEKIT_PAIR_SETTLE_SECONDS,
+                    [call.args[1] for call in schedule.call_args_list],
+                )
+
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "22.04",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
+                    },
+                )
+                await self.hass.async_block_till_done()
+                source_state = self.hass.states.get(self.homekit_temperature.entity_id)
+                self.assertIsNotNone(source_state)
+                assert source_state is not None
+                self.assertEqual("22.04", source_state.state)
+                recovered = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(
+                    22.04,
+                    recovered.current_temperature,
+                    (
+                        recovered.provenance,
+                        recovered.degradation,
+                        recovered.source_health,
+                    ),
+                )
+                self.assertNotIn(
+                    "homekit_temperature_unavailable", recovered.degradation
+                )
+        finally:
+            await manager.async_stop()
+
+    async def test_paired_homekit_command_observation_and_unload_are_immediate(
+        self,
+    ) -> None:
+        """Confirmation bypasses settling and unload cancels pending callbacks."""
+
+        mapping = MappingConfig(
+            "mapping_settle_command",
+            "Zone A",
+            self.homekit.id,
+            self.ecobee.id,
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "entry_settle_command", (mapping,), {})
+        await manager.async_start()
+        cancel = Mock()
+        try:
+            revision = manager._tracker.begin(
+                mapping.mapping_id, "set_humidity", {"target_humidity": 41}
+            )
+            self.assertTrue(manager._tracker.accept_write(mapping.mapping_id, revision))
+            with patch(
+                "custom_components.ecobee_unified.manager.async_call_later",
+                return_value=cancel,
+            ) as schedule:
+                attributes = self._attributes(20.0) | {
+                    "supported_features": 389,
+                    "humidity": 41,
+                    "min_humidity": 20,
+                    "max_humidity": 50,
+                }
+                self.hass.states.async_set(self.homekit.entity_id, "heat", attributes)
+                await self.hass.async_block_till_done()
+                self.assertEqual(
+                    CommandStatus.CONFIRMED,
+                    manager.snapshot(mapping.mapping_id).command.status,
+                )
+                self.assertNotIn(
+                    HOMEKIT_PAIR_SETTLE_SECONDS,
+                    [call.args[1] for call in schedule.call_args_list],
+                )
+
+                schedule.reset_mock()
+                self.hass.states.async_set(
+                    self.homekit.entity_id,
+                    "heat",
+                    attributes | {"fan_mode": "on"},
+                )
+                await self.hass.async_block_till_done()
+                self.assertEqual("on", manager.snapshot(mapping.mapping_id).fan_mode)
+                self.assertNotIn(
+                    HOMEKIT_PAIR_SETTLE_SECONDS,
+                    [call.args[1] for call in schedule.call_args_list],
+                )
+
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "20.1",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
+                    },
+                )
+                await self.hass.async_block_till_done()
+                self.assertIn(mapping.mapping_id, manager._unsub_homekit_settles)
+                await manager.async_stop()
+                cancel.assert_called()
+                self.assertFalse(manager._unsub_homekit_settles)
         finally:
             await manager.async_stop()
 

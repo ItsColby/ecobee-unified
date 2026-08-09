@@ -124,6 +124,18 @@ the climate entity, diagnostics, and any diagnostic entity project that same
 snapshot rather than interpreting raw attributes independently. Availability is
 capability-aware:
 
+HomeKit can report a climate's serialized whole-degree temperature and its
+same-accessory precise temperature characteristic as sequential state changes.
+For mappings that explicitly select both, routine healthy precise-sensor events
+and climate events whose current temperature changed use one keyed 250 ms
+trailing-edge settle window before snapshot publication. The window is per
+mapping and preserves the latest report time for each source. Command
+confirmation observations, other climate changes, source removal,
+unavailable/unknown transitions and recovery, registry/device events, and every
+unrelated source remain immediate.
+A mismatch that persists after the window still degrades and falls back exactly
+as documented; the window never changes source ownership or health.
+
 - HomeKit available: canonical local climate state and standard control work.
 - Ecobee available with same-physical-device identity proven: vendor
   detail/actions work.

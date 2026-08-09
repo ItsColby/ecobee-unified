@@ -139,9 +139,10 @@ decimal places or a newer timestamp.
   Home Assistant's config-entry REST/frontend contract;
 - unconfigured optional sources are absent from health/age diagnostics while a
   configured but unresolved source reports `missing`;
-- exact source and command ages remain in diagnostics rather than climate state
-  attributes, and an age-only snapshot refresh produces no climate
-  `state_changed` event or Recorder row;
+- exact source and command ages advance across repeated diagnostics requests
+  without a source event, remain absent from climate state attributes, and an
+  age-only snapshot refresh produces no climate `state_changed` event or
+  Recorder row;
 - active-sensor detail and command-confirmation operation/status remain live
   but excluded from recorded attributes;
 - schedule/transition and vendor control/detail are not duplicated in climate

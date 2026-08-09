@@ -31,7 +31,7 @@ justify ambiguous values or dual writes.
 | F-12 | Preserve honest primary-source precision, Home Assistant climate-writer units (Celsius or Fahrenheit), writer-owned target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
-| F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic surfaces from the same snapshot. |
+| F-15 | Normalize each mapping once and project climate, number, sensor, and diagnostic semantics from the same snapshot; diagnostics may calculate only elapsed source and command ages at request time from those same selected sources and command tracker. |
 | F-16 | Serialize effect dispatch per mapping, revision-guard pending commands, and allow confirmation only after the current writer succeeds so stale observations, late failures, or out-of-order completions cannot override newer user intent. |
 | F-17 | Preserve temporarily missing mappings and registry renames without guessing replacements or creating duplicates. |
 | F-18 | Create Repairs only for persistent actionable mapping faults and remove them on recovery. |

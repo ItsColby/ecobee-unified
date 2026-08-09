@@ -109,9 +109,11 @@ Repair until the supported registry identities match again.
 Selection is semantic, not temporal. Do not average duplicate measurements or
 select a source merely because its event arrived last. Report chosen source and
 source health compactly so provenance remains inspectable without presenting
-duplicate normal-use entities. Exact continuously advancing ages belong in
-bounded diagnostics so ordinary source reports do not create climate history
-rows without a semantic state change.
+duplicate normal-use entities. Exact continuously advancing ages are calculated
+from the selected sources and command tracker when bounded diagnostics are
+requested, so ordinary source reports do not create climate history rows
+without a semantic state change. All other diagnostic semantics remain a
+projection of the immutable normalized snapshot.
 Writable features, safety bounds, modes, and options always come from the
 documented writer. A read fallback may preserve current state, but it never
 expands the controls advertised while that writer is unavailable. For the
@@ -243,10 +245,11 @@ active climate mode/sensors and command confirmation. Schedule/transition,
 equipment stage, and minimum fan runtime have first-class owners. Do not record large raw
 payloads, long lists, historical samples, or continuously advancing ages as
 attributes. Active-sensor detail and command-confirmation operation/status
-remain live but unrecorded; bounded redacted diagnostics own exact source and
-command ages plus their detailed history-independent evidence. This avoids the
-Core state-machine comparison that otherwise creates Recorder rows before
-unrecorded attributes are stripped from storage.
+remain live but unrecorded; bounded redacted diagnostics calculate exact source
+and command ages at request time while retaining the snapshot's selected-source
+and command semantics. This avoids the Core state-machine comparison that
+otherwise creates Recorder rows before unrecorded attributes are stripped from
+storage.
 
 ## Derived Expansion
 

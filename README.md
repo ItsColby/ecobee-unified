@@ -114,10 +114,11 @@ does not expose writer granularity. Entity properties project one immutable
 normalized snapshot and perform no I/O.
 Compact climate attributes expose field provenance, source health, degradation,
 bounded Ecobee context, active-sensor detail, and revision-guarded command
-status. Exact continuously advancing source and command ages remain available
-in bounded diagnostics rather than climate state attributes, preventing
-age-only source reports from creating duplicate Recorder rows. Active-sensor
-detail and command-confirmation operation/status remain live but unrecorded.
+status. Exact continuously advancing source and command ages are calculated
+when bounded diagnostics are requested rather than stored in climate state
+attributes, preventing age-only source reports from creating duplicate Recorder
+rows. Active-sensor detail and command-confirmation operation/status remain live
+but unrecorded.
 Source health preserves Home Assistant's `unknown` versus `unavailable`
 distinction: an existing source with no readable current value is not described
 as absent or unavailable, and remains unusable for reads unless a separate

@@ -60,6 +60,7 @@ from .const import (
     SUFFIX_VOC,
 )
 from .models import (
+    CommandSummary,
     MappingConfig,
     NormalizedSnapshot,
     RawSource,
@@ -178,6 +179,38 @@ class MappingManager:
         """Return the current immutable snapshot."""
 
         return self._snapshots[mapping_id]
+
+    def diagnostic_source_ages(self, mapping_id: str) -> dict[str, int | None]:
+        """Return request-time ages for sources present in the cached snapshot."""
+
+        snapshot = self.snapshot(mapping_id)
+        mapping = self._mapping_by_id[mapping_id]
+        references = {
+            "homekit": mapping.homekit_entity,
+            "ecobee": mapping.ecobee_entity,
+            "homekit_preset": mapping.homekit_preset_entity,
+            "homekit_temperature": mapping.homekit_temperature_entity,
+            "air_quality_index": mapping.ecobee_aqi_entity,
+            "co2": mapping.ecobee_co2_entity,
+            "voc": mapping.ecobee_voc_entity,
+        }
+        now = dt_util.utcnow()
+        ages: dict[str, int | None] = {}
+        for source_name, cached_age in snapshot.source_ages.items():
+            reference = references[source_name]
+            entity_id = self.resolve_entity_id(reference) if reference else None
+            state = self.hass.states.get(entity_id) if entity_id else None
+            ages[source_name] = (
+                _state_age_seconds(state.last_reported, now)
+                if cached_age is not None and state is not None
+                else None
+            )
+        return ages
+
+    def diagnostic_command_summary(self, mapping_id: str) -> CommandSummary:
+        """Return request-time command age without republishing entity state."""
+
+        return self._tracker.summary(mapping_id)
 
     def resolve_entity_id(self, entity_reference: str) -> str | None:
         """Resolve a stable entity-registry ID without guessing by name."""

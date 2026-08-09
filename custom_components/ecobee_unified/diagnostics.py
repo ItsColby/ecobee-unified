@@ -18,6 +18,7 @@ async def async_get_config_entry_diagnostics(
     mappings: list[dict[str, Any]] = []
     for index, mapping in enumerate(manager.mappings, start=1):
         snapshot = manager.snapshot(mapping.mapping_id)
+        command = manager.diagnostic_command_summary(mapping.mapping_id)
         mappings.append(
             {
                 "mapping": f"mapping_{index}",
@@ -26,7 +27,9 @@ async def async_get_config_entry_diagnostics(
                 "source_health": {
                     key: value.value for key, value in snapshot.source_health.items()
                 },
-                "source_age_seconds": dict(snapshot.source_ages),
+                "source_age_seconds": manager.diagnostic_source_ages(
+                    mapping.mapping_id
+                ),
                 "field_sources": dict(snapshot.provenance),
                 "degradation": list(snapshot.degradation),
                 "capabilities": {
@@ -53,10 +56,10 @@ async def async_get_config_entry_diagnostics(
                     "voc": snapshot.voc is not None,
                 },
                 "command": {
-                    "revision": snapshot.command.revision,
-                    "operation": snapshot.command.operation,
-                    "status": snapshot.command.status.value,
-                    "age_seconds": snapshot.command.age_seconds,
+                    "revision": command.revision,
+                    "operation": command.operation,
+                    "status": command.status.value,
+                    "age_seconds": command.age_seconds,
                 },
             }
         )

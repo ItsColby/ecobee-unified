@@ -2,7 +2,7 @@
 
 These observations are separate from the Ecobee Unified product contract. They
 record possible Home Assistant Core improvements without selecting, scheduling,
-or authorizing upstream work. The Unified candidate does not depend on them.
+or authorizing upstream work. Ecobee Unified does not depend on them.
 
 | Opportunity | Current product mitigation | Status |
 |---|---|---|

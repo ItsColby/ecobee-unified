@@ -108,8 +108,10 @@ Repair until the supported registry identities match again.
 
 Selection is semantic, not temporal. Do not average duplicate measurements or
 select a source merely because its event arrived last. Report chosen source and
-source age compactly so provenance remains inspectable without presenting
-duplicate normal-use entities.
+source health compactly so provenance remains inspectable without presenting
+duplicate normal-use entities. Exact continuously advancing ages belong in
+bounded diagnostics so ordinary source reports do not create climate history
+rows without a semantic state change.
 Writable features, safety bounds, modes, and options always come from the
 documented writer. A read fallback may preserve current state, but it never
 expands the controls advertised while that writer is unavailable.
@@ -216,13 +218,15 @@ or policy definition, a successful action is reported as `submitted`,
 not falsely `confirmed`; service errors remain `failed`. Microphone and
 daylight-saving administration remain outside the routine thermostat surface.
 
-Keep climate attributes bounded: selected sources, source status/age,
+Keep climate attributes bounded: selected sources, source status,
 active climate mode/sensors and command confirmation. Schedule/transition,
 equipment stage, and minimum fan runtime have first-class owners. Do not record large raw
-payloads, long lists, or historical samples as attributes. Volatile source age,
-active-sensor detail, and command-confirmation age/status remain live attributes
-but are excluded from Recorder; bounded redacted diagnostics own their detailed
-history-independent evidence.
+payloads, long lists, historical samples, or continuously advancing ages as
+attributes. Active-sensor detail and command-confirmation operation/status
+remain live but unrecorded; bounded redacted diagnostics own exact source and
+command ages plus their detailed history-independent evidence. This avoids the
+Core state-machine comparison that otherwise creates Recorder rows before
+unrecorded attributes are stripped from storage.
 
 ## Derived Expansion
 

@@ -153,6 +153,9 @@ class PublicSafetyTests(unittest.TestCase):
         release_runner = (root / "scripts/verify-release-local.sh").read_text(
             encoding="utf-8"
         )
+        release_wrapper = (root / "scripts/verify-release-local.ps1").read_text(
+            encoding="utf-8"
+        )
         minimum_requirements = (root / "requirements-ha-test.txt").read_text(
             encoding="utf-8"
         )
@@ -183,6 +186,16 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual(
             2, release_runner.count("pytest-homeassistant-custom-component==")
         )
+        self.assertIn(
+            '"${source_git[@]}" ls-files --cached --others --exclude-standard -z',
+            release_runner,
+        )
+        self.assertIn('--git-dir="$source_git_dir"', release_runner)
+        self.assertIn("rev-parse --path-format=absolute --git-dir", release_wrapper)
+        self.assertIn("$Mode container $linuxGitDir", release_wrapper)
+        self.assertIn('tar -C "$source_root" --null --files-from=-', release_runner)
+        self.assertIn('chmod a+rx "$repo_root"', release_runner)
+        self.assertNotIn('cp -a "$source_root/."', release_runner)
         self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
         self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
         self.assertNotIn("matrix.", workflow)

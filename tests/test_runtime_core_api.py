@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import voluptuous as vol
+import voluptuous_serialize
 from homeassistant import loader
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.components.number import NumberDeviceClass
@@ -29,6 +30,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -66,6 +68,7 @@ from custom_components.ecobee_unified.config_flow import (
     _mapping_from_input,
     _options_schema,
     _validate_no_duplicate_sources,
+    _validate_timing_options,
 )
 from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
@@ -2226,7 +2229,9 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options | {"future_option": future_option}, entry.options)
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
 
-    async def test_options_schema_rejects_fractional_and_off_step_timing(self) -> None:
+    async def test_options_schema_serializes_and_timing_validation_is_exact(
+        self,
+    ) -> None:
         schema = _options_schema(
             {
                 CONF_ECOBEE_STALE_SECONDS: DEFAULT_ECOBEE_STALE_SECONDS,
@@ -2240,6 +2245,26 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 CONF_CONFIRMATION_SECONDS: 720,
             },
             schema(
+                {
+                    CONF_ECOBEE_STALE_SECONDS: 1200.0,
+                    CONF_CONFIRMATION_SECONDS: 720.0,
+                }
+            ),
+        )
+        serialized = voluptuous_serialize.convert(
+            schema, custom_serializer=cv.custom_serializer
+        )
+        self.assertEqual(2, len(serialized))
+        self.assertEqual(
+            {"min": 300.0, "max": 7200.0, "step": 60.0, "mode": "box"},
+            serialized[0]["selector"]["number"],
+        )
+        self.assertEqual(
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            _validate_timing_options(
                 {
                     CONF_ECOBEE_STALE_SECONDS: 1200.0,
                     CONF_CONFIRMATION_SECONDS: 720.0,
@@ -2265,7 +2290,32 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             },
         ):
             with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
-                schema(invalid)
+                _validate_timing_options(invalid)
+
+    async def test_options_flow_reports_invalid_timing_without_saving(self) -> None:
+        original_options = {"future_option": {"opaque": "preserve"}}
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            options=original_options,
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        result = await self.hass.config_entries.options.async_init(entry.entry_id)
+        result = await self.hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1210,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+        )
+
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("invalid_timing", result["errors"]["base"])
+        self.assertEqual(original_options, entry.options)
 
     async def test_options_flow_rejects_concurrent_and_external_updates(self) -> None:
         original_options = {

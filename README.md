@@ -118,6 +118,10 @@ status. Exact continuously advancing source and command ages remain available
 in bounded diagnostics rather than climate state attributes, preventing
 age-only source reports from creating duplicate Recorder rows. Active-sensor
 detail and command-confirmation operation/status remain live but unrecorded.
+Source health preserves Home Assistant's `unknown` versus `unavailable`
+distinction: an existing source with no readable current value is not described
+as absent or unavailable, and remains unusable for reads unless a separate
+writer-capability contract explicitly permits control.
 
 Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
 device IDs, config-entry IDs, and source values. Public-safety validation scans

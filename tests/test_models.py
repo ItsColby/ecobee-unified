@@ -691,6 +691,39 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(SourceHealth.MISSING, snapshot.source_health["co2"])
         self.assertIsNone(snapshot.source_ages["co2"])
 
+    def test_optional_health_preserves_unknown_state(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("heat", {"current_temperature": 20.0}),
+            source("heat", {"current_temperature": 21.0}),
+            homekit_preset=RawSource(
+                "unknown",
+                {"options": ["Home", "Away"]},
+                health=SourceHealth.UNKNOWN,
+            ),
+            homekit_preset_writable=True,
+            homekit_temperature=RawSource(
+                "unknown",
+                health=SourceHealth.UNKNOWN,
+            ),
+        )
+
+        self.assertEqual(
+            SourceHealth.UNKNOWN,
+            snapshot.source_health["homekit_preset"],
+        )
+        self.assertEqual(
+            SourceHealth.UNKNOWN,
+            snapshot.source_health["homekit_temperature"],
+        )
+        self.assertIn("homekit_preset_unknown", snapshot.degradation)
+        self.assertIn("homekit_temperature_unknown", snapshot.degradation)
+        self.assertNotIn("homekit_preset_unavailable", snapshot.degradation)
+        self.assertNotIn("homekit_temperature_unavailable", snapshot.degradation)
+        self.assertIsNone(snapshot.preset_mode)
+        self.assertEqual(("Home", "Away"), snapshot.preset_modes)
+        self.assertTrue(snapshot.homekit_preset_writable)
+
 
 if __name__ == "__main__":
     unittest.main()

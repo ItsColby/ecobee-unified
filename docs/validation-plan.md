@@ -70,6 +70,10 @@ decimal places or a newer timestamp.
   HomeKit service call; Clear Hold works without the preset source, becomes
   submitted rather than confirmed, and the native button exists only for an
   explicit usable mapping;
+- an `unknown` HomeKit Current Mode value leaves the Unified current preset
+  unreadable while retaining bounded advertised options and exactly-one preset
+  dispatch; actual unavailable, missing, disabled, or misassociated writers
+  remove the capability before I/O;
 - minimum fan runtime declares duration semantics in minutes, accepts only 0-60
   in exact five-minute increments, rejects boolean/non-finite/off-step/
   out-of-range values before I/O, and makes one Ecobee call;

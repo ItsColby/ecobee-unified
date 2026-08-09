@@ -262,6 +262,10 @@ class MappingManager:
             mapping.homekit_clear_hold_entity,
             required_device_id=homekit_device_id,
         )
+        homekit_preset_writable = self._writer_available(
+            mapping.homekit_preset_entity,
+            required_device_id=homekit_device_id,
+        )
         snapshot = build_snapshot(
             mapping_id,
             homekit,
@@ -272,6 +276,7 @@ class MappingManager:
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
             command=self._tracker.summary(mapping_id),
+            homekit_preset_writable=homekit_preset_writable,
             homekit_clear_hold_writable=homekit_clear_hold_writable,
             temperature_step_fusion_proven=(
                 physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
@@ -303,6 +308,7 @@ class MappingManager:
                 co2=cloud_sensors[1],
                 voc=cloud_sensors[2],
                 command=self._tracker.summary(mapping_id),
+                homekit_preset_writable=homekit_preset_writable,
                 homekit_clear_hold_writable=homekit_clear_hold_writable,
                 temperature_step_fusion_proven=(
                     physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN

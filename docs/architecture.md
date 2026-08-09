@@ -114,7 +114,11 @@ bounded diagnostics so ordinary source reports do not create climate history
 rows without a semantic state change.
 Writable features, safety bounds, modes, and options always come from the
 documented writer. A read fallback may preserve current state, but it never
-expands the controls advertised while that writer is unavailable.
+expands the controls advertised while that writer is unavailable. For the
+HomeKit Current Mode select specifically, an `unknown` current option is an
+unreadable value rather than writer unavailability: an enabled, available,
+same-device select may continue to advertise its bounded options while Unified
+keeps the current preset unknown. Actual unavailability still removes control.
 
 ## Updates and Availability
 
@@ -176,7 +180,7 @@ Exactly one backend writes each operation:
 | Set HVAC mode | HomeKit climate | No automatic fallback. |
 | Set temperature/range | HomeKit climate | No automatic fallback. |
 | Set fan mode | HomeKit climate | No automatic fallback. |
-| Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. |
+| Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. An unreadable current option does not disable an otherwise available same-device writer. |
 | Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; a successful button call is reported as submitted because no source state can prove the hold cleared. It does not require the independent current-mode select. |
 | Set minimum fan runtime | Ecobee action through unified number | Vendor-specific action exactly once. |
 | Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |

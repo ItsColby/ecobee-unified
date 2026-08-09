@@ -40,13 +40,35 @@ class Projection:
     device_class: SensorDeviceClass | None = None
     unit: str | None = None
     state_class: SensorStateClass | None = None
+    options: tuple[str, ...] | None = None
+
+
+EQUIPMENT_STAGE_OPTIONS = (
+    "idle",
+    "fan",
+    "cool_stage_1",
+    "cool_stage_2",
+    "heat_pump_stage_1",
+    "heat_pump_stage_2",
+    "heat_pump_stage_3",
+    "aux_heat_stage_1",
+    "aux_heat_stage_2",
+    "aux_heat_stage_3",
+    "humidifying",
+    "dehumidifying",
+    "ventilating",
+    "multiple",
+    "unknown",
+)
 
 
 PROJECTIONS = {
     SUFFIX_EQUIPMENT_STAGE: Projection(
-        SUFFIX_EQUIPMENT_STAGE,
-        "equipment_stage",
-        lambda snapshot: equipment_stage(snapshot.equipment_running),
+        suffix=SUFFIX_EQUIPMENT_STAGE,
+        translation_key="equipment_stage",
+        value=lambda snapshot: equipment_stage(snapshot.equipment_running),
+        device_class=SensorDeviceClass.ENUM,
+        options=EQUIPMENT_STAGE_OPTIONS,
     ),
     SUFFIX_AIR_QUALITY_INDEX: Projection(
         SUFFIX_AIR_QUALITY_INDEX,
@@ -111,6 +133,7 @@ class EcobeeCloudSensor(EcobeeUnifiedEntity, SensorEntity):
         self._attr_device_class = projection.device_class
         self._attr_native_unit_of_measurement = projection.unit
         self._attr_state_class = projection.state_class
+        self._attr_options = list(projection.options) if projection.options else None
 
     @property
     @override

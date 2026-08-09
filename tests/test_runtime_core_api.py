@@ -102,7 +102,11 @@ from custom_components.ecobee_unified.notify import (
 )
 from custom_components.ecobee_unified.number import EcobeeMinimumFanRuntimeNumber
 from custom_components.ecobee_unified.runtime import EcobeeUnifiedRuntime
-from custom_components.ecobee_unified.sensor import PROJECTIONS, EcobeeCloudSensor
+from custom_components.ecobee_unified.sensor import (
+    EQUIPMENT_STAGE_OPTIONS,
+    PROJECTIONS,
+    EcobeeCloudSensor,
+)
 
 
 class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
@@ -1115,6 +1119,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(equipment.available)
             self.assertEqual("idle", equipment.native_value)
+            self.assertEqual(SensorDeviceClass.ENUM, equipment.device_class)
+            self.assertEqual(list(EQUIPMENT_STAGE_OPTIONS), equipment.options)
+            self.assertIsNone(equipment.native_unit_of_measurement)
+            self.assertIsNone(equipment.state_class)
         finally:
             await manager.async_stop()
 

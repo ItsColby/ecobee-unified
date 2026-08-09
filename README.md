@@ -171,7 +171,11 @@ failover.
 ## Actions
 
 Climate preset selection calls the mapped HomeKit Current Mode select exactly
-once and only for an advertised option.
+once and only for an advertised option. An unreadable current option does not
+disable that same-device writer when the select remains enabled, available,
+and advertises bounded options; Unified keeps the current preset unknown while
+retaining the proven write capability. An unavailable, missing, disabled, or
+misassociated select still removes preset control before any effect.
 
 `ecobee_unified.resume_program` targets a unified climate entity and presses the
 mapped local HomeKit Clear Hold button exactly once.

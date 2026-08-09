@@ -237,6 +237,7 @@ def build_snapshot(
     co2: RawSource | None = None,
     voc: RawSource | None = None,
     command: CommandSummary | None = None,
+    homekit_preset_writable: bool | None = None,
     homekit_clear_hold_writable: bool = False,
     temperature_step_fusion_proven: bool = False,
     physical_identity_proven: bool = True,
@@ -245,6 +246,12 @@ def build_snapshot(
     ecobee_notify_writable: bool = False,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
+
+    homekit_preset_writable = (
+        bool(homekit_preset and homekit_preset.usable)
+        if homekit_preset_writable is None
+        else homekit_preset_writable
+    )
 
     values: dict[str, Any] = {}
     provenance: dict[str, str] = {}
@@ -343,7 +350,7 @@ def build_snapshot(
         mapping_id=mapping_id,
         available=available,
         homekit_writable=homekit.usable,
-        homekit_preset_writable=bool(homekit_preset and homekit_preset.usable),
+        homekit_preset_writable=homekit_preset_writable,
         homekit_clear_hold_writable=homekit_clear_hold_writable,
         ecobee_writable=ecobee.usable,
         ecobee_notify_writable=ecobee_notify_writable,
@@ -371,7 +378,7 @@ def build_snapshot(
         preset_mode=_optional_source_state(homekit_preset),
         preset_modes=(
             _bounded_strings(homekit_preset.attributes.get("options"))
-            if homekit_preset and homekit_preset.usable
+            if homekit_preset and homekit_preset_writable
             else ()
         ),
         ecobee_preset_mode=(

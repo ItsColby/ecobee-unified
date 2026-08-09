@@ -2680,6 +2680,37 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("select", calls[0].domain)
         self.assertEqual(self.homekit_preset.entity_id, calls[0].data["entity_id"])
 
+    async def test_preset_control_survives_unreadable_current_option(self) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("select", "select_option", capture)
+        self.hass.states.async_set(
+            self.homekit_preset.entity_id,
+            "unknown",
+            {"options": ["Home", "Away"]},
+        )
+        await self.hass.async_block_till_done()
+
+        snapshot = self.manager.snapshot("mapping_a")
+        self.assertIsNone(snapshot.preset_mode)
+        self.assertEqual(("Home", "Away"), snapshot.preset_modes)
+        self.assertTrue(snapshot.homekit_preset_writable)
+        self.assertIn("homekit_preset_unavailable", snapshot.degradation)
+
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        self.assertTrue(entity.supported_features & ClimateEntityFeature.PRESET_MODE)
+        await entity.async_set_preset_mode("Away")
+        self.assertEqual(1, len(calls))
+        self.assertEqual("select", calls[0].domain)
+        self.assertEqual("select_option", calls[0].service)
+        self.assertEqual(
+            {"entity_id": self.homekit_preset.entity_id, "option": "Away"},
+            dict(calls[0].data),
+        )
+
     async def test_exact_single_writer_service_calls(self) -> None:
         calls: list[ServiceCall] = []
 

@@ -149,6 +149,9 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_timing": "Use a whole number of seconds aligned to the displayed step and range."
+    },
     "step": {
       "init": {
         "data": {

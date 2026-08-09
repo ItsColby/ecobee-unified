@@ -130,7 +130,8 @@ decimal places or a newer timestamp.
 - the 30-minute default confirmation window and persisted option overrides;
 - options accept only whole seconds aligned to their advertised selector step,
   including direct or restored flow input that does not come from the rendered
-  selector UI;
+  selector UI, while the complete options form remains serializable through
+  Home Assistant's config-entry REST/frontend contract;
 - unconfigured optional sources are absent from health/age diagnostics while a
   configured but unresolved source reports `missing`;
 - exact source and command ages remain in diagnostics rather than climate state

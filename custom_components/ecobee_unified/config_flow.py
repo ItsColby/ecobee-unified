@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from copy import deepcopy
 from math import isfinite
 from typing import Any
@@ -356,14 +355,20 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if self._original_options is None:
             self._original_options = deepcopy(dict(self.config_entry.options))
         if user_input is not None:
             if dict(self.config_entry.options) != self._original_options:
                 return self.async_abort(reason="configuration_changed")
-            accepted_options = deepcopy(self._original_options)
-            accepted_options.update(user_input)
-            return self.async_create_entry(title="", data=accepted_options)
+            try:
+                validated_input = _validate_timing_options(user_input)
+            except vol.Invalid:
+                errors["base"] = "invalid_timing"
+            else:
+                accepted_options = deepcopy(self._original_options)
+                accepted_options.update(validated_input)
+                return self.async_create_entry(title="", data=accepted_options)
 
         original_options = self._original_options
         assert original_options is not None
@@ -376,7 +381,7 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             ),
         }
         return self.async_show_form(
-            step_id="init", data_schema=_options_schema(defaults)
+            step_id="init", data_schema=_options_schema(defaults), errors=errors
         )
 
 
@@ -769,29 +774,14 @@ def _resolved_or_reference(
 
 
 def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
-    def selector(minimum: int, maximum: int, step: int) -> Callable[[Any], int]:
-        def validate_step(value: Any) -> int:
-            if isinstance(value, bool):
-                raise vol.Invalid("timing value must be an integer")
-            number = float(value)
-            if (
-                not isfinite(number)
-                or number != int(number)
-                or (int(number) - minimum) % step != 0
-            ):
-                raise vol.Invalid(f"timing value must use {step}-second steps")
-            return int(number)
-
-        return vol.All(
-            NumberSelector(
-                NumberSelectorConfig(
-                    min=minimum,
-                    max=maximum,
-                    step=step,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            validate_step,
+    def selector(minimum: int, maximum: int, step: int) -> NumberSelector:
+        return NumberSelector(
+            NumberSelectorConfig(
+                min=minimum,
+                max=maximum,
+                step=step,
+                mode=NumberSelectorMode.BOX,
+            )
         )
 
     return vol.Schema(
@@ -806,3 +796,32 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector(300, 1800, 30),
         }
     )
+
+
+def _validate_timing_options(user_input: dict[str, Any]) -> dict[str, int]:
+    """Validate selector-aligned timing values without breaking form serialization."""
+
+    def validate(value: Any, minimum: int, maximum: int, step: int) -> int:
+        if isinstance(value, bool):
+            raise vol.Invalid("timing value must be an integer")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as err:
+            raise vol.Invalid("timing value must be numeric") from err
+        if (
+            not isfinite(number)
+            or number != int(number)
+            or not minimum <= number <= maximum
+            or (int(number) - minimum) % step != 0
+        ):
+            raise vol.Invalid(f"timing value must use {step}-second steps")
+        return int(number)
+
+    return {
+        CONF_ECOBEE_STALE_SECONDS: validate(
+            user_input[CONF_ECOBEE_STALE_SECONDS], 300, 7200, 60
+        ),
+        CONF_CONFIRMATION_SECONDS: validate(
+            user_input[CONF_CONFIRMATION_SECONDS], 300, 1800, 30
+        ),
+    }

@@ -169,7 +169,11 @@ source look more precise or changes deterministic ownership by itself.
 Unconfigured optional sources are omitted from source-health diagnostics.
 Configured references that are currently absent remain present with `missing`
 health. Proven cross-backend identity mismatch is distinguished from temporarily
-unproven identity so diagnostics describe the actionable fault.
+unproven identity so diagnostics describe the actionable fault. A source whose
+entity exists but reports `unknown` retains distinct `unknown` health and
+degradation rather than being mislabeled `unavailable`; it remains unusable for
+reads, while a separately proven writer can stay available when its contract
+allows an unreadable current value.
 
 ## Command Policy
 

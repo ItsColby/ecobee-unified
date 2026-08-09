@@ -13,6 +13,8 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     UnitOfTemperature,
 )
 from homeassistant.core import (
@@ -1182,7 +1184,9 @@ class MappingManager:
             else state.last_reported
         )
         age = _state_age_seconds(observed_at, now or dt_util.utcnow())
-        if state.state in {"unknown", "unavailable"}:
+        if state.state == STATE_UNKNOWN:
+            health = SourceHealth.UNKNOWN
+        elif state.state == STATE_UNAVAILABLE:
             health = SourceHealth.UNAVAILABLE
         elif stale_seconds is not None and age > stale_seconds:
             health = SourceHealth.STALE
@@ -1247,7 +1251,7 @@ class MappingManager:
             and not registry_entry.disabled
             and registry_entry.device_id == required_device_id
             and state is not None
-            and state.state != "unavailable"
+            and state.state != STATE_UNAVAILABLE
         )
 
     def ecobee_sensor_devices_valid(

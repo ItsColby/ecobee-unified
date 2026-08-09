@@ -41,6 +41,7 @@ class SourceHealth(StrEnum):
 
     HEALTHY = "healthy"
     STALE = "stale"
+    UNKNOWN = "unknown"
     UNAVAILABLE = "unavailable"
     MISSING = "missing"
 
@@ -340,7 +341,7 @@ def build_snapshot(
         ("voc", voc),
     ):
         if source is not None and not source.usable:
-            degradation.add(f"{source_name}_unavailable")
+            degradation.add(f"{source_name}_{_unusable_source_reason(source)}")
 
     available = hvac_mode is not None and current_temperature is not None
     if not available:
@@ -459,7 +460,9 @@ def _select_current_temperature(
             else "homekit_temperature_unverifiable"
         )
     elif homekit_temperature is not None and not homekit_temperature.usable:
-        degradation.add("homekit_temperature_unavailable")
+        degradation.add(
+            f"homekit_temperature_{_unusable_source_reason(homekit_temperature)}"
+        )
 
     value, owner = _select_attribute(homekit, ecobee, "current_temperature", "number")
     if owner == "ecobee":
@@ -467,6 +470,12 @@ def _select_current_temperature(
     if value is None:
         degradation.add("current_temperature_unavailable")
     return value, owner, degradation
+
+
+def _unusable_source_reason(source: RawSource) -> str:
+    """Keep an unreadable value distinct from source unavailability."""
+
+    return "unknown" if source.health is SourceHealth.UNKNOWN else "unavailable"
 
 
 def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -> bool:

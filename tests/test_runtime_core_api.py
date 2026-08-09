@@ -98,7 +98,11 @@ from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.ecobee_unified.manager import MappingManager
-from custom_components.ecobee_unified.models import CommandStatus, MappingConfig
+from custom_components.ecobee_unified.models import (
+    CommandStatus,
+    MappingConfig,
+    SourceHealth,
+)
 from custom_components.ecobee_unified.notify import (
     EcobeeUnifiedNotify,
 )
@@ -2698,7 +2702,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(snapshot.preset_mode)
         self.assertEqual(("Home", "Away"), snapshot.preset_modes)
         self.assertTrue(snapshot.homekit_preset_writable)
-        self.assertIn("homekit_preset_unavailable", snapshot.degradation)
+        self.assertEqual(
+            SourceHealth.UNKNOWN,
+            snapshot.source_health["homekit_preset"],
+        )
+        self.assertIn("homekit_preset_unknown", snapshot.degradation)
+        self.assertNotIn("homekit_preset_unavailable", snapshot.degradation)
 
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         self.assertTrue(entity.supported_features & ClimateEntityFeature.PRESET_MODE)
@@ -3945,6 +3954,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mapping_a", self.manager._unsub_timeouts)
 
     async def test_diagnostics_are_allow_listed_and_identifier_free(self) -> None:
+        self.hass.states.async_set(
+            self.homekit_preset.entity_id,
+            "unknown",
+            {"options": ["Home", "Away"]},
+        )
+        await self.hass.async_block_till_done()
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
@@ -3961,7 +3976,16 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("source_age_seconds", diagnostics["mappings"][0])
         self.assertIn("age_seconds", diagnostics["mappings"][0]["command"])
         capabilities = diagnostics["mappings"][0]["capabilities"]
+        self.assertEqual(
+            "unknown",
+            diagnostics["mappings"][0]["source_health"]["homekit_preset"],
+        )
+        self.assertIn(
+            "homekit_preset_unknown",
+            diagnostics["mappings"][0]["degradation"],
+        )
         self.assertFalse(capabilities["target_humidity"])
+        self.assertTrue(capabilities["preset_control"])
         self.assertTrue(capabilities["temperature_step"])
         self.assertIn("mapping_1", rendered)
         self.assertNotIn("Zone A", rendered)

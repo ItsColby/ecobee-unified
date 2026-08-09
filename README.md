@@ -119,8 +119,11 @@ metadata, every historical filename, and every reachable bounded Git blob.
 
 The initial flow collects one or more mappings in a single config entry. The
 manifest declares Home Assistant's native single-entry contract, so trying to
-add Ecobee Unified again opens the existing integration. Use **Configure** on
-that entry to add, edit, or remove thermostat mappings. Each
+add Ecobee Unified again reports that it is already configured. Open the
+existing Ecobee Unified entry under **Settings > Devices & services** instead.
+Use the entry's **Reconfigure** action to add, edit, or remove thermostat
+mappings. Use **Configure** to change the Ecobee source-staleness and command-
+confirmation timing thresholds. Each
 mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
 current-temperature sensor/current-mode select/clear-hold button and Ecobee
 AQI/CO2/VOC sensors/notification entity are optional explicit same-device

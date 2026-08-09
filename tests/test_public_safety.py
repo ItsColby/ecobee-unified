@@ -246,6 +246,25 @@ class PublicSafetyTests(unittest.TestCase):
         )
         self.assertNotIn("python -m unittest tests.test_models", workflow)
 
+    def test_readme_distinguishes_reconfigure_from_options(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Use the entry's **Reconfigure** action to add, edit, or remove "
+            "thermostat\nmappings.",
+            readme,
+        )
+        self.assertIn(
+            "Use **Configure** to change the Ecobee source-staleness and command-\n"
+            "confirmation timing thresholds.",
+            readme,
+        )
+        self.assertNotIn(
+            "Use **Configure** on\nthat entry to add, edit, or remove thermostat "
+            "mappings.",
+            readme,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,7 @@ justify ambiguous values or dual writes.
 
 | ID | Requirement |
 |---|---|
-| F-01 | Configure multiple thermostat mappings through native config/options flows without credentials. |
+| F-01 | Configure multiple thermostat mappings through native config and reconfigure flows, and change timing policy through the native options flow, without credentials. |
 | F-02 | Validate source domains/integrations and semantic contracts, prove the HomeKit/Ecobee climates represent the same physical thermostat, and reject circular, duplicate, ambiguously named, mismatched, or unproven new mappings. |
 | F-03 | Expose one stable unified climate plus justified sibling entities on the HomeKit-owned thermostat device. |
 | F-04 | Implement the deterministic field ownership and fallback table in `architecture.md`. |

@@ -290,6 +290,67 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         unsubscribe()
         self.assertEqual([], state_changes)
 
+    async def test_diagnostics_recompute_elapsed_ages_without_snapshot_refresh(
+        self,
+    ) -> None:
+        homekit_state = self.hass.states.get(self.homekit.entity_id)
+        ecobee_state = self.hass.states.get(self.ecobee.entity_id)
+        self.assertIsNotNone(homekit_state)
+        self.assertIsNotNone(ecobee_state)
+        assert homekit_state is not None
+        assert ecobee_state is not None
+        baseline = max(homekit_state.last_reported, ecobee_state.last_reported)
+        command_clock = [100.0]
+        self.manager._tracker._clock = lambda: command_clock[0]
+        self.manager._tracker.begin(
+            "mapping_a",
+            "set_temperature",
+            {"target_temperature": 21.0},
+        )
+
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=baseline + timedelta(seconds=10),
+        ):
+            self.manager.refresh_mapping("mapping_a")
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=1,
+        )
+        entry.add_to_hass(self.hass)
+        entry.runtime_data = EcobeeUnifiedRuntime(self.manager)
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=baseline + timedelta(seconds=10),
+        ):
+            first = await async_get_config_entry_diagnostics(self.hass, entry)
+
+        command_clock[0] += 5
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=baseline + timedelta(seconds=20),
+        ):
+            second = await async_get_config_entry_diagnostics(self.hass, entry)
+
+        first_mapping = first["mappings"][0]
+        second_mapping = second["mappings"][0]
+        self.assertEqual(
+            first_mapping["source_age_seconds"]["homekit"] + 10,
+            second_mapping["source_age_seconds"]["homekit"],
+        )
+        self.assertEqual(
+            first_mapping["source_age_seconds"]["ecobee"] + 10,
+            second_mapping["source_age_seconds"]["ecobee"],
+        )
+        self.assertEqual(
+            first_mapping["command"]["age_seconds"] + 5,
+            second_mapping["command"]["age_seconds"],
+        )
+
     async def test_climate_uses_translated_sibling_name(self) -> None:
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         entity.platform_data = SimpleNamespace(

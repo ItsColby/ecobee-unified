@@ -44,15 +44,9 @@
 | Public HACS catalog listing | Not planned; a public repository plus custom-repository install is sufficient unless later value is demonstrated. |
 | Reclaiming legacy entity IDs | Do not do during initial migration; consider only after successful migration validation and an explicit Recorder/rollback decision. |
 
-## Open Implementation Checks
+## Remaining Validation Boundary
 
-These are verification tasks, not unresolved product choices:
-
-- Helper-device linking, config-entry lifecycle, optional-source behavior, and
-  public Ecobee action semantics were resolved for installed Core 2026.8.1 in
-  `upstream-contracts.md` before implementation.
-- Revalidate the read-only-live-calibrated 30-minute Ecobee staleness and
-  confirmation defaults during the private shadow deployment, including
-  command-specific confirmation latency.
-- Recheck the integration name/domain and publication destination before any
-  public repository is created.
+The 30-minute Ecobee staleness and confirmation defaults are retained from
+read-only live cadence evidence. Revalidate command-specific confirmation
+latency only during separately authorized equipment-command validation or when
+new source evidence shows the current bound is unsuitable.

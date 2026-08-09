@@ -100,18 +100,13 @@ Verified against installed Home Assistant Core 2026.8.1 on
     unavailable.
 
 Potential improvements to the source integrations are recorded separately in
-`upstream-opportunities.md`; none is required for this candidate and none has
+`upstream-opportunities.md`; none is required for this product and none has
 been selected for upstream work.
 
-## Still deployment- or publication-gated
-
-- Ecobee cadence-staleness and command-confirmation defaults remain documented,
-  configurable starting values until private shadow evidence measures actual
-  cadence.
-- The proposed public repository metadata must be rechecked before any public
-  repository is created.
-- Hosted Hassfest/HACS/CI, installation, restart, live acceptance, consumer
-  migration, and release remain separate gates.
+Publication, release, installation, restart, live acceptance, consumer
+migration, and rollback remain separately verified lifecycle states. Current
+source and shipped state belong to Git and immutable releases; private runtime
+state belongs to the owning Home Assistant deployment record.
 
 ## Primary sources
 

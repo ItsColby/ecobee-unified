@@ -150,6 +150,9 @@ class PublicSafetyTests(unittest.TestCase):
         workflow = (root / ".github/workflows/validate.yaml").read_text(
             encoding="utf-8"
         )
+        release_runner = (root / "scripts/verify-release-local.sh").read_text(
+            encoding="utf-8"
+        )
         minimum_requirements = (root / "requirements-ha-test.txt").read_text(
             encoding="utf-8"
         )
@@ -177,7 +180,11 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertIn(
             "Home Assistant integration tests (Core 2026.8.1 current)", workflow
         )
-        self.assertEqual(2, workflow.count("pytest-homeassistant-custom-component=="))
+        self.assertEqual(
+            2, release_runner.count("pytest-homeassistant-custom-component==")
+        )
+        self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
+        self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
         self.assertNotIn("matrix.", workflow)
         self.assertEqual(
             {
@@ -203,13 +210,15 @@ class PublicSafetyTests(unittest.TestCase):
         current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"
         dependency_check = "python -m pip check"
         all_tests = "pytest tests -q"
-        minimum_lane = workflow[
-            workflow.index("  home_assistant_minimum:") : workflow.index(
-                "  home_assistant_current:"
+        minimum_lane = release_runner[
+            release_runner.index("run_minimum()") : release_runner.index(
+                "run_current()"
             )
         ]
-        current_lane = workflow[
-            workflow.index("  home_assistant_current:") : workflow.index("  hassfest:")
+        current_lane = release_runner[
+            release_runner.index("run_current()") : release_runner.index(
+                "run_release()"
+            )
         ]
         for lane, harness, core in (
             (minimum_lane, minimum_harness, minimum_core),

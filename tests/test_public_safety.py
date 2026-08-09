@@ -150,6 +150,7 @@ class PublicSafetyTests(unittest.TestCase):
         workflow = (root / ".github/workflows/validate.yaml").read_text(
             encoding="utf-8"
         )
+        validation_plan = (root / "docs/validation-plan.md").read_text(encoding="utf-8")
         release_runner = (root / "scripts/verify-release-local.sh").read_text(
             encoding="utf-8"
         )
@@ -199,6 +200,10 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
         self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
         self.assertNotIn("matrix.", workflow)
+        self.assertNotIn("ubuntu-latest", workflow)
+        self.assertEqual(6, workflow.count("runs-on: ubuntu-24.04"))
+        self.assertIn("CodeQL default setup is active", validation_plan)
+        self.assertNotIn("CodeQL, zizmor", validation_plan)
         self.assertEqual(
             {
                 "create_vacation",

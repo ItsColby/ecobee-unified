@@ -17,7 +17,7 @@ concurrency:
 jobs:
   unit:
     name: Unit tests and static validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,7 +31,7 @@ jobs:
 
   home_assistant_minimum:
     name: Home Assistant integration tests (Core 2026.8.0 minimum)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,7 +46,7 @@ jobs:
 
   home_assistant_current:
     name: Home Assistant integration tests (Core 2026.8.1 current)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,7 +60,7 @@ jobs:
 
   hassfest:
     name: Hassfest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,7 +70,7 @@ jobs:
 
   hacs:
     name: HACS
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +84,7 @@ jobs:
     name: Release gate
     if: ${{ always() }}
     needs: [unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every validation job

@@ -3,12 +3,17 @@ set -euo pipefail
 
 mode="${1:-all}"
 backend="${2:-container}"
+source_git_dir="${3:-}"
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$source_root"
 if [[ "$backend" == container ]]; then
   repo_root="$(mktemp -d)"
   trap 'rm -rf "$repo_root"' EXIT
-  git -C "$source_root" ls-files --cached --others --exclude-standard -z |
+  source_git=(git -C "$source_root")
+  if [[ -n "$source_git_dir" ]]; then
+    source_git=(git --git-dir="$source_git_dir" --work-tree="$source_root")
+  fi
+  "${source_git[@]}" ls-files --cached --others --exclude-standard -z |
     while IFS= read -r -d '' path; do
       if [[ -e "$source_root/$path" || -L "$source_root/$path" ]]; then
         printf '%s\0' "$path"

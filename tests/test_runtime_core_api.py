@@ -20,6 +20,7 @@ from homeassistant.config_entries import SOURCE_USER, ConfigEntries
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
+    EVENT_STATE_CHANGED,
     UnitOfDensity,
     UnitOfRatio,
     UnitOfTemperature,
@@ -231,11 +232,55 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "active_comfort_sensors",
                     "command_confirmation",
-                    "source_age_seconds",
                 }
             ),
             entity._unrecorded_attributes,
         )
+
+    async def test_elapsed_source_age_does_not_change_climate_state(self) -> None:
+        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        homekit_state = self.hass.states.get(self.homekit.entity_id)
+        ecobee_state = self.hass.states.get(self.ecobee.entity_id)
+        self.assertIsNotNone(homekit_state)
+        self.assertIsNotNone(ecobee_state)
+        assert homekit_state is not None
+        assert ecobee_state is not None
+        baseline = max(homekit_state.last_reported, ecobee_state.last_reported)
+
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=baseline + timedelta(seconds=10),
+        ):
+            self.manager.refresh_mapping("mapping_a")
+        first_ages = dict(self.manager.snapshot("mapping_a").source_ages)
+        first_attributes = entity.extra_state_attributes
+
+        with patch(
+            "custom_components.ecobee_unified.manager.dt_util.utcnow",
+            return_value=baseline + timedelta(seconds=20),
+        ):
+            self.manager.refresh_mapping("mapping_a")
+        second_ages = dict(self.manager.snapshot("mapping_a").source_ages)
+        second_attributes = entity.extra_state_attributes
+
+        self.assertNotEqual(first_ages, second_ages)
+        self.assertEqual(first_attributes, second_attributes)
+        self.assertNotIn("source_age_seconds", second_attributes)
+        self.assertNotIn("age_seconds", second_attributes["command_confirmation"])
+
+        entity_id = "climate.recorder_probe"
+        state = entity.hvac_mode.value if entity.hvac_mode is not None else "unknown"
+        self.hass.states.async_set(entity_id, state, first_attributes)
+        await self.hass.async_block_till_done()
+        state_changes: list[object] = []
+        unsubscribe = self.hass.bus.async_listen(
+            EVENT_STATE_CHANGED,
+            state_changes.append,
+        )
+        self.hass.states.async_set(entity_id, state, second_attributes)
+        await self.hass.async_block_till_done()
+        unsubscribe()
+        self.assertEqual([], state_changes)
 
     async def test_climate_uses_translated_sibling_name(self) -> None:
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
@@ -3592,6 +3637,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         diagnostics = await async_get_config_entry_diagnostics(self.hass, entry)
         rendered = repr(diagnostics)
         self.assertEqual(1, diagnostics["entry"]["mapping_count"])
+        self.assertIn("source_age_seconds", diagnostics["mappings"][0])
+        self.assertIn("age_seconds", diagnostics["mappings"][0]["command"])
         capabilities = diagnostics["mappings"][0]["capabilities"]
         self.assertFalse(capabilities["target_humidity"])
         self.assertTrue(capabilities["temperature_step"])

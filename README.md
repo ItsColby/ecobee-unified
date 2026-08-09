@@ -91,10 +91,12 @@ climate also exposes the mapped HomeKit target-humidity capability. Its
 presentation step remains unset because the supported HomeKit entity contract
 does not expose writer granularity. Entity properties project one immutable
 normalized snapshot and perform no I/O.
-Compact climate attributes expose field provenance, source age/health,
-degradation, bounded Ecobee context, and revision-guarded command confirmation.
-Volatile source-age, active-sensor, and command-confirmation attributes remain
-visible live but are excluded from Recorder.
+Compact climate attributes expose field provenance, source health, degradation,
+bounded Ecobee context, active-sensor detail, and revision-guarded command
+status. Exact continuously advancing source and command ages remain available
+in bounded diagnostics rather than climate state attributes, preventing
+age-only source reports from creating duplicate Recorder rows. Active-sensor
+detail and command-confirmation operation/status remain live but unrecorded.
 
 Detailed diagnostics are allow-listed and omit mapping names, entity IDs,
 device IDs, config-entry IDs, and source values. Public-safety validation scans

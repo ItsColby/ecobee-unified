@@ -60,7 +60,9 @@ dashboards, and consumer migration provide the singular experience.
 5. **Surface hygiene:** primary Beestat schedule/filter/alert/maintenance
    entities remain normal; freshness and intermediate forecast detail is
    diagnostic; advanced global counters remain disabled by default.
-6. **Recorder/presentation:** volatile ages remain unrecorded, and climate no
+6. **Recorder/presentation:** exact continuously advancing ages remain in
+   diagnostics rather than climate state attributes, while active-sensor detail
+   and command operation/status remain live but unrecorded. Climate also no
    longer duplicates schedule/transition, equipment-stage, or minimum-fan state
    that has a first-class entity owner.
 

@@ -120,8 +120,9 @@ unconfirmable vendor action.
   canonical climate instead.
 - Rely on Beestat's first-class schedule/filter/alert entities already linked
   to the same device; do not copy their state or move Recorder ownership.
-- Keep all historical, volatile-age, and high-cardinality data out of recorded
-  climate attributes.
+- Keep all historical, continuously advancing age, and high-cardinality data
+  out of climate state attributes; exact source and command ages remain in
+  bounded diagnostics.
 
 Exit: the integration remains fully usable without the optional source.
 

@@ -83,9 +83,11 @@ non-duplicate vendor projections on the same user-facing device.
 - Keep stable unique IDs across reload, rename, recovery, and migration. Do not
   auto-discover thermostats or duplicate entities when a source reloads.
 - Keep Recorder attributes compact and stable. Put detailed mapping,
-  capability, source-age, field-selection, and command evidence in bounded,
-  redacted diagnostics. Mark volatile source age, active-sensor detail, and
-  command-confirmation projections unrecorded.
+  capability, exact source-age, field-selection, and command-age evidence in
+  bounded, redacted diagnostics. Keep active-sensor detail and
+  command-confirmation operation/status live but unrecorded; do not expose
+  continuously advancing ages as state attributes because Core compares them
+  before Recorder strips unrecorded keys.
 - Add a diagnostic entity only when it has a durable state semantic and a
   demonstrated automation or UI consumer.
 

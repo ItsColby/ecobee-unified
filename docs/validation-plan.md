@@ -128,8 +128,11 @@ decimal places or a newer timestamp.
   selector UI;
 - unconfigured optional sources are absent from health/age diagnostics while a
   configured but unresolved source reports `missing`;
-- volatile source-age, active-sensor, and command-confirmation attributes are
-  excluded from Recorder;
+- exact source and command ages remain in diagnostics rather than climate state
+  attributes, and an age-only snapshot refresh produces no climate
+  `state_changed` event or Recorder row;
+- active-sensor detail and command-confirmation operation/status remain live
+  but excluded from recorded attributes;
 - schedule/transition and vendor control/detail are not duplicated in climate
   attributes when first-class Beestat/number/sensor entities own them;
 - Repairs only for persistent actionable faults, including user-disabled or

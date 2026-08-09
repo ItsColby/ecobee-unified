@@ -46,6 +46,10 @@ For every standard and vendor field, test:
   degradation, climate fallback, cloud fallback, quiet-source health,
   source-dependent climate-state precision/rounding, rename, move/detach,
   disappearance, and recovery;
+- per-mapping trailing-edge coalescing of sequential healthy HomeKit climate
+  and precise-temperature events, including no transient divergence snapshot,
+  persistent mismatch after the settle window, timer reset/isolation/cleanup,
+  and immediate command-confirmation, unavailable, removal, and recovery paths;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, recovery, and no fabricated
   presentation step when the supported writer contract exposes none.
@@ -121,7 +125,8 @@ decimal places or a newer timestamp.
   healthy state through the 30-minute default boundary and stale transition
   immediately after it without another source-change event, recovery on the
   next unchanged report, suppression of healthy-report refresh churn, and
-  listener cleanup on unload;
+  listener cleanup on unload; every timer callback retains Core callback-job
+  classification and stays on the event loop;
 - the 30-minute default confirmation window and persisted option overrides;
 - options accept only whole seconds aligned to their advertised selector step,
   including direct or restored flow input that does not come from the rendered

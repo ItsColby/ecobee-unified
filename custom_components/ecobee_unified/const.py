@@ -29,6 +29,12 @@ CONF_CONFIRMATION_SECONDS: Final = "confirmation_seconds"
 DEFAULT_ECOBEE_STALE_SECONDS: Final = 1800
 DEFAULT_CONFIRMATION_SECONDS: Final = 1800
 
+# HomeKit accessories can emit the climate's serialized whole-degree value and
+# their precise temperature characteristic as separate state changes from one
+# physical observation. Keep this short and internal: it is transport settling,
+# not a user policy or a source-freshness decision.
+HOMEKIT_PAIR_SETTLE_SECONDS: Final = 0.25
+
 SERVICE_RESUME_PROGRAM: Final = "resume_program"
 SERVICE_CREATE_VACATION: Final = "create_vacation"
 SERVICE_DELETE_VACATION: Final = "delete_vacation"

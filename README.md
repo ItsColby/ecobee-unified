@@ -126,6 +126,14 @@ guard. This preserves an honest fractional value without choosing a source
 because it merely looks more precise or allowing a quiet duplicate sensor to
 silently diverge from the thermostat climate.
 
+HomeKit may publish the climate's whole-degree serialization and the precise
+temperature characteristic a few milliseconds apart. Ecobee Unified coalesces
+only routine healthy precise-sensor events and climate events whose current
+temperature changed for 250 ms per mapping, preventing a false intermediate
+divergence state. Other climate changes, actual unavailable/recovery events,
+and command observations remain immediate; a mismatch that persists after the
+window still degrades and falls back explicitly.
+
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. Saved values must be whole, selector-aligned
 seconds, so direct or restored flow input cannot be silently truncated. Both

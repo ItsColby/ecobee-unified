@@ -5,6 +5,7 @@ from __future__ import annotations
 from asyncio import Lock
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from functools import partial
 from math import isfinite
 from typing import Any
 
@@ -42,6 +43,7 @@ from .const import (
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
+    HOMEKIT_PAIR_SETTLE_SECONDS,
     SERVICE_CREATE_VACATION,
     SERVICE_DELETE_VACATION,
     SERVICE_SET_OCCUPANCY_MODES,
@@ -107,6 +109,8 @@ class MappingManager:
         self._unsub_device_registry: Callable[[], None] | None = None
         self._unsub_timeouts: dict[str, Callable[[], None]] = {}
         self._unsub_stale_refreshes: dict[str, Callable[[], None]] = {}
+        self._unsub_homekit_settles: dict[str, Callable[[], None]] = {}
+        self._homekit_settle_report_times: dict[str, dict[str, datetime]] = {}
         self._watched_entity_ids: set[str] = set()
         self._watched_entity_references = {
             reference
@@ -159,6 +163,10 @@ class MappingManager:
         for unsubscribe in self._unsub_stale_refreshes.values():
             unsubscribe()
         self._unsub_stale_refreshes.clear()
+        for unsubscribe in self._unsub_homekit_settles.values():
+            unsubscribe()
+        self._unsub_homekit_settles.clear()
+        self._homekit_settle_report_times.clear()
         self._watched_entity_ids.clear()
         self._watched_device_ids.clear()
         for mapping in self.mappings:
@@ -178,6 +186,7 @@ class MappingManager:
         """Rebuild one snapshot per mapping."""
 
         for mapping in self.mappings:
+            self._cancel_homekit_settle(mapping.mapping_id)
             self.refresh_mapping(mapping.mapping_id)
 
     def refresh_mapping(
@@ -657,11 +666,93 @@ class MappingManager:
             report_times = (
                 {entity_id: new_state.last_updated} if new_state is not None else None
             )
+            if observation_revision is None and self._is_routine_paired_homekit_event(
+                mapping, entity_id, event
+            ):
+                self._schedule_homekit_settle(mapping.mapping_id, report_times)
+                continue
+            pending_report_times = self._cancel_homekit_settle(mapping.mapping_id)
+            merged_report_times = pending_report_times
+            if report_times is not None:
+                merged_report_times.update(report_times)
             self.refresh_mapping(
                 mapping.mapping_id,
                 observation_revision=observation_revision,
-                report_times=report_times,
+                report_times=merged_report_times or None,
             )
+
+    def _is_routine_paired_homekit_event(
+        self,
+        mapping: MappingConfig,
+        entity_id: str,
+        event: Event[EventStateChangedData],
+    ) -> bool:
+        """Return whether a healthy paired HomeKit update may briefly settle."""
+
+        if mapping.homekit_temperature_entity is None:
+            return False
+        paired_entity_ids = {
+            resolved
+            for reference in (
+                mapping.homekit_entity,
+                mapping.homekit_temperature_entity,
+            )
+            if (resolved := self.resolve_entity_id(reference)) is not None
+        }
+        if entity_id not in paired_entity_ids:
+            return False
+        old_state = event.data.get("old_state")
+        new_state = event.data["new_state"]
+        unavailable_states = {"unknown", "unavailable"}
+        if (
+            old_state is None
+            or new_state is None
+            or old_state.state in unavailable_states
+            or new_state.state in unavailable_states
+        ):
+            return False
+        precise_entity_id = self.resolve_entity_id(mapping.homekit_temperature_entity)
+        if entity_id == precise_entity_id:
+            return True
+        return old_state.attributes.get(
+            "current_temperature"
+        ) != new_state.attributes.get("current_temperature")
+
+    def _schedule_homekit_settle(
+        self,
+        mapping_id: str,
+        report_times: Mapping[str, datetime] | None,
+    ) -> None:
+        """Coalesce sequential climate/temperature reports for one mapping."""
+
+        if report_times is not None:
+            self._homekit_settle_report_times.setdefault(mapping_id, {}).update(
+                report_times
+            )
+        if unsubscribe := self._unsub_homekit_settles.pop(mapping_id, None):
+            unsubscribe()
+        self._unsub_homekit_settles[mapping_id] = async_call_later(
+            self.hass,
+            HOMEKIT_PAIR_SETTLE_SECONDS,
+            partial(self._handle_homekit_settle, mapping_id),
+        )
+
+    @callback
+    def _handle_homekit_settle(
+        self, mapping_id: str, _now: datetime | None = None
+    ) -> None:
+        """Publish the final paired HomeKit state after its short settle window."""
+
+        self._unsub_homekit_settles.pop(mapping_id, None)
+        report_times = self._homekit_settle_report_times.pop(mapping_id, None)
+        self.refresh_mapping(mapping_id, report_times=report_times)
+
+    def _cancel_homekit_settle(self, mapping_id: str) -> dict[str, datetime]:
+        """Cancel one pending settle and return its diagnostic report times."""
+
+        if unsubscribe := self._unsub_homekit_settles.pop(mapping_id, None):
+            unsubscribe()
+        return self._homekit_settle_report_times.pop(mapping_id, {})
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:
@@ -739,7 +830,9 @@ class MappingManager:
         self._sync_helper_device_links()
 
     @callback
-    def _handle_timeout(self, mapping_id: str, revision: int) -> None:
+    def _handle_timeout(
+        self, mapping_id: str, revision: int, _now: datetime | None = None
+    ) -> None:
         self._unsub_timeouts.pop(mapping_id, None)
         if self._tracker.timeout(mapping_id, revision):
             self._subscribe_state_reports()
@@ -753,7 +846,7 @@ class MappingManager:
         self._unsub_timeouts[mapping_id] = async_call_later(
             self.hass,
             seconds,
-            lambda _now: self._handle_timeout(mapping_id, revision),
+            partial(self._handle_timeout, mapping_id, revision),
         )
 
     def _cancel_timeout(self, mapping_id: str) -> None:
@@ -761,7 +854,9 @@ class MappingManager:
             unsubscribe()
 
     @callback
-    def _handle_stale_refresh(self, mapping_id: str) -> None:
+    def _handle_stale_refresh(
+        self, mapping_id: str, _now: datetime | None = None
+    ) -> None:
         self._unsub_stale_refreshes.pop(mapping_id, None)
         self.refresh_mapping(mapping_id)
 
@@ -781,7 +876,7 @@ class MappingManager:
             self._unsub_stale_refreshes[mapping_id] = async_call_later(
                 self.hass,
                 min(delays),
-                lambda _now: self._handle_stale_refresh(mapping_id),
+                partial(self._handle_stale_refresh, mapping_id),
             )
 
     def _subscribe_states(self) -> None:

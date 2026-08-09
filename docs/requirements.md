@@ -43,6 +43,7 @@ justify ambiguous values or dual writes.
 | F-24 | Expose bounded Unified-domain facades for vacation, occupancy-policy, and comfort-sensor-participation actions through the explicitly mapped Ecobee climate, with input/capability validation, exactly one write, writer-unit vacation bounds, and honest submitted-not-confirmed status where source state cannot prove the effect. |
 | F-25 | When explicitly mapped, use a finite, unit-compatible, temperature-class HomeKit sensor on the same physical device as the precise primary `current_temperature` only while it agrees with the usable HomeKit climate inside Core's unit-specific serialization envelope; otherwise degrade and fall back to the HomeKit climate semantic and then the documented Ecobee read fallback without fabricating precision. |
 | F-26 | When explicitly mapped, expose one Unified thermostat-display notification entity that forwards a non-empty message to exactly one same-device Ecobee notification writer and degrades safely across rename, association drift, disappearance, and recovery. |
+| F-27 | Coalesce sequential healthy HomeKit climate and explicitly mapped precise-temperature events for one physical observation before snapshot publication, while keeping command observations, lifecycle faults/recovery, registry changes, and persistent divergence immediate or fail-closed. |
 
 ## Non-functional Requirements
 

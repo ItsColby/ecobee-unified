@@ -311,9 +311,10 @@ integration, publication, release, or live-instance state.
   selections are covered by config-entry lifecycle rules. They required product
   fixes and tests, not new capability IDs or another shared-contract change.
 
-## Closed gates
+## Gates Closed At This Historical Checkpoint
 
-Still closed: public repository/remote creation, push/publication, manifest
-release-version advancement, tag, GitHub Release, HACS install/update, Home
-Assistant config check, reload/restart, private instance mapping, shadow/live
-validation, consumer migration, outbound effects, and rollback.
+At this pre-publication checkpoint, the following gates were still closed:
+public repository/remote creation, push/publication, manifest release-version
+advancement, tag, GitHub Release, HACS install/update, Home Assistant config
+check, reload/restart, private instance mapping, shadow/live validation,
+consumer migration, outbound effects, and rollback.

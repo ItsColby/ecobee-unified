@@ -183,6 +183,13 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual(
             2, release_runner.count("pytest-homeassistant-custom-component==")
         )
+        self.assertIn(
+            'git -C "$source_root" ls-files --cached --others --exclude-standard -z',
+            release_runner,
+        )
+        self.assertIn('tar -C "$source_root" --null --files-from=-', release_runner)
+        self.assertIn('chmod a+rx "$repo_root"', release_runner)
+        self.assertNotIn('cp -a "$source_root/."', release_runner)
         self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
         self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
         self.assertNotIn("matrix.", workflow)

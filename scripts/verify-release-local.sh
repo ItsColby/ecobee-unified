@@ -8,10 +8,18 @@ repo_root="$source_root"
 if [[ "$backend" == container ]]; then
   repo_root="$(mktemp -d)"
   trap 'rm -rf "$repo_root"' EXIT
-  cp -a "$source_root/." "$repo_root/"
+  git -C "$source_root" ls-files --cached --others --exclude-standard -z |
+    while IFS= read -r -d '' path; do
+      if [[ -e "$source_root/$path" || -L "$source_root/$path" ]]; then
+        printf '%s\0' "$path"
+      fi
+    done |
+    tar -C "$source_root" --null --files-from=- --create --file=- |
+    tar -C "$repo_root" --extract --file=-
+  # The pinned Actionlint image runs as an unprivileged user.
+  chmod a+rx "$repo_root"
   # DrvFS exposes regular files as executable unless metadata is enabled.
   find "$repo_root" -type f -exec chmod a-x {} +
-  rm -rf "$repo_root/.git"
   git -C "$repo_root" init -q
   git -C "$repo_root" config user.name local-validation
   git -C "$repo_root" config user.email local-validation@invalid

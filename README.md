@@ -29,6 +29,15 @@ Separate, undecided Home Assistant Core improvement ideas are recorded in
 [Upstream Opportunities](docs/upstream-opportunities.md); the product does not
 depend on them.
 
+Current product documentation is intentionally small and owner-specific:
+[Architecture](docs/architecture.md) owns behavior and boundaries,
+[Requirements](docs/requirements.md) owns acceptance,
+[Decisions](docs/decisions.md) owns durable choices, and
+[Validation](docs/validation-plan.md) owns proof. The concise
+[historical source-candidate checkpoint](docs/source-candidate-status.md)
+preserves the pre-publication boundary without duplicating current product or
+release state.
+
 ## Ownership and behavior
 
 - HomeKit Controller owns standard climate state/control, current-mode presets,

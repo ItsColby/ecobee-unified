@@ -150,9 +150,7 @@ class PublicSafetyTests(unittest.TestCase):
         workflow = (root / ".github/workflows/validate.yaml").read_text(
             encoding="utf-8"
         )
-        validation_plan = (root / "docs/validation-plan.md").read_text(
-            encoding="utf-8"
-        )
+        validation_plan = (root / "docs/validation-plan.md").read_text(encoding="utf-8")
         release_runner = (root / "scripts/verify-release-local.sh").read_text(
             encoding="utf-8"
         )

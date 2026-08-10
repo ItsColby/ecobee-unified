@@ -12,7 +12,7 @@ metadata and release gate rather than receiving a local GitHub credential. The
 hosted unit and Home Assistant jobs call this same script in `native` mode, so
 future validation changes have one product-owned command surface.
 
-Ecobee Unified is a Home Assistant helper integration that presents one
+Ecobee Unified is a Home Assistant custom integration that presents one
 canonical user-facing device surface for each explicitly mapped physical
 thermostat. It combines supported Home Assistant entity state without becoming
 another Ecobee or Beestat API client.
@@ -135,6 +135,9 @@ The initial flow collects one or more mappings in a single config entry. The
 manifest declares Home Assistant's native single-entry contract, so trying to
 add Ecobee Unified again reports that it is already configured. Open the
 existing Ecobee Unified entry under **Settings > Devices & services** instead.
+The manifest classifies the integration as a hub because that one entry manages
+multiple mapped thermostat devices; this keeps the entry visible on the native
+Integrations dashboard rather than routing it to the separate Helpers surface.
 Use the entry's **Reconfigure** action to add, edit, or remove thermostat
 mappings. Use **Configure** to change the Ecobee source-staleness and command-
 confirmation timing thresholds. Each

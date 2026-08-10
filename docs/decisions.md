@@ -4,7 +4,7 @@
 
 | ID | Decision | Reason |
 |---|---|---|
-| D-001 | Build a custom helper integration. | Native Home Assistant grouping and template helpers cannot produce one fully functional climate entity with deterministic multi-backend field and command ownership. |
+| D-001 | Build a custom integration, classified as a Home Assistant hub. | Native Home Assistant grouping and template helpers cannot produce one fully functional climate entity with deterministic multi-backend field and command ownership. One config entry manages multiple mapped thermostat devices, so `hub` is the correct native manifest type and keeps entry management on the Integrations dashboard. |
 | D-002 | Domain is `ecobee_unified`; display name is Ecobee Unified. | Clear purpose and no obvious collision found during the design review; recheck before publication. |
 | D-003 | Do not call the Ecobee or Beestat APIs. | Existing integrations already own authentication, transport, throttling, and data acquisition. Reuse avoids another fragile owner. |
 | D-004 | HomeKit owns standard climate control and normal live climate state. | It is local and event-driven, while the cloud integration adds detail on a slower cadence. |

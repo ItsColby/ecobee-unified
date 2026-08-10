@@ -23,6 +23,13 @@ CONF_ECOBEE_VOC_ENTITY: Final = "ecobee_voc_entity"
 CONF_ADD_ANOTHER: Final = "add_another"
 CONF_CONFIRM_CHANGE: Final = "confirm_change"
 
+RECONFIGURE_MENU_OPTIONS: Final = (
+    "reconfigure_add",
+    "reconfigure_edit",
+    "reconfigure_remove",
+    "reconfigure_finish",
+)
+
 CONF_ECOBEE_STALE_SECONDS: Final = "ecobee_stale_seconds"
 CONF_CONFIRMATION_SECONDS: Final = "confirmation_seconds"
 

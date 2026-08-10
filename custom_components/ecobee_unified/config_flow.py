@@ -52,6 +52,7 @@ from .const import (
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
     NAME,
+    RECONFIGURE_MENU_OPTIONS,
 )
 from .models import MappingConfig, merge_mapping_data
 from .source_contracts import (
@@ -164,12 +165,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         return self.async_show_menu(
             step_id="reconfigure",
-            menu_options=(
-                "reconfigure_add",
-                "reconfigure_edit",
-                "reconfigure_remove",
-                "reconfigure_finish",
-            ),
+            menu_options=RECONFIGURE_MENU_OPTIONS,
         )
 
     async def async_step_reconfigure_add(

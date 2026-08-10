@@ -11,8 +11,6 @@ import tomllib
 import unittest
 from pathlib import Path
 
-import yaml
-
 from scripts.check_public_safety import (
     REVIEWED_BINARY_SHA256,
     _history_failures,
@@ -313,13 +311,40 @@ class PublicSafetyTests(unittest.TestCase):
                         (path, step_name),
                     )
 
-        services = yaml.safe_load((root / "services.yaml").read_text(encoding="utf-8"))
-        for action_name, action in services.items():
-            for field_name, field in action.get("fields", {}).items():
-                self.assertTrue(
-                    field.get("description", "").strip(),
-                    (action_name, field_name),
+        services_lines = (
+            (root / "services.yaml").read_text(encoding="utf-8").splitlines()
+        )
+        field_descriptions: dict[str, bool] = {}
+        in_fields = False
+        current_action = ""
+        current_field: str | None = None
+        for line in services_lines:
+            if line and not line.startswith(" ") and line.endswith(":"):
+                current_action = line[:-1]
+                in_fields = False
+                current_field = None
+            elif line == "  fields:":
+                in_fields = True
+                current_field = None
+            elif (
+                in_fields and line.startswith("    ") and not line.startswith("      ")
+            ):
+                if line.endswith(":"):
+                    current_field = line.strip()[:-1]
+                    field_descriptions[f"{current_action}.{current_field}"] = False
+            elif (
+                in_fields
+                and current_field is not None
+                and line.startswith("      description:")
+            ):
+                field_descriptions[f"{current_action}.{current_field}"] = bool(
+                    line.partition(":")[2].strip()
                 )
+        self.assertTrue(field_descriptions)
+        self.assertTrue(
+            all(field_descriptions.values()),
+            [name for name, described in field_descriptions.items() if not described],
+        )
 
 
 if __name__ == "__main__":

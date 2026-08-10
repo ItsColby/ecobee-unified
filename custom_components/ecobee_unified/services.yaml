@@ -16,11 +16,13 @@ create_vacation:
   fields:
     vacation_name:
       name: Vacation name
+      description: Use a unique Ecobee vacation name containing 1 to 12 characters.
       required: true
       selector:
         text:
     cool_temp:
       name: Cooling temperature
+      description: Cooling target in the mapped Ecobee climate's current unit and advertised bounds.
       required: true
       selector:
         number:
@@ -28,6 +30,7 @@ create_vacation:
           unit_of_measurement: "°"
     heat_temp:
       name: Heating temperature
+      description: Heating target in the mapped Ecobee climate's current unit and advertised bounds.
       required: true
       selector:
         number:
@@ -35,22 +38,27 @@ create_vacation:
           unit_of_measurement: "°"
     start_date:
       name: Start date
+      description: Optional local start date; provide it together with Start time.
       selector:
         date:
     start_time:
       name: Start time
+      description: Optional local start time; provide it together with Start date.
       selector:
         time:
     end_date:
       name: End date
+      description: Optional local end date; provide it together with End time and after the start.
       selector:
         date:
     end_time:
       name: End time
+      description: Optional local end time; provide it together with End date and after the start.
       selector:
         time:
     fan_mode:
       name: Fan mode
+      description: Run the fan automatically or continuously during this vacation.
       default: auto
       selector:
         select:
@@ -59,6 +67,7 @@ create_vacation:
             - "on"
     fan_min_on_time:
       name: Minimum fan runtime
+      description: Minimum fan minutes per hour during this vacation.
       default: 0
       selector:
         number:
@@ -77,6 +86,7 @@ delete_vacation:
   fields:
     vacation_name:
       name: Vacation name
+      description: Exact name of the Ecobee vacation to delete.
       required: true
       selector:
         text:
@@ -91,10 +101,12 @@ set_occupancy_modes:
   fields:
     auto_away:
       name: Smart Home/Away
+      description: Enable or disable Ecobee Smart Home/Away for this thermostat.
       selector:
         boolean:
     follow_me:
       name: Follow Me
+      description: Enable or disable Ecobee Follow Me sensor participation for this thermostat.
       selector:
         boolean:
 
@@ -113,6 +125,7 @@ set_sensors_used_in_climate:
         text:
     device_ids:
       name: Ecobee sensor devices
+      description: Select one or more Ecobee sensor devices on the mapped thermostat to participate in the comfort profile.
       required: true
       selector:
         device:

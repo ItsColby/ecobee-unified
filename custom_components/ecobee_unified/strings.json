@@ -39,6 +39,19 @@
           "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
+        "data_description": {
+          "add_another": "Save this mapping and open another mapping form before creating the entry.",
+          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
+          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
+          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
+          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
+          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
+          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
+          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
+          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
+          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
+          "name": "User-facing name for this physical thermostat mapping."
+        },
         "description": "Build one thermostat device surface. HomeKit owns local climate, preset, and clear-hold control; Ecobee owns vendor-only detail and actions.",
         "title": "Thermostat mapping"
       },
@@ -65,10 +78,23 @@
           "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
+        "data_description": {
+          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
+          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
+          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
+          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
+          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
+          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
+          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
+          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
+          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
+          "name": "User-facing name for this physical thermostat mapping."
+        },
         "title": "Add mapping"
       },
       "reconfigure_edit": {
         "data": {"mapping_id": "Mapping"},
+        "data_description": {"mapping_id": "Select the existing thermostat mapping to edit."},
         "title": "Edit mapping"
       },
       "reconfigure_edit_confirm": {
@@ -85,14 +111,29 @@
           "homekit_temperature_entity": "HomeKit current temperature sensor (optional)",
           "name": "Mapping name"
         },
+        "data_description": {
+          "confirm_change": "Confirm that this mapping should use the newly selected physical thermostat or command writer.",
+          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
+          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
+          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
+          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
+          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
+          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
+          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
+          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
+          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
+          "name": "User-facing name for this physical thermostat mapping."
+        },
         "title": "Confirm mapping change"
       },
       "reconfigure_remove": {
         "data": {"mapping_id": "Mapping"},
+        "data_description": {"mapping_id": "Select the existing thermostat mapping to remove."},
         "title": "Remove mapping"
       },
       "reconfigure_remove_confirm": {
         "data": {"confirm_change": "Remove {name}"},
+        "data_description": {"confirm_change": "Confirm removal of this mapping while leaving its source integrations and devices enabled."},
         "title": "Confirm mapping removal"
       }
     }
@@ -167,6 +208,10 @@
         "data": {
           "confirmation_seconds": "Command confirmation window (seconds)",
           "ecobee_stale_seconds": "Ecobee stale after (seconds)"
+        },
+        "data_description": {
+          "confirmation_seconds": "Maximum time to observe a matching source report after one accepted command; no retry or fallback write occurs.",
+          "ecobee_stale_seconds": "Maximum silence allowed by the Ecobee cloud cadence before vendor reads and actions degrade; HomeKit push age is unaffected."
         },
         "description": "Freshness affects health, read fallback, and whether a cadence-backed Ecobee writer is safely usable. It never changes the selected writer or causes write failover.",
         "title": "Source timing"

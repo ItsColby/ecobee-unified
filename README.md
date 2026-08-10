@@ -140,7 +140,9 @@ multiple mapped thermostat devices; this keeps the entry visible on the native
 Integrations dashboard rather than routing it to the separate Helpers surface.
 Use the entry's **Reconfigure** action to add, edit, or remove thermostat
 mappings. Use **Configure** to change the Ecobee source-staleness and command-
-confirmation timing thresholds. Each
+confirmation timing thresholds. Every mapping, timing, and advanced action
+field includes an inline description of its source owner, constraints, and
+effect boundary in Home Assistant's native editors. Each
 mapping requires a HomeKit Controller climate and an Ecobee climate. HomeKit
 current-temperature sensor/current-mode select/clear-hold button and Ecobee
 AQI/CO2/VOC sensors/notification entity are optional explicit same-device

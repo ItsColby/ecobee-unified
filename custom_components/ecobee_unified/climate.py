@@ -59,6 +59,12 @@ ATTR_START_DATE = "start_date"
 ATTR_START_TIME = "start_time"
 ATTR_VACATION_NAME = "vacation_name"
 
+ECOBEE_BUILT_IN_PROFILE_NAMES = {
+    "away": "Away",
+    "home": "Home",
+    "sleep": "Sleep",
+}
+
 
 def _date_string(value: Any) -> str:
     result = cv.string(value)
@@ -605,11 +611,16 @@ class EcobeeUnifiedClimate(ClimateEntity):
         ):
             self._raise_validation("invalid_sensor_selection")
         service_data: dict[str, Any] = {ATTR_DEVICE_IDS: list(device_ids)}
-        if preset_mode is not None:
-            normalized_preset = preset_mode.strip()
-            if not normalized_preset or len(normalized_preset) > 64:
-                self._raise_validation("invalid_sensor_selection")
-            service_data[ATTR_PRESET_MODE] = normalized_preset
+        requested_preset = (
+            preset_mode.strip()
+            if preset_mode is not None
+            else self._snapshot.climate_mode
+        )
+        if not requested_preset or len(requested_preset) > 64:
+            self._raise_validation("invalid_sensor_selection")
+        service_data[ATTR_PRESET_MODE] = ECOBEE_BUILT_IN_PROFILE_NAMES.get(
+            requested_preset.casefold(), requested_preset
+        )
         await self._manager.async_vendor_action(
             self._mapping.mapping_id,
             SERVICE_SET_SENSORS_USED_IN_CLIMATE,

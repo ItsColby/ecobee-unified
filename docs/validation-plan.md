@@ -5,6 +5,9 @@
 ### Configuration and Lifecycle
 
 - create, abort, duplicate source/name, edit, remove, reload, unload;
+- hub manifest classification keeps entry management on the Integrations
+  dashboard, and every reconfigure menu option has a nonblank runtime English
+  translation;
 - multiple mappings in one entry;
 - invalid domain/integration and circular mapping rejection;
 - entity rename, device rename, source removal/re-add, and registry disable;

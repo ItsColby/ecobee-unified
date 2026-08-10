@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import subprocess
@@ -178,6 +179,7 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual("homeassistant==2026.8.1", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
         self.assertIs(True, manifest["single_config_entry"])
+        self.assertEqual("hub", manifest["integration_type"])
         self.assertIn(
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )
@@ -269,6 +271,27 @@ class PublicSafetyTests(unittest.TestCase):
             "mappings.",
             readme,
         )
+
+    def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
+        root = (
+            Path(__file__).resolve().parents[1] / "custom_components" / "ecobee_unified"
+        )
+        constants = ast.parse((root / "const.py").read_text(encoding="utf-8"))
+        menu_options = next(
+            ast.literal_eval(node.value)
+            for node in constants.body
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "RECONFIGURE_MENU_OPTIONS"
+        )
+        for path in (root / "strings.json", root / "translations" / "en.json"):
+            translations = json.loads(path.read_text(encoding="utf-8"))
+            reconfigure = translations["config"]["step"]["reconfigure"]
+            self.assertTrue(reconfigure["title"].strip())
+            self.assertTrue(reconfigure["description"].strip())
+            labels = reconfigure["menu_options"]
+            self.assertEqual(set(menu_options), set(labels))
+            self.assertTrue(all(label.strip() for label in labels.values()))
 
 
 if __name__ == "__main__":

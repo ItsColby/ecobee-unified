@@ -42,6 +42,16 @@
         "description": "Build one thermostat device surface. HomeKit owns local climate, preset, and clear-hold control; Ecobee owns vendor-only detail and actions.",
         "title": "Thermostat mapping"
       },
+      "reconfigure": {
+        "description": "Add, edit, or remove thermostat mappings, then save the complete mapping set.",
+        "menu_options": {
+          "reconfigure_add": "Add thermostat mapping",
+          "reconfigure_edit": "Edit thermostat mapping",
+          "reconfigure_remove": "Remove thermostat mapping",
+          "reconfigure_finish": "Save mapping changes"
+        },
+        "title": "Reconfigure thermostat mappings"
+      },
       "reconfigure_add": {
         "data": {
           "ecobee_aqi_entity": "Ecobee air quality index (optional)",

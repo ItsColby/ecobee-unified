@@ -91,6 +91,7 @@ from custom_components.ecobee_unified.const import (
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
+    RECONFIGURE_MENU_OPTIONS,
     SUFFIX_AIR_QUALITY_INDEX,
     SUFFIX_EQUIPMENT_STAGE,
 )
@@ -1875,6 +1876,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             context={"source": "reconfigure", "entry_id": entry.entry_id},
         )
         self.assertIs(FlowResultType.MENU, result["type"])
+        self.assertEqual(RECONFIGURE_MENU_OPTIONS, tuple(result["menu_options"]))
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_edit"}
         )

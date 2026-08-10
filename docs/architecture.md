@@ -234,7 +234,11 @@ Source candidate per thermostat:
 Unified climate actions also expose bounded vacation creation/deletion,
 Smart Home/Away and Follow Me policy, and comfort-sensor participation. They
 always inject the mapping's Ecobee climate target and issue one Ecobee service
-call. Vacation temperatures use that mapped writer's current unit and advertised
+call. Sensor participation translates Home Assistant's native lowercase
+built-in preset values to the Ecobee action's exact comfort-profile names; an
+omitted value uses the bounded current Ecobee climate-mode projection rather
+than forwarding the source integration's normalized preset string. Vacation
+temperatures use that mapped writer's current unit and advertised
 bounds. Because public source state cannot prove the complete resulting vacation
 or policy definition, a successful action is reported as `submitted`,
 not falsely `confirmed`; service errors remain `failed`. Microphone and

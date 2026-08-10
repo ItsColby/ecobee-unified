@@ -207,6 +207,10 @@ climate entity and inject its explicitly mapped Ecobee climate writer. Inputs
 are bounded and capability-checked before exactly one call; comfort sensors
 must belong to the mapped Ecobee config entry, and vacation temperatures must
 fit the mapped writer's advertised unit and safety bounds. Because public source
+state uses native lowercase climate presets while the Ecobee sensor action
+requires comfort-profile display names, Unified translates `home`, `away`, and
+`sleep` at its writer boundary and resolves an omitted profile from the current
+Ecobee climate mode. Because public source
 state cannot prove the complete resulting vacation or policy, successful
 dispatch is reported as `submitted`, not `confirmed`.
 

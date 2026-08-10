@@ -2976,8 +2976,29 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         calls.clear()
         await entity.async_set_sensors_used_in_climate(
-            [sensor_device.id], preset_mode="Home"
+            [sensor_device.id], preset_mode="home"
         )
+        self.assertEqual(1, len(calls))
+        self.assertEqual("set_sensors_used_in_climate", calls[0].service)
+        self.assertEqual(
+            {
+                "entity_id": self.ecobee.entity_id,
+                "device_ids": [sensor_device.id],
+                "preset_mode": "Home",
+            },
+            dict(calls[0].data),
+        )
+
+        calls.clear()
+        ecobee_state = self.hass.states.get(self.ecobee.entity_id)
+        assert ecobee_state is not None
+        self.hass.states.async_set(
+            self.ecobee.entity_id,
+            ecobee_state.state,
+            {**ecobee_state.attributes, "climate_mode": "Home"},
+        )
+        await self.hass.async_block_till_done()
+        await entity.async_set_sensors_used_in_climate([sensor_device.id])
         self.assertEqual(1, len(calls))
         self.assertEqual("set_sensors_used_in_climate", calls[0].service)
         self.assertEqual(

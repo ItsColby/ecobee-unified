@@ -83,6 +83,9 @@ decimal places or a newer timestamp.
   never retries or fails over;
 - vacation create/delete, occupancy policy, and sensor participation each
   inject the mapped Ecobee climate and make exactly one action call;
+- sensor participation translates native lowercase Home/Away/Sleep presets to
+  the writer's exact comfort-profile names and resolves an omitted preset from
+  the bounded current Ecobee climate-mode projection;
 - caller-supplied service data cannot override any mapped HomeKit or Ecobee
   writer target;
 - unprojectable vendor effects become `submitted`, never `confirmed`, and a

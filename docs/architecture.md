@@ -178,7 +178,12 @@ reads, while a separately proven writer can stay available when its contract
 allows an unreadable current value.
 
 The mapping problem entity distinguishes intervention-worthy degradation from
-bounded advisory evidence. An `unknown` HomeKit Current Mode value is advisory
+bounded advisory evidence. Climate attributes, downloadable diagnostics, and
+the problem entity expose the same `problem_reasons` and `advisories` split;
+the complete normalized `degradation`/`reasons` union remains stable for older
+consumers. The two classification lists added to climate state are unrecorded,
+leaving the problem entity's native state as the history owner. An `unknown`
+HomeKit Current Mode value is advisory
 only while the same-device select remains available for writes and exposes a
 non-empty bounded option set. The normalized snapshot and diagnostics continue
 to report `homekit_preset_unknown`, but that advisory alone does not activate a

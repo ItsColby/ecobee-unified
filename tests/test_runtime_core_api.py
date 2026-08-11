@@ -244,8 +244,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             frozenset(
                 {
                     "active_comfort_sensors",
+                    "advisories",
                     "configured_comfort_sensors",
                     "command_confirmation",
+                    "problem_reasons",
                 }
             ),
             entity._unrecorded_attributes,
@@ -2833,6 +2835,15 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            entity.extra_state_attributes["degradation"],
+        )
+        self.assertEqual([], entity.extra_state_attributes["problem_reasons"])
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            entity.extra_state_attributes["advisories"],
+        )
         self.assertTrue(entity.supported_features & ClimateEntityFeature.PRESET_MODE)
         await entity.async_set_preset_mode("Away")
         self.assertEqual(1, len(calls))
@@ -4103,6 +4114,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "unknown",
             {"options": ["Home", "Away"]},
         )
+        self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
         await self.hass.async_block_till_done()
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -4128,9 +4140,17 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "homekit_preset_unknown",
             diagnostics["mappings"][0]["degradation"],
         )
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            diagnostics["mappings"][0]["problem_reasons"],
+        )
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            diagnostics["mappings"][0]["advisories"],
+        )
         self.assertFalse(capabilities["target_humidity"])
         self.assertTrue(capabilities["preset_control"])
-        self.assertTrue(capabilities["temperature_step"])
+        self.assertFalse(capabilities["temperature_step"])
         self.assertIn("mapping_1", rendered)
         self.assertNotIn("Zone A", rendered)
         self.assertNotIn(self.homekit.id, rendered)

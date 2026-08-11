@@ -33,7 +33,12 @@ from .const import (
     SIGNAL_SNAPSHOT_UPDATED,
 )
 from .manager import MappingManager
-from .models import MappingConfig, NormalizedSnapshot
+from .models import (
+    MappingConfig,
+    NormalizedSnapshot,
+    degradation_advisories,
+    degradation_problem_reasons,
+)
 from .runtime import EcobeeUnifiedConfigEntry
 
 SUPPORTED_CONTROL_FEATURES = (
@@ -166,8 +171,10 @@ class EcobeeUnifiedClimate(ClimateEntity):
     _unrecorded_attributes = frozenset(
         {
             "active_comfort_sensors",
+            "advisories",
             "configured_comfort_sensors",
             "command_confirmation",
+            "problem_reasons",
         }
     )
 
@@ -365,6 +372,8 @@ class EcobeeUnifiedClimate(ClimateEntity):
             },
             "selected_sources": dict(snapshot.provenance),
             "degradation": list(snapshot.degradation),
+            "problem_reasons": list(degradation_problem_reasons(snapshot)),
+            "advisories": list(degradation_advisories(snapshot)),
             "ecobee_preset_mode": snapshot.ecobee_preset_mode,
             "ecobee_climate_mode": snapshot.climate_mode,
             "active_comfort_sensors": list(snapshot.active_sensors),

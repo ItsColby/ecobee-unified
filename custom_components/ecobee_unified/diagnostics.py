@@ -6,6 +6,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .models import degradation_advisories, degradation_problem_reasons
 from .runtime import EcobeeUnifiedConfigEntry
 
 
@@ -32,6 +33,8 @@ async def async_get_config_entry_diagnostics(
                 ),
                 "field_sources": dict(snapshot.provenance),
                 "degradation": list(snapshot.degradation),
+                "problem_reasons": list(degradation_problem_reasons(snapshot)),
+                "advisories": list(degradation_advisories(snapshot)),
                 "capabilities": {
                     "hvac_mode": snapshot.hvac_mode is not None,
                     "target_temperature": snapshot.target_temperature is not None,

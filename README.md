@@ -117,10 +117,12 @@ and both the legacy `active_comfort_sensors` and clearer
 `configured_comfort_sensors` names for the configured Ecobee profile members.
 Each mapping also has a native diagnostic **Source degraded** problem entity so
 Attention views and automations do not need to parse climate attributes. Its
-state represents actionable degradation. An unreadable HomeKit Current Mode is
-retained as an advisory in diagnostics, climate degradation, and the problem
-entity's bounded attributes--without turning the problem entity on--while the
-same-device select remains writable with valid preset options.
+state represents actionable degradation. The legacy `degradation`/`reasons`
+lists retain the complete bounded union for compatibility, while
+`problem_reasons` and `advisories` expose the classification explicitly on the
+climate, downloadable diagnostics, and problem entity. An unreadable HomeKit
+Current Mode is retained as an advisory--without turning the problem entity
+on--while the same-device select remains writable with valid preset options.
 Climate attributes also expose bounded Ecobee context, active-sensor detail,
 and revision-guarded command status. Exact continuously advancing source and
 command ages are calculated

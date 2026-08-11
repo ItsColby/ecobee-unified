@@ -757,6 +757,66 @@ class SnapshotTests(unittest.TestCase):
             degradation_problem_reasons(snapshot),
         )
 
+    def test_every_nonadvisory_unhealthy_source_has_a_problem_reason(self) -> None:
+        healthy_homekit = source("heat", {"current_temperature": 20.0})
+        healthy_ecobee = source("heat", {"current_temperature": 21.0})
+        unhealthy = RawSource("unknown", health=SourceHealth.UNKNOWN)
+        snapshots = {
+            "homekit": build_snapshot(
+                "mapping_a",
+                unhealthy,
+                healthy_ecobee,
+            ),
+            "ecobee": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                unhealthy,
+            ),
+            "homekit_preset": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                healthy_ecobee,
+                homekit_preset=RawSource(
+                    "unknown",
+                    {"options": ["Home", "Away"]},
+                    health=SourceHealth.UNKNOWN,
+                ),
+                homekit_preset_writable=False,
+            ),
+            "homekit_temperature": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                healthy_ecobee,
+                homekit_temperature=unhealthy,
+            ),
+            "air_quality_index": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                healthy_ecobee,
+                air_quality_index=unhealthy,
+            ),
+            "co2": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                healthy_ecobee,
+                co2=unhealthy,
+            ),
+            "voc": build_snapshot(
+                "mapping_a",
+                healthy_homekit,
+                healthy_ecobee,
+                voc=unhealthy,
+            ),
+        }
+
+        for source_name, snapshot in snapshots.items():
+            with self.subTest(source=source_name):
+                self.assertEqual(
+                    SourceHealth.UNKNOWN,
+                    snapshot.source_health[source_name],
+                )
+                self.assertTrue(degradation_problem_reasons(snapshot))
+
 
 if __name__ == "__main__":
     unittest.main()

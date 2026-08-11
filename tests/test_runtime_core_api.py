@@ -4148,6 +4148,20 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             ["homekit_preset_unknown"],
             diagnostics["mappings"][0]["advisories"],
         )
+        problem = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
+        self.assertTrue(problem.is_on)
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            problem.extra_state_attributes["problem_reasons"],
+        )
+        self.assertNotIn(
+            "homekit_preset_unknown",
+            problem.extra_state_attributes["problem_reasons"],
+        )
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["advisories"],
+        )
         self.assertFalse(capabilities["target_humidity"])
         self.assertTrue(capabilities["preset_control"])
         self.assertFalse(capabilities["temperature_step"])

@@ -17,7 +17,6 @@ from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
 from .models import (
     MappingConfig,
-    SourceHealth,
     degradation_advisories,
     degradation_problem_reasons,
 )
@@ -58,17 +57,7 @@ class EcobeeSourceDegradedBinarySensor(EcobeeUnifiedEntity, BinarySensorEntity):
     @property
     @override
     def is_on(self) -> bool:
-        snapshot = self._snapshot
-        advisories = degradation_advisories(snapshot)
-        advisory_sources = (
-            frozenset({"homekit_preset"})
-            if "homekit_preset_unknown" in advisories
-            else frozenset()
-        )
-        return bool(degradation_problem_reasons(snapshot)) or any(
-            health is not SourceHealth.HEALTHY and source not in advisory_sources
-            for source, health in snapshot.source_health.items()
-        )
+        return bool(degradation_problem_reasons(self._snapshot))
 
     @property
     @override

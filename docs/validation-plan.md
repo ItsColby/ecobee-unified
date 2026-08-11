@@ -77,8 +77,10 @@ decimal places or a newer timestamp.
 - an `unknown` HomeKit Current Mode value leaves the Unified current preset
   unreadable while retaining bounded advertised options and exactly-one preset
   dispatch, reports `unknown` source health/degradation rather than
-  `unavailable`, and remains distinct from actual unavailable, missing,
-  disabled, or misassociated writers that remove the capability before I/O;
+  `unavailable`, remains advisory without activating the native problem entity,
+  and remains distinct from actual unavailable, missing, disabled, or
+  misassociated writers that remove the capability and activate actionable
+  problem semantics before I/O;
 - minimum fan runtime declares duration semantics in minutes, accepts only 0-60
   in exact five-minute increments, rejects boolean/non-finite/off-step/
   out-of-range values before I/O, and makes one Ecobee call;

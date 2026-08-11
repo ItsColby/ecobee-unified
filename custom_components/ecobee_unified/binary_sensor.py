@@ -15,7 +15,12 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import SUFFIX_SOURCE_DEGRADED
 from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
-from .models import MappingConfig, SourceHealth
+from .models import (
+    MappingConfig,
+    SourceHealth,
+    degradation_advisories,
+    degradation_problem_reasons,
+)
 from .runtime import EcobeeUnifiedConfigEntry
 
 
@@ -38,7 +43,9 @@ class EcobeeSourceDegradedBinarySensor(EcobeeUnifiedEntity, BinarySensorEntity):
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _unrecorded_attributes = frozenset({"reasons", "source_health"})
+    _unrecorded_attributes = frozenset(
+        {"advisories", "problem_reasons", "reasons", "source_health"}
+    )
 
     def __init__(self, manager: MappingManager, mapping: MappingConfig) -> None:
         super().__init__(
@@ -52,9 +59,15 @@ class EcobeeSourceDegradedBinarySensor(EcobeeUnifiedEntity, BinarySensorEntity):
     @override
     def is_on(self) -> bool:
         snapshot = self._snapshot
-        return bool(snapshot.degradation) or any(
-            health is not SourceHealth.HEALTHY
-            for health in snapshot.source_health.values()
+        advisories = degradation_advisories(snapshot)
+        advisory_sources = (
+            frozenset({"homekit_preset"})
+            if "homekit_preset_unknown" in advisories
+            else frozenset()
+        )
+        return bool(degradation_problem_reasons(snapshot)) or any(
+            health is not SourceHealth.HEALTHY and source not in advisory_sources
+            for source, health in snapshot.source_health.items()
         )
 
     @property
@@ -63,6 +76,8 @@ class EcobeeSourceDegradedBinarySensor(EcobeeUnifiedEntity, BinarySensorEntity):
         snapshot = self._snapshot
         return {
             "reasons": list(snapshot.degradation),
+            "problem_reasons": list(degradation_problem_reasons(snapshot)),
+            "advisories": list(degradation_advisories(snapshot)),
             "source_health": {
                 key: health.value for key, health in snapshot.source_health.items()
             },

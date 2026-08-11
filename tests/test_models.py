@@ -14,6 +14,8 @@ from custom_components.ecobee_unified.models import (
     SourceHealth,
     build_snapshot,
     command_matches,
+    degradation_advisories,
+    degradation_problem_reasons,
 )
 
 
@@ -723,6 +725,37 @@ class SnapshotTests(unittest.TestCase):
         self.assertIsNone(snapshot.preset_mode)
         self.assertEqual(("Home", "Away"), snapshot.preset_modes)
         self.assertTrue(snapshot.homekit_preset_writable)
+        self.assertEqual(
+            ("homekit_preset_unknown",),
+            degradation_advisories(snapshot),
+        )
+        self.assertNotIn(
+            "homekit_preset_unknown",
+            degradation_problem_reasons(snapshot),
+        )
+        self.assertIn(
+            "homekit_temperature_unknown",
+            degradation_problem_reasons(snapshot),
+        )
+
+    def test_unknown_preset_is_actionable_without_a_usable_writer(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source("heat", {"current_temperature": 20.0}),
+            source("heat", {"current_temperature": 21.0}),
+            homekit_preset=RawSource(
+                "unknown",
+                {"options": ["Home", "Away"]},
+                health=SourceHealth.UNKNOWN,
+            ),
+            homekit_preset_writable=False,
+        )
+
+        self.assertEqual((), degradation_advisories(snapshot))
+        self.assertIn(
+            "homekit_preset_unknown",
+            degradation_problem_reasons(snapshot),
+        )
 
 
 if __name__ == "__main__":

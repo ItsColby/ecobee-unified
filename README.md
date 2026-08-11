@@ -116,7 +116,11 @@ Compact climate attributes expose field provenance, source health, degradation,
 and both the legacy `active_comfort_sensors` and clearer
 `configured_comfort_sensors` names for the configured Ecobee profile members.
 Each mapping also has a native diagnostic **Source degraded** problem entity so
-Attention views and automations do not need to parse climate attributes.
+Attention views and automations do not need to parse climate attributes. Its
+state represents actionable degradation. An unreadable HomeKit Current Mode is
+retained as an advisory in diagnostics, climate degradation, and the problem
+entity's bounded attributes--without turning the problem entity on--while the
+same-device select remains writable with valid preset options.
 Climate attributes also expose bounded Ecobee context, active-sensor detail,
 and revision-guarded command status. Exact continuously advancing source and
 command ages are calculated

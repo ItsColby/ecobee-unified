@@ -256,6 +256,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(entity.is_on)
         self.assertEqual([], entity.extra_state_attributes["reasons"])
+        self.assertEqual([], entity.extra_state_attributes["problem_reasons"])
+        self.assertEqual([], entity.extra_state_attributes["advisories"])
         self.assertEqual(
             "healthy",
             entity.extra_state_attributes["source_health"]["homekit"],
@@ -269,12 +271,16 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "ecobee_vendor_context_unavailable",
             entity.extra_state_attributes["reasons"],
         )
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            entity.extra_state_attributes["problem_reasons"],
+        )
         self.assertEqual(
             "unavailable",
             entity.extra_state_attributes["source_health"]["ecobee"],
         )
         self.assertEqual(
-            frozenset({"reasons", "source_health"}),
+            frozenset({"advisories", "problem_reasons", "reasons", "source_health"}),
             entity._unrecorded_attributes,
         )
 
@@ -2813,6 +2819,18 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("homekit_preset_unknown", snapshot.degradation)
         self.assertNotIn("homekit_preset_unavailable", snapshot.degradation)
+
+        problem = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
+        self.assertFalse(problem.is_on)
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["reasons"],
+        )
+        self.assertEqual([], problem.extra_state_attributes["problem_reasons"])
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["advisories"],
+        )
 
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         self.assertTrue(entity.supported_features & ClimateEntityFeature.PRESET_MODE)

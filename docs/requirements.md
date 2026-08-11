@@ -25,7 +25,7 @@ justify ambiguous values or dual writes.
 | F-06 | Subscribe to source state changes; never perform I/O from entity properties. |
 | F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added, and recover a stale cadence-backed source from its next unchanged report without refreshing healthy reports. |
 | F-08 | Link every unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
-| F-09 | Expose compact live provenance, source health, configured comfort sensors, and command-confirmation status; expose a native per-mapping degradation problem entity; keep exact continuously advancing source and command ages in bounded diagnostics. |
+| F-09 | Expose compact live provenance, source health, configured comfort sensors, and command-confirmation status; expose a native per-mapping degradation problem entity whose state represents actionable degradation while retaining bounded advisory details; keep exact continuously advancing source and command ages in bounded diagnostics. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, and recent command state. |
 | F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
 | F-12 | Preserve honest primary-source precision, Home Assistant climate-writer units (Celsius or Fahrenheit), writer-owned target bounds, feature flags, and unavailable/unknown semantics. |

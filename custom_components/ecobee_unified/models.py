@@ -219,6 +219,26 @@ class NormalizedSnapshot:
     command: CommandSummary
 
 
+def degradation_advisories(snapshot: NormalizedSnapshot) -> tuple[str, ...]:
+    """Return bounded degradation details that do not require intervention."""
+
+    if (
+        "homekit_preset_unknown" in snapshot.degradation
+        and snapshot.source_health.get("homekit_preset") is SourceHealth.UNKNOWN
+        and snapshot.homekit_preset_writable
+        and snapshot.preset_modes
+    ):
+        return ("homekit_preset_unknown",)
+    return ()
+
+
+def degradation_problem_reasons(snapshot: NormalizedSnapshot) -> tuple[str, ...]:
+    """Return degradation details that should activate problem semantics."""
+
+    advisories = frozenset(degradation_advisories(snapshot))
+    return tuple(reason for reason in snapshot.degradation if reason not in advisories)
+
+
 STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("hvac_action", "hvac_action", "hvac_action"),
     ("current_humidity", "current_humidity", "humidity"),

@@ -244,8 +244,10 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             frozenset(
                 {
                     "active_comfort_sensors",
+                    "advisories",
                     "configured_comfort_sensors",
                     "command_confirmation",
+                    "problem_reasons",
                 }
             ),
             entity._unrecorded_attributes,
@@ -256,6 +258,8 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(entity.is_on)
         self.assertEqual([], entity.extra_state_attributes["reasons"])
+        self.assertEqual([], entity.extra_state_attributes["problem_reasons"])
+        self.assertEqual([], entity.extra_state_attributes["advisories"])
         self.assertEqual(
             "healthy",
             entity.extra_state_attributes["source_health"]["homekit"],
@@ -269,12 +273,16 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "ecobee_vendor_context_unavailable",
             entity.extra_state_attributes["reasons"],
         )
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            entity.extra_state_attributes["problem_reasons"],
+        )
         self.assertEqual(
             "unavailable",
             entity.extra_state_attributes["source_health"]["ecobee"],
         )
         self.assertEqual(
-            frozenset({"reasons", "source_health"}),
+            frozenset({"advisories", "problem_reasons", "reasons", "source_health"}),
             entity._unrecorded_attributes,
         )
 
@@ -2814,7 +2822,28 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("homekit_preset_unknown", snapshot.degradation)
         self.assertNotIn("homekit_preset_unavailable", snapshot.degradation)
 
+        problem = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
+        self.assertFalse(problem.is_on)
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["reasons"],
+        )
+        self.assertEqual([], problem.extra_state_attributes["problem_reasons"])
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["advisories"],
+        )
+
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            entity.extra_state_attributes["degradation"],
+        )
+        self.assertEqual([], entity.extra_state_attributes["problem_reasons"])
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            entity.extra_state_attributes["advisories"],
+        )
         self.assertTrue(entity.supported_features & ClimateEntityFeature.PRESET_MODE)
         await entity.async_set_preset_mode("Away")
         self.assertEqual(1, len(calls))
@@ -4085,6 +4114,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "unknown",
             {"options": ["Home", "Away"]},
         )
+        self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
         await self.hass.async_block_till_done()
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -4110,9 +4140,31 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             "homekit_preset_unknown",
             diagnostics["mappings"][0]["degradation"],
         )
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            diagnostics["mappings"][0]["problem_reasons"],
+        )
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            diagnostics["mappings"][0]["advisories"],
+        )
+        problem = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
+        self.assertTrue(problem.is_on)
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            problem.extra_state_attributes["problem_reasons"],
+        )
+        self.assertNotIn(
+            "homekit_preset_unknown",
+            problem.extra_state_attributes["problem_reasons"],
+        )
+        self.assertEqual(
+            ["homekit_preset_unknown"],
+            problem.extra_state_attributes["advisories"],
+        )
         self.assertFalse(capabilities["target_humidity"])
         self.assertTrue(capabilities["preset_control"])
-        self.assertTrue(capabilities["temperature_step"])
+        self.assertFalse(capabilities["temperature_step"])
         self.assertIn("mapping_1", rendered)
         self.assertNotIn("Zone A", rendered)
         self.assertNotIn(self.homekit.id, rendered)

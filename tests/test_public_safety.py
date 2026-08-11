@@ -292,32 +292,34 @@ class PublicSafetyTests(unittest.TestCase):
             and isinstance(node.target, ast.Name)
             and node.target.id == "RECONFIGURE_MENU_OPTIONS"
         )
-        for path in (root / "strings.json", root / "translations" / "en.json"):
-            translations = json.loads(path.read_text(encoding="utf-8"))
-            reconfigure = translations["config"]["step"]["reconfigure"]
-            self.assertTrue(reconfigure["title"].strip())
-            self.assertTrue(reconfigure["description"].strip())
-            labels = reconfigure["menu_options"]
-            self.assertEqual(set(menu_options), set(labels))
-            self.assertTrue(all(label.strip() for label in labels.values()))
+        self.assertFalse((root / "strings.json").exists())
+        translations = json.loads(
+            (root / "translations" / "en.json").read_text(encoding="utf-8")
+        )
+        reconfigure = translations["config"]["step"]["reconfigure"]
+        self.assertTrue(reconfigure["title"].strip())
+        self.assertTrue(reconfigure["description"].strip())
+        labels = reconfigure["menu_options"]
+        self.assertEqual(set(menu_options), set(labels))
+        self.assertTrue(all(label.strip() for label in labels.values()))
 
     def test_user_facing_fields_have_nonblank_descriptions(self) -> None:
         root = (
             Path(__file__).resolve().parents[1] / "custom_components" / "ecobee_unified"
         )
-        for path in (root / "strings.json", root / "translations" / "en.json"):
-            translations = json.loads(path.read_text(encoding="utf-8"))
-            for owner in ("config", "options"):
-                for step_name, step in translations[owner]["step"].items():
-                    data = step.get("data", {})
-                    if not data:
-                        continue
-                    descriptions = step.get("data_description", {})
-                    self.assertEqual(set(data), set(descriptions), (path, step_name))
-                    self.assertTrue(
-                        all(value.strip() for value in descriptions.values()),
-                        (path, step_name),
-                    )
+        path = root / "translations" / "en.json"
+        translations = json.loads(path.read_text(encoding="utf-8"))
+        for owner in ("config", "options"):
+            for step_name, step in translations[owner]["step"].items():
+                data = step.get("data", {})
+                if not data:
+                    continue
+                descriptions = step.get("data_description", {})
+                self.assertEqual(set(data), set(descriptions), (path, step_name))
+                self.assertTrue(
+                    all(value.strip() for value in descriptions.values()),
+                    (path, step_name),
+                )
 
         services_lines = (
             (root / "services.yaml").read_text(encoding="utf-8").splitlines()

@@ -31,6 +31,11 @@ It must use Home Assistant's public state machine, registry, event, and service
 interfaces. It must not import another integration's runtime data object,
 write `.storage`, call the Ecobee API, or scrape diagnostics.
 
+As a custom integration, its runtime English translation owner is
+`custom_components/ecobee_unified/translations/en.json`. Do not restore the
+Core-only `strings.json` mirror; tests validate the runtime owner directly so
+the two files cannot drift.
+
 Use one config entry to hold multiple thermostat mappings. This keeps the
 cross-mapping identity and concurrency rules atomic and uses Home Assistant's
 native single-entry integration flow. Config subentries are not used: the

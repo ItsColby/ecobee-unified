@@ -132,7 +132,9 @@ decimal places or a newer timestamp.
   optional precise current temperature, and optional notification, with no
   duplicate temperature/humidity/occupancy/weather entities;
 - disabled-by-default policy for diagnostic/noisy entities;
-- translations and config-flow strings;
+- the sole custom-integration runtime English owner at `translations/en.json`,
+  including entity and config-flow strings, with no Core-only `strings.json`
+  mirror;
 - diagnostics privacy;
 - bounded diagnostics and no raw backend response/exception leakage;
 - quiet HomeKit push/event sources remain healthy across elapsed-age and cloud

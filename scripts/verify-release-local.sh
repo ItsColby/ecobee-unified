@@ -84,7 +84,6 @@ from pathlib import Path
 for name in (
     "custom_components/ecobee_unified/icons.json",
     "custom_components/ecobee_unified/manifest.json",
-    "custom_components/ecobee_unified/strings.json",
     "custom_components/ecobee_unified/translations/en.json",
     "hacs.json",
 ):

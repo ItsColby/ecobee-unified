@@ -49,11 +49,12 @@ class EquipmentStageTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "custom_components" / "ecobee_unified"
         )
 
-        for path in (root / "strings.json", root / "translations" / "en.json"):
-            translations = json.loads(path.read_text(encoding="utf-8"))
-            states = translations["entity"]["sensor"]["equipment_stage"]["state"]
-            self.assertEqual(set(EQUIPMENT_STAGE_OPTIONS), set(states))
-            self.assertTrue(all(states.values()))
+        translations = json.loads(
+            (root / "translations" / "en.json").read_text(encoding="utf-8")
+        )
+        states = translations["entity"]["sensor"]["equipment_stage"]["state"]
+        self.assertEqual(set(EQUIPMENT_STAGE_OPTIONS), set(states))
+        self.assertTrue(all(states.values()))
 
 
 if __name__ == "__main__":

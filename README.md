@@ -117,8 +117,9 @@ and both the legacy `active_comfort_sensors` and clearer
 `configured_comfort_sensors` names for the configured Ecobee profile members.
 Each mapping also has a native diagnostic **Source degraded** problem entity so
 Attention views and automations do not need to parse climate attributes.
-bounded Ecobee context, active-sensor detail, and revision-guarded command
-status. Exact continuously advancing source and command ages are calculated
+Climate attributes also expose bounded Ecobee context, active-sensor detail,
+and revision-guarded command status. Exact continuously advancing source and
+command ages are calculated
 when bounded diagnostics are requested rather than stored in climate state
 attributes, preventing age-only source reports from creating duplicate Recorder
 rows. Active-sensor detail and command-confirmation operation/status remain live
@@ -243,7 +244,13 @@ python -m ruff format --check custom_components tests scripts
 python -m ruff check custom_components tests scripts
 python scripts/check_public_safety.py
 actionlint
+shellcheck scripts/verify-release-local.sh
+zizmor --strict-collection --persona auditor .
 ```
+
+Dependabot checks GitHub Actions weekly after a seven-day stability and
+supply-chain cooldown. Python/Core pins remain product-owned because they
+define the dependency-closed support lanes rather than generic update inputs.
 
 Both formal lanes install their matching Home Assistant harness first, exact
 Core second, product-owned typing tools last, and then prove final dependency

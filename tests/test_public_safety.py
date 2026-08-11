@@ -158,6 +158,7 @@ class PublicSafetyTests(unittest.TestCase):
         release_wrapper = (root / "scripts/verify-release-local.ps1").read_text(
             encoding="utf-8"
         )
+        dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
         minimum_requirements = (root / "requirements-ha-test.txt").read_text(
             encoding="utf-8"
         )
@@ -205,7 +206,14 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertNotIn("ubuntu-latest", workflow)
         self.assertEqual(6, workflow.count("runs-on: ubuntu-24.04"))
         self.assertIn("CodeQL default setup is active", validation_plan)
-        self.assertNotIn("CodeQL, zizmor", validation_plan)
+        self.assertIn("Zizmor auditor", validation_plan)
+        self.assertIn('"shellcheck-py==0.11.0.1" "zizmor==1.29.0"', release_runner)
+        self.assertIn("shellcheck scripts/verify-release-local.sh", release_runner)
+        self.assertIn("zizmor --strict-collection --persona auditor .", release_runner)
+        self.assertEqual(1, dependabot.count("package-ecosystem: github-actions"))
+        self.assertEqual(1, dependabot.count("interval: weekly"))
+        self.assertIn("default-days: 7", dependabot)
+        self.assertNotIn("package-ecosystem: pip", dependabot)
         self.assertEqual(
             {
                 "create_vacation",

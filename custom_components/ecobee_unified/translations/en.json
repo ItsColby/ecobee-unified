@@ -139,6 +139,7 @@
     }
   },
   "entity": {
+    "binary_sensor": {"source_degraded": {"name": "Source degraded"}},
     "climate": {"thermostat": {"name": "Unified climate"}},
     "button": {"resume_program": {"name": "Resume program"}},
     "notify": {"notification": {"name": "Thermostat notification"}},

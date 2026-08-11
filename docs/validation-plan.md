@@ -47,6 +47,7 @@ For every standard and vendor field, test:
   malformed/non-finite rejection, Fahrenheit/Celsius serialization-envelope
   agreement and stable boundaries, explicit divergence/unverifiable
   degradation, climate fallback, cloud fallback, quiet-source health,
+  native mapping-health problem state and bounded attributes,
   source-dependent climate-state precision/rounding, rename, move/detach,
   disappearance, and recovery;
 - per-mapping trailing-edge coalescing of sequential healthy HomeKit climate

@@ -42,6 +42,9 @@ from custom_components.ecobee_unified import (
     async_remove_entry,
     async_setup_entry,
 )
+from custom_components.ecobee_unified.binary_sensor import (
+    EcobeeSourceDegradedBinarySensor,
+)
 from custom_components.ecobee_unified.button import (
     EcobeeUnifiedResumeProgramButton,
 )
@@ -94,6 +97,7 @@ from custom_components.ecobee_unified.const import (
     RECONFIGURE_MENU_OPTIONS,
     SUFFIX_AIR_QUALITY_INDEX,
     SUFFIX_EQUIPMENT_STAGE,
+    SUFFIX_SOURCE_DEGRADED,
 )
 from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
@@ -240,9 +244,37 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             frozenset(
                 {
                     "active_comfort_sensors",
+                    "configured_comfort_sensors",
                     "command_confirmation",
                 }
             ),
+            entity._unrecorded_attributes,
+        )
+
+    async def test_source_degraded_problem_projects_snapshot_health(self) -> None:
+        entity = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
+
+        self.assertFalse(entity.is_on)
+        self.assertEqual([], entity.extra_state_attributes["reasons"])
+        self.assertEqual(
+            "healthy",
+            entity.extra_state_attributes["source_health"]["homekit"],
+        )
+
+        self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
+        await self.hass.async_block_till_done()
+
+        self.assertTrue(entity.is_on)
+        self.assertIn(
+            "ecobee_vendor_context_unavailable",
+            entity.extra_state_attributes["reasons"],
+        )
+        self.assertEqual(
+            "unavailable",
+            entity.extra_state_attributes["source_health"]["ecobee"],
+        )
+        self.assertEqual(
+            frozenset({"reasons", "source_health"}),
             entity._unrecorded_attributes,
         )
 
@@ -525,9 +557,13 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         aqi_id = registry.async_get_entity_id(
             "sensor", DOMAIN, "mapping_a_air_quality_index"
         )
+        source_degraded_id = registry.async_get_entity_id(
+            "binary_sensor", DOMAIN, f"mapping_a_{SUFFIX_SOURCE_DEGRADED}"
+        )
         self.assertIsNotNone(climate_id)
         self.assertIsNotNone(button_id)
         self.assertIsNotNone(aqi_id)
+        self.assertIsNotNone(source_degraded_id)
 
         retained = MappingConfig("mapping_a", "Zone A", self.homekit.id, self.ecobee.id)
         self.hass.config_entries.async_update_entry(
@@ -542,6 +578,12 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(registry.async_get(button_id))
         self.assertIsNone(registry.async_get(aqi_id))
+        self.assertEqual(
+            source_degraded_id,
+            registry.async_get_entity_id(
+                "binary_sensor", DOMAIN, f"mapping_a_{SUFFIX_SOURCE_DEGRADED}"
+            ),
+        )
 
     async def test_setup_failure_and_entry_removal_release_owned_state(self) -> None:
         entry = MockConfigEntry(
@@ -4166,7 +4208,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             item.entity_id
             for item in er.async_entries_for_config_entry(registry, entry.entry_id)
         }
-        self.assertEqual(5, len(unified_entity_ids))
+        self.assertEqual(6, len(unified_entity_ids))
 
         def linked_device_ids() -> set[str | None]:
             return {

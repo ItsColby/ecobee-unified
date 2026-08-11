@@ -1,5 +1,14 @@
 {
   "entity": {
+    "binary_sensor": {
+      "source_degraded": {
+        "default": "mdi:source-branch-check",
+        "state": {
+          "off": "mdi:source-branch-check",
+          "on": "mdi:source-branch-alert"
+        }
+      }
+    },
     "button": {
       "resume_program": {
         "default": "mdi:play"

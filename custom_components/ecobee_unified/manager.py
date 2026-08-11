@@ -57,6 +57,7 @@ from .const import (
     SUFFIX_MINIMUM_FAN_RUNTIME,
     SUFFIX_NOTIFICATION,
     SUFFIX_RESUME_PROGRAM,
+    SUFFIX_SOURCE_DEGRADED,
     SUFFIX_VOC,
 )
 from .models import (
@@ -1006,6 +1007,7 @@ class MappingManager:
             for unique_id in (
                 mapping.mapping_id,
                 f"{mapping.mapping_id}_{SUFFIX_RESUME_PROGRAM}",
+                f"{mapping.mapping_id}_{SUFFIX_SOURCE_DEGRADED}",
                 f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}",
                 f"{mapping.mapping_id}_{SUFFIX_NOTIFICATION}",
                 f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}",

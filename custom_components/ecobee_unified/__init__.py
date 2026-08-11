@@ -21,6 +21,7 @@ from .const import (
     SUFFIX_MINIMUM_FAN_RUNTIME,
     SUFFIX_NOTIFICATION,
     SUFFIX_RESUME_PROGRAM,
+    SUFFIX_SOURCE_DEGRADED,
     SUFFIX_VOC,
 )
 from .manager import MappingManager
@@ -133,6 +134,7 @@ def _remove_orphaned_entities(
                 ("climate", mapping.mapping_id),
                 ("number", f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}"),
                 ("sensor", f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}"),
+                ("binary_sensor", f"{mapping.mapping_id}_{SUFFIX_SOURCE_DEGRADED}"),
             }
         )
         optional = (

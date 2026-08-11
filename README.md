@@ -113,6 +113,10 @@ presentation step remains unset because the supported HomeKit entity contract
 does not expose writer granularity. Entity properties project one immutable
 normalized snapshot and perform no I/O.
 Compact climate attributes expose field provenance, source health, degradation,
+and both the legacy `active_comfort_sensors` and clearer
+`configured_comfort_sensors` names for the configured Ecobee profile members.
+Each mapping also has a native diagnostic **Source degraded** problem entity so
+Attention views and automations do not need to parse climate attributes.
 bounded Ecobee context, active-sensor detail, and revision-guarded command
 status. Exact continuously advancing source and command ages are calculated
 when bounded diagnostics are requested rather than stored in climate state

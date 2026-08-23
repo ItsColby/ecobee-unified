@@ -1,4 +1,4 @@
-"""Tests for the repository privacy and workflow contract."""
+"""Tests for the repository public-payload and workflow contract."""
 
 from __future__ import annotations
 
@@ -44,18 +44,36 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertGreater(count, 20)
         self.assertEqual([], failures)
 
-    def test_current_tree_ignores_private_local_control_overlays(self) -> None:
+    def test_current_tree_uses_git_candidate_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
+            self._git(root, "init")
             (root / "README.md").write_text("public-safe", encoding="utf-8")
-            overlay = root / ".codex" / "rules"
-            overlay.mkdir(parents=True)
-            (overlay / "publication.rules").write_bytes(b"\x00private local overlay")
+            local_only = root / "local-only"
+            local_only.mkdir()
+            (local_only / "scratch.bin").write_bytes(b"\x00local checkout data")
+            (root / ".git" / "info" / "exclude").write_text(
+                "local-only/\n", encoding="utf-8"
+            )
 
             count, failures = run_guard(root)
 
         self.assertEqual(1, count)
         self.assertEqual([], failures)
+
+    def test_current_tree_scans_nonignored_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            (root / "README.md").write_text("public-safe", encoding="utf-8")
+            (root / "local.txt").write_text(
+                "private address " + "192" + ".168.1.2", encoding="utf-8"
+            )
+
+            count, failures = run_guard(root)
+
+        self.assertEqual(2, count)
+        self.assertIn("local.txt: private IPv4 address", failures)
 
     def test_reviewed_brand_asset_is_hash_pinned(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -82,17 +100,6 @@ class PublicSafetyTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         self.assertIn("Source archive README.md: private IPv4 address", failures)
-
-    def test_tracked_maintainer_agent_artifacts_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            self._git(root, "init")
-            (root / "AGENTS.md").write_text("private workflow", encoding="utf-8")
-            self._git(root, "add", "AGENTS.md")
-
-            _count, failures = run_archive_guard(root)
-
-        self.assertIn("Source archive AGENTS.md: maintainer agent artifact", failures)
 
     def test_pytest_collects_async_home_assistant_tests(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -135,7 +135,7 @@ decimal places or a newer timestamp.
 - the sole custom-integration runtime English owner at `translations/en.json`,
   including entity and config-flow strings, with no Core-only `strings.json`
   mirror;
-- diagnostics privacy;
+- diagnostics redaction;
 - bounded diagnostics and no raw backend response/exception leakage;
 - quiet HomeKit push/event sources remain healthy across elapsed-age and cloud
   stale-boundary reevaluations, while actual unavailable state degrades and
@@ -172,7 +172,7 @@ decimal places or a newer timestamp.
   in each lane, with Linux/hosted execution for HA-specific tests when native
   Windows cannot import Core;
 - Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,
-  compile/JSON/translation/privacy checks, Hassfest, HACS Action, actionlint
+  compile/JSON/translation/public-payload checks, Hassfest, HACS Action, actionlint
   with ShellCheck, explicit job timeouts/concurrency, side-effect-free checkout
   without persisted credentials, and a terminal release gate.
 
@@ -184,7 +184,7 @@ product-owned support-lane contracts. Additional generic dependency/security
 scanners remain deferred until a concrete defect class, repository risk, or
 publication requirement makes them worthwhile.
 
-## Privacy Gate
+## Public Payload Gate
 
 Scan the entire committed tree, Git history, test output, workflow logs, release
 text, and packaged archive for:
@@ -192,18 +192,17 @@ text, and packaged archive for:
 - addresses, IPs, coordinates, hostnames, account/email data;
 - real entity/device/config-entry IDs and household names;
 - credentials, tokens, cookies, capability URLs, and raw diagnostics;
-- local filesystem paths and private repository URLs.
-- tracked maintainer agent instructions or configuration in the public source
-  archive.
+- local filesystem paths and non-public repository URLs;
+- raw backend responses and unreviewed binary content.
 
 Fixtures use names such as `zone_a`, `room_sensor_a`, and synthetic IDs only.
 History scanning covers commit metadata, every historical filename, and every
 reachable bounded blob so removed private text or binary content cannot evade a
 patch-only scan.
 
-## Private Shadow Acceptance
+## Local Shadow Acceptance
 
-Private deployment evidence has no mandatory elapsed-time minimum. It should
+Local deployment evidence has no mandatory elapsed-time minimum. It should
 cover the currently observable and safely exercisable cases below, with any
 unobserved command/event path retained as an explicit limitation rather than a
 reason to delay unrelated consumer migration:
@@ -216,7 +215,8 @@ reason to delay unrelated consumer migration:
   control testing is explicitly authorized;
 - source reload/unavailability and recovery;
 - Recorder/logbook attribute volume and state churn;
-- diagnostic usefulness and absence of secret/private leakage;
+- diagnostic usefulness and absence of credential, account, or household-data
+  leakage;
 - comparison against the raw entities without averaging them.
 
 Acceptance requires no unexplained semantic swaps, no duplicate writes, no

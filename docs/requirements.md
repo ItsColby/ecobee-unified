@@ -83,9 +83,10 @@ MVP is complete when all of the following are true:
 6. Reload, rename, source loss/recovery, and removal tests pass.
 7. Device linkage is correct on the supported Home Assistant Core 2026.8
    baseline.
-8. Diagnostics are useful and privacy-redacted.
+8. Diagnostics are useful and redact credentials, account identifiers,
+   household-specific data, and raw backend responses.
 9. All repository and Home Assistant test/quality workflows are terminal green.
-10. A private shadow deployment passes the current comparison and safety
+10. A local shadow deployment passes the current comparison and safety
     criteria before any existing consumer is migrated; acceptance has no
     mandatory elapsed-time minimum.
 11. A report cannot confirm a command before writer success, and a late

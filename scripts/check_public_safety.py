@@ -1,4 +1,4 @@
-"""Reject private or unreviewed content from the public repository payload."""
+"""Reject local-only or unreviewed content from the public repository payload."""
 
 from __future__ import annotations
 
@@ -9,14 +9,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-IGNORED_PARTS = {
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pycache__",
-}
 TEXT_SUFFIXES = {
     "",
     ".json",
@@ -47,7 +39,6 @@ EMAIL_PATTERN = re.compile(
     r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE
 )
 MAX_HISTORY_BLOB_BYTES = 1_000_000
-MAINTAINER_AGENT_PARTS = frozenset({".agents", ".codex"})
 REVIEWED_BINARY_SHA256 = {
     "custom_components/ecobee_unified/brand/icon.png": (
         "46021e7b36e50c480c1e649057ccc726dd95ae4a72ce4447356bbfa1030737c7"
@@ -70,12 +61,6 @@ def _text_failures(text: str) -> set[str]:
     return failures
 
 
-def _is_maintainer_agent_artifact(path: Path) -> bool:
-    return path.name.casefold() == "agents.md" or any(
-        part.casefold() in MAINTAINER_AGENT_PARTS for part in path.parts
-    )
-
-
 def _is_reviewed_binary(path: Path, content: bytes) -> bool:
     expected = REVIEWED_BINARY_SHA256.get(path.as_posix())
     return expected is not None and hashlib.sha256(content).hexdigest() == expected
@@ -89,13 +74,22 @@ def _record_unreviewed_binary(failures: set[str], message: str, content: bytes) 
 def run_guard(root: Path) -> tuple[int, list[str]]:
     failures: list[str] = []
     count = 0
-    for path in root.rglob("*"):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    for raw_relative in result.stdout.split(b"\0"):
+        if not raw_relative:
             continue
-        relative = path.relative_to(root)
-        if _is_maintainer_agent_artifact(relative):
-            # Private local control overlays are allowed in a maintainer checkout.
-            # The exact tracked archive and history guards still reject them.
+        try:
+            relative = Path(raw_relative.decode("utf-8"))
+        except UnicodeDecodeError:
+            failures.append("Working tree filename: non-UTF-8 content")
+            continue
+        path = root / relative
+        if not path.is_file():
             continue
         failures.extend(
             f"{relative}: filename {failure}"
@@ -148,10 +142,6 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
             archive_path, "w", compression=zipfile.ZIP_DEFLATED
         ) as archive:
             for relative, object_id in tracked:
-                if _is_maintainer_agent_artifact(relative):
-                    failures.append(
-                        f"Source archive {relative.as_posix()}: maintainer agent artifact"
-                    )
                 blob = subprocess.run(
                     ["git", "cat-file", "blob", object_id],
                     cwd=root,

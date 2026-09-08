@@ -105,7 +105,9 @@ def _device_for_reference(
     entry = registry.async_get(entity_id) if entity_id else None
     if entry is None or entry.device_id is None:
         return None
-    return dr.async_get(hass).async_get(entry.device_id)
+    device = dr.async_get(hass).async_get(entry.device_id)
+    # Child devices cannot prove the physical thermostat's serial identity.
+    return device if isinstance(device, dr.DeviceEntry) else None
 
 
 def _normalized_identity(value: str | None) -> str | None:

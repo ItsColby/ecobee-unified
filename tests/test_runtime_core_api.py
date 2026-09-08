@@ -6,13 +6,13 @@ import asyncio
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import voluptuous as vol
-import voluptuous_serialize
 from homeassistant import loader
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.components.number import NumberDeviceClass
@@ -36,6 +36,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+try:
+    from probatio import to_field_list as serialize_schema
+except ImportError:
+    # Older Core versions use voluptuous-serialize for native form schemas.
+    from voluptuous_serialize import convert as serialize_schema
 
 from custom_components.ecobee_unified import (
     async_migrate_entry,
@@ -1360,6 +1366,342 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await manager.async_stop()
 
+    async def test_confirmed_temperature_freeze_cannot_reenter_on_rounding(
+        self,
+    ) -> None:
+        """Agreement, re-reporting, units and availability alone cannot recover."""
+
+        mapping = replace(
+            self.mapping,
+            mapping_id="temperature_recovery",
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "temperature_recovery", (mapping,), {})
+        await manager.async_start()
+        attributes = {
+            ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+            ATTR_UNIT_OF_MEASUREMENT: "°C",
+        }
+        try:
+            with patch(
+                "custom_components.ecobee_unified.manager.async_call_later",
+                return_value=Mock(),
+            ) as schedule:
+                self.hass.states.async_set(
+                    self.homekit.entity_id, "heat", self._attributes(21.0)
+                )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping.mapping_id)
+                self.assertIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                self.hass.states.async_set(
+                    self.homekit.entity_id, "heat", self._attributes(20.0)
+                )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping.mapping_id)
+                rounded = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(20.0, rounded.current_temperature)
+                self.assertEqual("homekit", rounded.provenance["current_temperature"])
+                self.assertIs(
+                    SourceHealth.HEALTHY, rounded.source_health["homekit_temperature"]
+                )
+                schedule.reset_mock()
+                for state, unit in (
+                    ("20.04", "°C"),
+                    ("unavailable", "°C"),
+                    ("20.04", "°C"),
+                    ("68.072", "°F"),
+                ):
+                    self.hass.states.async_set(
+                        self.homekit_temperature.entity_id,
+                        state,
+                        {**attributes, ATTR_UNIT_OF_MEASUREMENT: unit},
+                    )
+                    await self.hass.async_block_till_done()
+                    manager._handle_homekit_settle(mapping.mapping_id)
+                    current = manager.snapshot(mapping.mapping_id)
+                    self.assertEqual(
+                        "homekit", current.provenance["current_temperature"]
+                    )
+                    self.assertIn(
+                        "homekit_temperature_recovery_pending", current.degradation
+                    )
+                self.assertFalse(manager._unsub_temperature_mismatches)
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id, "20.02", attributes
+                )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping.mapping_id)
+                recovered = manager.snapshot(mapping.mapping_id)
+                self.assertEqual(20.02, recovered.current_temperature)
+                self.assertEqual(
+                    "homekit_temperature", recovered.provenance["current_temperature"]
+                )
+                self.assertNotIn(
+                    "homekit_temperature_recovery_pending", recovered.degradation
+                )
+        finally:
+            await manager.async_stop()
+
+    async def test_unrelated_refresh_during_homekit_pair_does_not_latch(self) -> None:
+        """Immediate cloud/command refreshes cannot confirm a transient mismatch."""
+
+        mapping = replace(
+            self.mapping,
+            mapping_id="temperature_transient",
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "temperature_transient", (mapping,), {})
+        await manager.async_start()
+        try:
+            with patch(
+                "custom_components.ecobee_unified.manager.async_call_later",
+                return_value=Mock(),
+            ) as schedule:
+                self.hass.states.async_set(
+                    self.homekit.entity_id, "heat", self._attributes(21.0)
+                )
+                await self.hass.async_block_till_done()
+                self.hass.states.async_set(
+                    self.ecobee.entity_id, "heat", self._attributes(21.0)
+                )
+                await self.hass.async_block_till_done()
+                self.assertFalse(manager._unsub_homekit_settles)
+                confirmation = next(
+                    call.args[2]
+                    for call in schedule.call_args_list
+                    if call.args[2].func == manager._handle_temperature_mismatch
+                )
+                for _ in range(3):
+                    manager.refresh_mapping(mapping.mapping_id)
+                self.assertNotIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                self.assertEqual(
+                    1,
+                    sum(
+                        call.args[2].func == manager._handle_temperature_mismatch
+                        for call in schedule.call_args_list
+                    ),
+                )
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "20.96",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: "°C",
+                    },
+                )
+                await self.hass.async_block_till_done()
+                confirmation(None)
+                manager._handle_homekit_settle(mapping.mapping_id)
+                self.assertEqual(
+                    "homekit_temperature",
+                    manager.snapshot(mapping.mapping_id).provenance[
+                        "current_temperature"
+                    ],
+                )
+                self.assertNotIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+        finally:
+            await manager.async_stop()
+
+    async def test_new_homekit_pair_invalidates_older_mismatch_deadline(self) -> None:
+        """A prior deadline cannot confirm inside a newer pair's settle window."""
+
+        mapping = replace(
+            self.mapping,
+            mapping_id="temperature_new_pair",
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        self.hass.states.async_set(
+            self.homekit.entity_id, "heat", self._attributes(21.0)
+        )
+        await self.hass.async_block_till_done()
+        manager = MappingManager(self.hass, "temperature_new_pair", (mapping,), {})
+        await manager.async_start()
+        self.assertTrue(manager._unsub_temperature_mismatches)
+        updates = [
+            self.hass.loop.call_later(
+                HOMEKIT_PAIR_SETTLE_SECONDS * delay,
+                self.hass.states.async_set,
+                self.homekit.entity_id,
+                "heat",
+                self._attributes(temperature),
+            )
+            for delay, temperature in ((0.4, 20.0), (0.8, 21.0), (1.2, 20.0))
+        ]
+        try:
+            await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS * 3)
+            await self.hass.async_block_till_done()
+            snapshot = manager.snapshot(mapping.mapping_id)
+            self.assertEqual(20.04, snapshot.current_temperature)
+            self.assertEqual(
+                "homekit_temperature", snapshot.provenance["current_temperature"]
+            )
+            self.assertNotIn(
+                "homekit_temperature_recovery_pending", snapshot.degradation
+            )
+            self.assertFalse(manager._temperature_mismatch_candidates)
+            self.assertFalse(manager._unsub_homekit_settles)
+        finally:
+            for update in updates:
+                update.cancel()
+            await manager.async_stop()
+
+    async def test_temperature_mismatch_deadline_confirms_without_source_event(
+        self,
+    ) -> None:
+        """Startup mismatch is bounded, does not repeat, and unload cancels work."""
+
+        mapping = replace(
+            self.mapping,
+            mapping_id="temperature_deadline",
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        self.hass.states.async_set(
+            self.homekit.entity_id, "heat", self._attributes(21.0)
+        )
+        await self.hass.async_block_till_done()
+        manager = MappingManager(self.hass, "temperature_deadline", (mapping,), {})
+        with patch(
+            "custom_components.ecobee_unified.manager.async_call_later",
+            side_effect=lambda *_: Mock(),
+        ) as schedule:
+            await manager.async_start()
+            try:
+                deadline_call = next(
+                    call
+                    for call in schedule.call_args_list
+                    if call.args[2].func == manager._handle_temperature_mismatch
+                )
+                self.assertEqual(HOMEKIT_PAIR_SETTLE_SECONDS, deadline_call.args[1])
+                self.assertNotIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                deadline_call.args[2](None)
+                self.assertIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                schedule.reset_mock()
+                manager.refresh_mapping(mapping.mapping_id)
+                self.assertFalse(manager._unsub_temperature_mismatches)
+                self.assertFalse(
+                    any(
+                        call.args[2].func == manager._handle_temperature_mismatch
+                        for call in schedule.call_args_list
+                    )
+                )
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "20.2",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: "°C",
+                    },
+                )
+                await self.hass.async_block_till_done()
+                manager.refresh_mapping(mapping.mapping_id)
+                cancel = manager._unsub_temperature_mismatches[mapping.mapping_id]
+                self.assertTrue(manager._temperature_mismatch_candidates)
+            finally:
+                await manager.async_stop()
+            cancel.assert_called_once_with()
+            self.assertFalse(manager._temperature_mismatch_candidates)
+            self.assertFalse(manager._temperature_recovery)
+
+    async def test_temperature_quarantine_survives_rename_and_is_mapping_local(
+        self,
+    ) -> None:
+        """Registry names and unrelated mappings cannot erase source evidence."""
+
+        mapping = replace(
+            self.mapping,
+            mapping_id="temperature_identity",
+            homekit_temperature_entity=self.homekit_temperature.id,
+        )
+        manager = MappingManager(self.hass, "temperature_identity", (mapping,), {})
+        await manager.async_start()
+        registry = er.async_get(self.hass)
+        try:
+            with patch(
+                "custom_components.ecobee_unified.manager.async_call_later",
+                return_value=Mock(),
+            ):
+                self.hass.states.async_set(
+                    self.homekit.entity_id, "heat", self._attributes(21.0)
+                )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping.mapping_id)
+                self.assertFalse(self.manager._temperature_recovery)
+                registry.async_update_entity(
+                    self.homekit_temperature.entity_id,
+                    new_entity_id="sensor.renamed_temperature",
+                )
+                self.hass.states.async_set(
+                    "sensor.renamed_temperature",
+                    "20.04",
+                    {
+                        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                        ATTR_UNIT_OF_MEASUREMENT: "°C",
+                    },
+                )
+                self.hass.states.async_set(
+                    self.homekit.entity_id, "heat", self._attributes(20.0)
+                )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping.mapping_id)
+                self.assertEqual(
+                    "homekit",
+                    manager.snapshot(mapping.mapping_id).provenance[
+                        "current_temperature"
+                    ],
+                )
+                registry.async_update_entity(
+                    "sensor.renamed_temperature", device_id=None
+                )
+                await self.hass.async_block_till_done()
+                registry.async_update_entity(
+                    "sensor.renamed_temperature", device_id=self.homekit.device_id
+                )
+                await self.hass.async_block_till_done()
+                self.assertIn(
+                    "homekit_temperature_recovery_pending",
+                    manager.snapshot(mapping.mapping_id).degradation,
+                )
+                wrong_device = dr.async_get(self.hass).async_get_or_create(
+                    config_entry_id=self.homekit.config_entry_id,
+                    identifiers={("homekit_controller", "wrong_temperature_device")},
+                )
+                registry.async_update_entity(
+                    "sensor.renamed_temperature", device_id=wrong_device.id
+                )
+                await self.hass.async_block_till_done()
+                self.assertIs(
+                    SourceHealth.MISSING,
+                    manager.snapshot(mapping.mapping_id).source_health[
+                        "homekit_temperature"
+                    ],
+                )
+                registry.async_update_entity(
+                    "sensor.renamed_temperature", device_id=self.homekit.device_id
+                )
+                await self.hass.async_block_till_done()
+                restored = manager.snapshot(mapping.mapping_id)
+                self.assertEqual("homekit", restored.provenance["current_temperature"])
+                self.assertIn(
+                    "homekit_temperature_recovery_pending", restored.degradation
+                )
+        finally:
+            await manager.async_stop()
+
     async def test_precise_temperature_survives_climate_state_serialization(
         self,
     ) -> None:
@@ -2368,9 +2710,7 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
                 }
             ),
         )
-        serialized = voluptuous_serialize.convert(
-            schema, custom_serializer=cv.custom_serializer
-        )
+        serialized = serialize_schema(schema, custom_serializer=cv.custom_serializer)
         self.assertEqual(2, len(serialized))
         self.assertEqual(
             {"min": 300.0, "max": 7200.0, "step": 60.0, "mode": "box"},

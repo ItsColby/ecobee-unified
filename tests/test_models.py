@@ -466,6 +466,38 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual("ecobee", snapshot.provenance["current_temperature"])
         self.assertIn("homekit_temperature_unverifiable", snapshot.degradation)
 
+    def test_precise_recovery_pending_preserves_health_and_local_cloud_fallback(
+        self,
+    ) -> None:
+        homekit = source(
+            "heat", {"current_temperature": 20.0, "unit_of_measurement": "°C"}
+        )
+        ecobee = source("heat", {"current_temperature": 19.8})
+        precise = RawSource("20.04", health=SourceHealth.HEALTHY)
+        local = build_snapshot(
+            "mapping_a",
+            homekit,
+            ecobee,
+            homekit_temperature=precise,
+            homekit_temperature_recovery_pending=True,
+        )
+        self.assertEqual(20.0, local.current_temperature)
+        self.assertEqual("homekit", local.provenance["current_temperature"])
+        self.assertIs(SourceHealth.HEALTHY, local.source_health["homekit_temperature"])
+        self.assertNotIn("homekit_temperature_diverged", local.degradation)
+        self.assertIn(
+            "homekit_temperature_recovery_pending", degradation_problem_reasons(local)
+        )
+        cloud = build_snapshot(
+            "mapping_a",
+            RawSource("unavailable", health=SourceHealth.UNAVAILABLE),
+            ecobee,
+            homekit_temperature=precise,
+            homekit_temperature_recovery_pending=True,
+        )
+        self.assertEqual(19.8, cloud.current_temperature)
+        self.assertEqual("ecobee", cloud.provenance["current_temperature"])
+
     def test_temperature_confirmation_uses_writer_step_tolerance(self) -> None:
         homekit = source(
             "heat_cool",

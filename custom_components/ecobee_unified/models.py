@@ -265,6 +265,7 @@ def build_snapshot(
     physical_identity_mismatch: bool = False,
     homekit_temperature: RawSource | None = None,
     ecobee_notify_writable: bool = False,
+    homekit_temperature_recovery_pending: bool = False,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
 
@@ -302,7 +303,12 @@ def build_snapshot(
                 degradation.add("homekit_read_fallback")
 
     current_temperature, temperature_owner, temperature_degradation = (
-        _select_current_temperature(homekit_temperature, homekit, ecobee)
+        _select_current_temperature(
+            homekit_temperature,
+            homekit,
+            ecobee,
+            recovery_pending=homekit_temperature_recovery_pending,
+        )
     )
     if temperature_owner:
         provenance["current_temperature"] = temperature_owner
@@ -440,14 +446,12 @@ def build_snapshot(
     )
 
 
-def _select_current_temperature(
+def homekit_temperature_agrees(
     homekit_temperature: RawSource | None,
     homekit: RawSource,
-    ecobee: RawSource,
-) -> tuple[float | None, str | None, set[str]]:
-    """Use local precision only while the local climate proves its semantics."""
+) -> bool | None:
+    """Compare normalized local temperatures, or return no usable comparison."""
 
-    degradation: set[str] = set()
     precise_value = _optional_source_finite_number(homekit_temperature)
     homekit_value = (
         _normalize_field(homekit.attributes.get("current_temperature"), "number")
@@ -462,23 +466,34 @@ def _select_current_temperature(
         else None
     )
     rounding_envelope = ROUNDING_ENVELOPE.get(homekit_unit or "")
+    if precise_value is None or homekit_value is None or rounding_envelope is None:
+        return None
+    return isclose(precise_value, homekit_value, rel_tol=0.0, abs_tol=rounding_envelope)
+
+
+def _select_current_temperature(
+    homekit_temperature: RawSource | None,
+    homekit: RawSource,
+    ecobee: RawSource,
+    *,
+    recovery_pending: bool = False,
+) -> tuple[float | None, str | None, set[str]]:
+    """Use local precision only while the local climate proves its semantics."""
+
+    degradation: set[str] = set()
+    precise_value = _optional_source_finite_number(homekit_temperature)
+    agrees = homekit_temperature_agrees(homekit_temperature, homekit)
+    if recovery_pending:
+        degradation.add("homekit_temperature_recovery_pending")
     if precise_value is not None:
-        if (
-            homekit_value is not None
-            and rounding_envelope is not None
-            and isclose(
-                precise_value,
-                homekit_value,
-                rel_tol=0.0,
-                abs_tol=rounding_envelope,
-            )
-        ):
+        if agrees is True and not recovery_pending:
             return precise_value, "homekit_temperature", degradation
-        degradation.add(
-            "homekit_temperature_diverged"
-            if homekit_value is not None and rounding_envelope is not None
-            else "homekit_temperature_unverifiable"
-        )
+        if agrees is not True:
+            degradation.add(
+                "homekit_temperature_diverged"
+                if agrees is False
+                else "homekit_temperature_unverifiable"
+            )
     elif homekit_temperature is not None and not homekit_temperature.usable:
         degradation.add(
             f"homekit_temperature_{_unusable_source_reason(homekit_temperature)}"

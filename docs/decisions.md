@@ -38,6 +38,15 @@
 | D-032 | Calculate elapsed source and command ages when diagnostics are requested while keeping all semantic projections on the immutable normalized snapshot. | Cached event-driven snapshots cannot make age advance during quiet intervals. Request-time age calculation preserves exact diagnostics without dispatching entity updates or creating Recorder churn. |
 | D-033 | Treat an unreadable HomeKit Current Mode value as advisory rather than an active problem only while its same-device writer remains usable with bounded options. | Home Assistant's problem device class defines `on` as a detected problem. A readable current preset is not required to offer a safe explicit preset write, so one shared classification is projected as `problem_reasons` and `advisories` across climate attributes, downloadable diagnostics, and problem-entity attributes without falsely requesting intervention. The legacy degradation union remains compatible; writer loss or any other actionable degradation still activates the problem entity. |
 
+Temperature recovery extends D-022 and D-029: retain the last confirmed rejected
+physical temperature per stable mapped source during the manager lifetime.
+Require a different finite measurement plus current local-climate agreement
+before precise selection resumes. A bounded confirmation callback prevents
+intermediate paired events or immediate command observations from recording a
+false rejection. This preserves precision without mistaking climate convergence
+or fresh reports of an unchanged value for recovery. Persistent fault storage and
+generic anomaly filtering remain outside this observation contract.
+
 ## Deferred Until Evidence Exists
 
 | Topic | Default |

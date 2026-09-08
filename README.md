@@ -179,6 +179,22 @@ divergence state. Other climate changes, actual unavailable/recovery events,
 and command observations remain immediate; a mismatch that persists after the
 window still degrades and falls back explicitly.
 
+A confirmed temperature disagreement also requires evidence of recovery. Unified
+remembers the precise source's rejected value within the running integration and
+keeps using its documented fallback if the climate later approaches that same
+unchanged value. Precision returns only when the sensor supplies a different
+finite measurement that agrees with the local climate. Repeated reports, an
+availability cycle, a rename, or a display-unit conversion do not establish
+recovery. Confirmation waits for a stable 250 ms observation, so normal paired
+updates do not create a lasting rejection. The existing source-degradation
+surface reports `homekit_temperature_recovery_pending` while appropriate.
+
+This guard detects observed inconsistency, not physical accuracy. Quiet agreeing
+sources remain valid. Reloading or restarting Unified clears its observation
+memory; matching stale values after startup cannot be identified without new
+evidence. No source reloads, thermostat commands, smoothing, or history edits are
+performed by this guard.
+
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. Saved values must be whole, selector-aligned
 seconds, so direct or restored flow input cannot be silently truncated. Both

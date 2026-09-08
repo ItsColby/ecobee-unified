@@ -147,6 +147,34 @@ unrelated source remain immediate.
 A mismatch that persists after the window still degrades and falls back exactly
 as documented; the window never changes source ownership or health.
 
+The manager retains bounded per-mapping evidence of a confirmed rejected precise
+temperature. A separate lifecycle-owned 250 ms confirmation callback rereads the
+same source/value before recording a rejection; immediate command, cloud, and
+registry refreshes cannot turn a transient pair into lasting rejection. The
+source's registry identity and validated device binding own that evidence. The
+physical value is normalized to Celsius for comparison, so a display-unit change
+cannot masquerade as measurement progress. A changed value that remains divergent
+must itself be confirmed before replacing the last rejected observation.
+
+After rejection, the precise source is eligible again only when a different
+finite physical value passes the existing local climate agreement check. Climate
+movement toward an unchanged rejected value, timestamps, repeated reports,
+formatting, attribute changes, and unavailable/available cycles do not establish
+recovery. Renames and temporary loss of the same source retain the evidence; a
+validated different source or device binding starts its own observations. While
+recovery is pending, the pure normalized model preserves raw source health,
+selects the documented climate fallback, and reports the bounded
+`homekit_temperature_recovery_pending` reason through the existing projections.
+It does not manufacture an acquisition failure or change writer eligibility.
+
+Recovery evidence is in memory, bounded to configured mappings, and discarded
+with the manager. All confirmation callbacks are cancelled on unload. This
+protects against an observed inconsistency during the current integration
+lifetime; it cannot detect two agreeing wrong sources, prove physical accuracy,
+or retain a prior rejection across reload/restart. No new persistence, transport
+inspection, source restart, or arbitrary silence/rate/physical-range policy is
+introduced.
+
 - HomeKit available: canonical local climate state and standard control work.
 - Ecobee available with same-physical-device identity proven: vendor
   detail/actions work.

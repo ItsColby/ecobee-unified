@@ -67,12 +67,18 @@ from .models import (
     RawSource,
     SourceHealth,
     build_snapshot,
+    homekit_temperature_agrees,
 )
 from .source_contracts import (
     AIR_QUALITY_SENSOR_CONTRACTS,
     PhysicalIdentityStatus,
     physical_identity_status,
     sensor_contract_valid,
+)
+from .temperature_quality import (
+    SourceIdentity,
+    TemperatureObservation,
+    TemperatureRecovery,
 )
 
 # Core 2026.8's HomeKit writer honors the accessory's native granularity even
@@ -115,6 +121,9 @@ class MappingManager:
         self._unsub_stale_refreshes: dict[str, Callable[[], None]] = {}
         self._unsub_homekit_settles: dict[str, Callable[[], None]] = {}
         self._homekit_settle_report_times: dict[str, dict[str, datetime]] = {}
+        self._temperature_recovery: dict[str, TemperatureRecovery] = {}
+        self._temperature_mismatch_candidates: dict[str, TemperatureObservation] = {}
+        self._unsub_temperature_mismatches: dict[str, Callable[[], None]] = {}
         self._watched_entity_ids: set[str] = set()
         self._watched_entity_references = {
             reference
@@ -171,6 +180,11 @@ class MappingManager:
             unsubscribe()
         self._unsub_homekit_settles.clear()
         self._homekit_settle_report_times.clear()
+        for unsubscribe in self._unsub_temperature_mismatches.values():
+            unsubscribe()
+        self._unsub_temperature_mismatches.clear()
+        self._temperature_mismatch_candidates.clear()
+        self._temperature_recovery.clear()
         self._watched_entity_ids.clear()
         self._watched_device_ids.clear()
         for mapping in self.mappings:
@@ -231,6 +245,8 @@ class MappingManager:
         *,
         observation_revision: int | None = None,
         report_times: Mapping[str, datetime] | None = None,
+        homekit_pair_settled: bool = False,
+        temperature_confirmation: TemperatureObservation | None = None,
     ) -> None:
         """Normalize mapped states once and publish every projection from it."""
 
@@ -278,6 +294,13 @@ class MappingManager:
             report_times=report_times,
             required_device_id=homekit_device_id,
         )
+        temperature_recovery_pending = self._update_temperature_recovery(
+            mapping,
+            homekit,
+            homekit_temperature,
+            pair_settled=homekit_pair_settled,
+            confirmation=temperature_confirmation,
+        )
         cloud_sensors = tuple(
             self._air_quality_raw_source(
                 reference,
@@ -308,6 +331,7 @@ class MappingManager:
             ecobee,
             homekit_preset=homekit_preset,
             homekit_temperature=homekit_temperature,
+            homekit_temperature_recovery_pending=temperature_recovery_pending,
             air_quality_index=cloud_sensors[0],
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
@@ -340,6 +364,7 @@ class MappingManager:
                 ecobee,
                 homekit_preset=homekit_preset,
                 homekit_temperature=homekit_temperature,
+                homekit_temperature_recovery_pending=temperature_recovery_pending,
                 air_quality_index=cloud_sensors[0],
                 co2=cloud_sensors[1],
                 voc=cloud_sensors[2],
@@ -767,6 +792,7 @@ class MappingManager:
     ) -> None:
         """Coalesce sequential climate/temperature reports for one mapping."""
 
+        self._cancel_temperature_mismatch(mapping_id)
         if report_times is not None:
             self._homekit_settle_report_times.setdefault(mapping_id, {}).update(
                 report_times
@@ -787,7 +813,9 @@ class MappingManager:
 
         self._unsub_homekit_settles.pop(mapping_id, None)
         report_times = self._homekit_settle_report_times.pop(mapping_id, None)
-        self.refresh_mapping(mapping_id, report_times=report_times)
+        self.refresh_mapping(
+            mapping_id, report_times=report_times, homekit_pair_settled=True
+        )
 
     def _cancel_homekit_settle(self, mapping_id: str) -> dict[str, datetime]:
         """Cancel one pending settle and return its diagnostic report times."""
@@ -795,6 +823,111 @@ class MappingManager:
         if unsubscribe := self._unsub_homekit_settles.pop(mapping_id, None):
             unsubscribe()
         return self._homekit_settle_report_times.pop(mapping_id, {})
+
+    def _temperature_source_identity(
+        self, mapping: MappingConfig
+    ) -> SourceIdentity | None:
+        """Identify actual registry associations independently of entity names."""
+
+        registry = er.async_get(self.hass)
+        entries = [
+            registry.async_get(entity_id)
+            if reference and (entity_id := self.resolve_entity_id(reference))
+            else None
+            for reference in (
+                mapping.homekit_entity,
+                mapping.homekit_temperature_entity,
+            )
+        ]
+        climate, precise = entries
+        if (
+            climate is None
+            or precise is None
+            or climate.device_id is None
+            or precise.device_id != climate.device_id
+            or dr.async_get(self.hass).async_get(climate.device_id) is None
+        ):
+            return None
+        return climate.id, climate.device_id, precise.id, precise.device_id
+
+    def _update_temperature_recovery(
+        self,
+        mapping: MappingConfig,
+        homekit: RawSource,
+        precise: RawSource | None,
+        *,
+        pair_settled: bool,
+        confirmation: TemperatureObservation | None,
+    ) -> bool:
+        """Keep confirmed rejected values out until this source changes and agrees."""
+
+        mapping_id = mapping.mapping_id
+        if mapping.homekit_temperature_entity is None:
+            self._temperature_recovery.pop(mapping_id, None)
+            self._cancel_temperature_mismatch(mapping_id)
+            return False
+        identity = self._temperature_source_identity(mapping)
+        agrees = homekit_temperature_agrees(precise, homekit)
+        observation = None
+        if identity is not None and agrees is not None and precise is not None:
+            assert precise.state is not None
+            observation = TemperatureObservation(
+                identity,
+                TemperatureConverter.convert(
+                    float(precise.state),
+                    UnitOfTemperature(homekit.attributes[ATTR_UNIT_OF_MEASUREMENT]),
+                    UnitOfTemperature.CELSIUS,
+                ),
+            )
+        confirmed = pair_settled or (
+            confirmation is not None
+            and observation is not None
+            and observation.matches(confirmation)
+        )
+        recovery = self._temperature_recovery.setdefault(
+            mapping_id, TemperatureRecovery()
+        )
+        pending = recovery.observe(identity, observation, agrees, confirmed=confirmed)
+        already_rejected = (
+            observation is not None
+            and recovery.rejected is not None
+            and observation.matches(recovery.rejected)
+        )
+        if agrees is not False or observation is None or confirmed or already_rejected:
+            self._cancel_temperature_mismatch(mapping_id)
+        else:
+            candidate = self._temperature_mismatch_candidates.get(mapping_id)
+            if candidate is None or not observation.matches(candidate):
+                self._cancel_temperature_mismatch(mapping_id)
+                self._temperature_mismatch_candidates[mapping_id] = observation
+                self._unsub_temperature_mismatches[mapping_id] = async_call_later(
+                    self.hass,
+                    HOMEKIT_PAIR_SETTLE_SECONDS,
+                    partial(self._handle_temperature_mismatch, mapping_id, observation),
+                )
+        return pending
+
+    @callback
+    def _handle_temperature_mismatch(
+        self,
+        mapping_id: str,
+        observation: TemperatureObservation,
+        _now: datetime | None = None,
+    ) -> None:
+        """Confirm only the still-current candidate after its bounded interval."""
+
+        if self._temperature_mismatch_candidates.get(mapping_id) != observation:
+            return
+        self._unsub_temperature_mismatches.pop(mapping_id, None)
+        self._temperature_mismatch_candidates.pop(mapping_id, None)
+        self.refresh_mapping(mapping_id, temperature_confirmation=observation)
+
+    def _cancel_temperature_mismatch(self, mapping_id: str) -> None:
+        """Cancel confirmation without forgetting previously rejected evidence."""
+
+        if unsubscribe := self._unsub_temperature_mismatches.pop(mapping_id, None):
+            unsubscribe()
+        self._temperature_mismatch_candidates.pop(mapping_id, None)
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:

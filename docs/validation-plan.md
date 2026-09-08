@@ -54,6 +54,13 @@ For every standard and vendor field, test:
   and precise-temperature events, including no transient divergence snapshot,
   persistent mismatch after the settle window, timer reset/isolation/cleanup,
   and immediate command-confirmation, unavailable, removal, and recovery paths;
+- confirmed precise-temperature rejection followed by climate convergence with
+  the same sensor value, changed-and-consistent recovery, a second confirmed
+  divergent value, unchanged reports/formatting/attributes, availability cycles,
+  equivalent Celsius/Fahrenheit values, rename and association continuity,
+  valid source replacement, mapping isolation, callback cancellation, and
+  explicit observation reset on manager recreation; unrelated immediate updates
+  during paired-source settling must not latch a transient mismatch;
 - target humidity capability, bounds, exactly one HomeKit write, HomeKit report
   confirmation, invalid input, source loss, recovery, and no fabricated
   presentation step when the supported writer contract exposes none.

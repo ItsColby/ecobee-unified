@@ -158,7 +158,15 @@ The runner uses `Ubuntu-24.04` WSL2 and rootless Podman with pinned images for
 unit/static, minimum/current Home Assistant, and Hassfest checks. Hosted jobs
 use the same product script in native mode. HACS checks the pushed repository
 through GitHub's API and remains a separate hosted delivery gate; no local
-GitHub credential is needed. The [validation plan](docs/validation-plan.md)
+GitHub credential is needed. Local containers reuse pip downloads and wheels in
+the Podman volume `ecobee-unified-validation-pip`; each lane still installs its
+dependencies into a fresh container and reruns every check. The disposable cache
+contains neither installed environments nor validation results and can be
+removed with `podman volume rm ecobee-unified-validation-pip` when no local
+validation is running. After unit/static checks pass, the local `all` container
+runner overlaps the minimum/current HA lanes against a read-only snapshot. It
+waits for both results before cleanup and runs Hassfest only when both pass;
+native execution remains sequential. The [validation plan](docs/validation-plan.md)
 owns coverage, public-payload checks, shadow acceptance, and migration proof.
 Live acceptance has no mandatory elapsed-time minimum; unobserved command paths
 remain explicit limitations. Publication, installation, restart, and live

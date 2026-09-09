@@ -127,6 +127,21 @@ unreadable value rather than writer unavailability: an enabled, available,
 same-device select may continue to advertise its bounded options while Unified
 keeps the current preset unknown. Actual unavailability still removes control.
 
+Numeric normalization rejects conversion overflow, non-finite values and proven
+quantity violations, including temperatures below absolute zero beyond the
+source's serialization uncertainty and humidity outside 0–100 percent.
+Temperature sensing limits are independent of setpoint bounds and household
+comfort ranges. Present invalid fields add bounded
+source/field reasons to the existing degradation projection; absent optional
+fields do not. Transport health retains its separate meaning. Raw source
+observations remain unchanged, and selection uses only eligible documented
+fallbacks or unavailable values. No smoothing or synthetic readings are used.
+
+Ecobee cloud `current_temperature` is the thermostat-displayed `actualTemperature`
+semantic and may be feels-like under humidex. It is not guaranteed independent
+dry-bulb evidence. The configured fallback preserves that source and provenance;
+Unified neither substitutes `rawTemperature` nor opens another API client.
+
 ## Updates and Availability
 
 Subscribe to source state changes and maintain an in-memory snapshot. Entity
@@ -263,6 +278,25 @@ handling retains the same revision guard. Every service facade injects its
 resolved mapped entity after validating caller data, so caller-provided service
 data cannot redirect a command to another entity.
 
+The tracker records the semantic operation independently of the backend service
+name. Preset confirmation observes the HomeKit select, humidity observes the
+HomeKit climate, and the other confirmable operations observe their documented
+Ecobee source. Register that observer before awaiting the writer so an unchanged
+in-flight report can be retained; writer failure must still win over it.
+
+Stopping a manager permanently closes command admission before subscriptions
+and deadlines are removed. Commands waiting for its per-mapping lock are
+rejected without dispatch. Pending tracked commands become unconfirmed, and
+dispatched source calls may finish only without reviving the stopped manager's
+state, listeners or timers. Unload does not wait indefinitely, retry, or claim
+to undo a physical effect already dispatched. Caller cancellation also leaves
+the tracked outcome unconfirmed when cancellation interrupts the dispatched
+source call. Cancellation after acceptance preserves the established tracking
+result; a cancelled queued command owns no tracked revision. Notifications
+preserve their one-way source service semantics and use the same admission
+fence without inventing delivery
+confirmation.
+
 ## Entity Surface
 
 Source candidate per thermostat:
@@ -302,17 +336,20 @@ and command semantics. This avoids the Core state-machine comparison that
 otherwise creates Recorder rows before unrecorded attributes are stripped from
 storage.
 
-## Derived Expansion
+## Capability Boundaries
 
-After MVP correctness, explicit room mappings can support genuinely new
-semantics without duplicating raw entities:
+The native Ecobee minimum-fan number already exists. Unified's facade supplies
+canonical-device placement, identity validation and command tracking. Native
+humidifier, ventilator and heat-pump configuration entities remain with their
+equipment owner when advertised. Display units, Identify, microphone and DST
+administration do not need duplicate Unified controls.
 
-- effective program state (scheduled versus hold);
-- active-room temperature spread and hottest/coldest active room;
-- persistent cross-source disagreement;
-- command-confirmation status and latency;
-- scheduled sensor-participation anomalies; and
-- air-quality trend/context with clear non-safety labeling.
+The local preset select exposes its advertised Home/Sleep/Away options; custom
+cloud comfort profiles and indefinite away are separate native Ecobee
+capabilities. Do not silently route additional presets through a cloud writer.
 
-Each derived metric needs a precise definition, unit, availability rule,
-Recorder value, and demonstrated consumer before it becomes an entity.
+Schedules, filter/alert/history, advanced settings and configured-profile room
+spread belong to Beestat siblings. A future Unified metric requires a distinct
+semantic, availability rule, Recorder value and demonstrated consumer; this is
+not a backlog to duplicate those owners or infer an active hold from delayed
+schedule context.

@@ -38,6 +38,43 @@ class PublicSafetyTests(unittest.TestCase):
         text = "person@example.com 1361774+ItsColby@users.noreply.github.com"
         self.assertEqual(set(), _text_failures(text))
 
+    def test_reviewed_public_url_is_allowed_without_exempting_other_content(
+        self,
+    ) -> None:
+        url = (
+            "https://www.ecobee.com/"
+            "home/developer/api/documentation/v1/objects/Runtime.shtml"
+        )
+        for text in (url, f"[Ecobee Runtime]({url})", f"<{url}>"):
+            with self.subTest(text=text):
+                self.assertEqual(set(), _text_failures(text))
+
+        unsafe_samples = {
+            "absolute Unix user path": "/" + "home/example/private.txt",
+            "private IPv4 address": "192" + ".168.1.2",
+            "credential-like token": "ghp_" + ("a" * 36),
+        }
+        for expected, sample in unsafe_samples.items():
+            with self.subTest(expected=expected):
+                self.assertIn(expected, _text_failures(f"{url} {sample}"))
+
+    def test_unix_path_url_allowance_requires_the_exact_reviewed_url(self) -> None:
+        path = "/" + "home/developer/api/documentation/v1/objects/Runtime.shtml"
+        url = "https://www.ecobee.com" + path
+        for text in (
+            path,
+            "https://example.com" + path,
+            "http://www.ecobee.com" + path,
+            url.replace("Runtime.shtml", "private.txt"),
+            url + "/private.txt",
+            url + "?extra=value",
+            url + "#fragment",
+            "https://example.com/" + url,
+            "/" + url,
+        ):
+            with self.subTest(text=text):
+                self.assertIn("absolute Unix user path", _text_failures(text))
+
     def test_current_tree_is_text_only_and_public_safe(self) -> None:
         root = Path(__file__).resolve().parents[1]
         count, failures = run_guard(root)
@@ -184,7 +221,7 @@ class PublicSafetyTests(unittest.TestCase):
             )
         )
         self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
-        self.assertEqual("homeassistant==2026.8.1", current_requirements.strip())
+        self.assertEqual("homeassistant==2026.9.1", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
         self.assertIs(True, manifest["single_config_entry"])
         self.assertEqual("hub", manifest["integration_type"])
@@ -192,7 +229,7 @@ class PublicSafetyTests(unittest.TestCase):
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )
         self.assertIn(
-            "Home Assistant integration tests (Core 2026.8.1 current)", workflow
+            "Home Assistant integration tests (Core 2026.9.1 current)", workflow
         )
         self.assertEqual(
             2, release_runner.count("pytest-homeassistant-custom-component==")
@@ -239,7 +276,7 @@ class PublicSafetyTests(unittest.TestCase):
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
         )
         current_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.355"'
+            'python -m pip install "pytest-homeassistant-custom-component==0.13.364"'
         )
         minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
         current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"

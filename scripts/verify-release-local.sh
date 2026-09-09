@@ -105,7 +105,7 @@ run_minimum() {
 
 run_current() {
   run_python '
-    python -m pip install "pytest-homeassistant-custom-component==0.13.355" &&
+    python -m pip install "pytest-homeassistant-custom-component==0.13.364" &&
     python -m pip install --upgrade -r requirements-ha-current.txt &&
     python -m pip install "mypy==2.3.0" &&
     python -m pip check &&

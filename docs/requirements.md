@@ -27,7 +27,7 @@ justify ambiguous values or dual writes.
 | F-08 | Link every unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
 | F-09 | Expose compact live provenance, source health, configured comfort sensors, and command-confirmation status; expose a native per-mapping degradation problem entity whose state represents actionable degradation while retaining bounded advisory details; keep exact continuously advancing source and command ages in bounded diagnostics. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, advisory/actionable degradation, and recent command state. |
-| F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. |
+| F-11 | Support reload, removal, setup retry, config-entry migration, and clean unload. Stop admitting commands and reject queued dispatches on unload; late source-call completion must not recreate manager state, listeners, or deadlines. |
 | F-12 | Preserve honest primary-source precision, Home Assistant climate-writer units (Celsius or Fahrenheit), writer-owned target bounds, feature flags, and unavailable/unknown semantics. |
 | F-13 | Allow a shadow deployment whose entity IDs cannot collide with existing canonical entities. |
 | F-14 | Have no runtime dependency on Beestat; Beestat contributes independently owned sibling entities on the same device, while Unified fails honestly if its HomeKit/Ecobee climate semantics cannot be supplied. |
@@ -44,6 +44,7 @@ justify ambiguous values or dual writes.
 | F-25 | When explicitly mapped, use a finite, unit-compatible, temperature-class HomeKit sensor on the same physical device as the precise primary `current_temperature` only while it agrees with the usable HomeKit climate inside Core's unit-specific serialization envelope; otherwise degrade and fall back to the HomeKit climate semantic and then the documented Ecobee read fallback without fabricating precision. |
 | F-26 | When explicitly mapped, expose one Unified thermostat-display notification entity that forwards a non-empty message to exactly one same-device Ecobee notification writer and degrades safely across rename, association drift, disappearance, and recovery. |
 | F-27 | Coalesce sequential healthy HomeKit climate and explicitly mapped precise-temperature events for one physical observation before snapshot publication, while keeping command observations, lifecycle faults/recovery, registry changes, and persistent divergence immediate or fail-closed. |
+| F-28 | Reject unrepresentable, non-finite and proven quantity-invalid values without throwing during normalization; distinguish a present invalid field from an absent optional field, retain source transport health, and never clip or manufacture replacement measurements. |
 
 ## Non-functional Requirements
 
@@ -54,17 +55,18 @@ justify ambiguous values or dual writes.
 - No unbounded/high-churn Recorder attributes.
 - No automatic write failover in the initial release.
 - No duplicate command caused by retries, confirmation, or source changes.
-- No later user command may be physically overwritten by an earlier writer
-  call that completes out of order.
+- Serialize calls within one running manager; unloading or cancelling a wait
+  cannot undo an already dispatched source action or prove its physical outcome.
+  Never dispatch queued commands from a stopped manager or retry uncertain work.
 - No household-specific values in source, tests, diagnostics fixtures, docs,
   Git history, release notes, or CI logs.
 - No raw backend response bodies or arbitrary backend exception text in logs,
   diagnostics, entity state, or exception chains.
 - Startup order and source reloads must not require a Home Assistant restart.
 - The integration must remain useful when one optional source is unavailable.
-- Initial compatibility is Home Assistant Core 2026.8, verified against its
-  public contracts. Widen support only when an additional version is an
-  intentional maintained contract with its own passing evidence.
+- Maintain dependency-closed lanes for the Core 2026.8.0 distribution floor and
+  Core 2026.9.1 current stable release using their matching published harnesses.
+  Further support changes require explicit version owners and passing evidence.
 
 ## MVP Acceptance
 
@@ -90,8 +92,9 @@ MVP is complete when all of the following are true:
     criteria before any existing consumer is migrated; acceptance has no
     mandatory elapsed-time minimum.
 11. A report cannot confirm a command before writer success, and a late
-    observation, writer result, or timeout cannot confirm, fail, clear, or
-    physically overwrite a newer command.
+    observation, writer result, or timeout cannot confirm, fail, or clear a
+    newer command. Observe the semantic operation's source before dispatch,
+    including unchanged reports, and reject queued effects after unload.
 12. Physical-identity or optional-sensor semantic drift disables only the
     affected Ecobee capabilities before any effect and recovers from supported
     registry/state evidence without recreating the config entry.

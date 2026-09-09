@@ -34,6 +34,8 @@ RETIRED_MAPPING_DATA_KEYS = frozenset(
 )
 
 ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.500001}
+ECOBEE_ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.050001}
+ABSOLUTE_ZERO = {"°C": -273.15, "°F": -459.67, "K": 0.0}
 
 
 class SourceHealth(StrEnum):
@@ -242,9 +244,9 @@ def degradation_problem_reasons(snapshot: NormalizedSnapshot) -> tuple[str, ...]
 STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("hvac_action", "hvac_action", "hvac_action"),
     ("current_humidity", "current_humidity", "humidity"),
-    ("target_temperature", "temperature", "number"),
-    ("target_temperature_low", "target_temp_low", "number"),
-    ("target_temperature_high", "target_temp_high", "number"),
+    ("target_temperature", "temperature", "temperature"),
+    ("target_temperature_low", "target_temp_low", "temperature"),
+    ("target_temperature_high", "target_temp_high", "temperature"),
     ("fan_mode", "fan_mode", "text"),
 )
 
@@ -277,7 +279,7 @@ def build_snapshot(
 
     values: dict[str, Any] = {}
     provenance: dict[str, str] = {}
-    degradation: set[str] = set()
+    degradation = _invalid_climate_fields(homekit, ecobee)
     if not physical_identity_proven:
         degradation.add(
             "physical_identity_mismatch"
@@ -452,12 +454,8 @@ def homekit_temperature_agrees(
 ) -> bool | None:
     """Compare normalized local temperatures, or return no usable comparison."""
 
-    precise_value = _optional_source_finite_number(homekit_temperature)
-    homekit_value = (
-        _normalize_field(homekit.attributes.get("current_temperature"), "number")
-        if homekit.usable
-        else None
-    )
+    precise_value = _optional_source_temperature(homekit_temperature, homekit)
+    homekit_value = _writer_attribute(homekit, "current_temperature", "temperature")
     homekit_unit = (
         _normalize_field(
             homekit.attributes.get("unit_of_measurement"), "temperature_unit"
@@ -481,7 +479,7 @@ def _select_current_temperature(
     """Use local precision only while the local climate proves its semantics."""
 
     degradation: set[str] = set()
-    precise_value = _optional_source_finite_number(homekit_temperature)
+    precise_value = _optional_source_temperature(homekit_temperature, homekit)
     agrees = homekit_temperature_agrees(homekit_temperature, homekit)
     if recovery_pending:
         degradation.add("homekit_temperature_recovery_pending")
@@ -494,12 +492,16 @@ def _select_current_temperature(
                 if agrees is False
                 else "homekit_temperature_unverifiable"
             )
-    elif homekit_temperature is not None and not homekit_temperature.usable:
+    elif homekit_temperature is not None:
         degradation.add(
-            f"homekit_temperature_{_unusable_source_reason(homekit_temperature)}"
+            "homekit_temperature_invalid"
+            if homekit_temperature.health is SourceHealth.HEALTHY
+            else f"homekit_temperature_{_unusable_source_reason(homekit_temperature)}"
         )
 
-    value, owner = _select_attribute(homekit, ecobee, "current_temperature", "number")
+    value, owner = _select_attribute(
+        homekit, ecobee, "current_temperature", "temperature"
+    )
     if owner == "ecobee":
         degradation.add("homekit_read_fallback")
     if value is None:
@@ -525,6 +527,10 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
             if actual is None:
                 return False
         elif isinstance(wanted, int | float) and isinstance(actual, int | float):
+            actual_number = finite_number(actual)
+            wanted_number = finite_number(wanted)
+            if actual_number is None or wanted_number is None:
+                return False
             tolerance = DEFAULT_NUMERIC_CONFIRMATION_TOLERANCE
             if (
                 field_name in TEMPERATURE_CONFIRMATION_FIELDS
@@ -534,8 +540,8 @@ def command_matches(snapshot: NormalizedSnapshot, expected: Mapping[str, Any]) -
                     snapshot.target_temperature_step / 2 + FLOAT_COMPARISON_EPSILON
                 )
             if not isclose(
-                float(actual),
-                float(wanted),
+                actual_number,
+                wanted_number,
                 rel_tol=0.0,
                 abs_tol=tolerance,
             ):
@@ -555,12 +561,14 @@ def _confirmation_values(
         values.update(
             {
                 "hvac_mode": _hvac_mode(ecobee.state),
-                "target_temperature": _number(ecobee.attributes.get("temperature")),
-                "target_temperature_low": _number(
-                    ecobee.attributes.get("target_temp_low")
+                "target_temperature": _writer_attribute(
+                    ecobee, "temperature", "temperature", source_name="ecobee"
                 ),
-                "target_temperature_high": _number(
-                    ecobee.attributes.get("target_temp_high")
+                "target_temperature_low": _writer_attribute(
+                    ecobee, "target_temp_low", "temperature", source_name="ecobee"
+                ),
+                "target_temperature_high": _writer_attribute(
+                    ecobee, "target_temp_high", "temperature", source_name="ecobee"
                 ),
                 "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
                 "minimum_fan_runtime": _bounded_integer(
@@ -579,11 +587,13 @@ def _confirmation_values(
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _writer_attribute(source: RawSource, key: str, value_type: str) -> Any:
+def _writer_attribute(
+    source: RawSource, key: str, value_type: str, *, source_name: str = "homekit"
+) -> Any:
     """Normalize metadata only from the mapped command writer."""
 
     return (
-        _normalize_field(source.attributes.get(key), value_type)
+        _normalize_source_attribute(source, key, value_type, source_name=source_name)
         if source.usable
         else None
     )
@@ -597,8 +607,8 @@ def _temperature_metadata(
 ) -> tuple[int, dict[str, Any], dict[str, str], set[str]]:
     """Project writer-owned temperature metadata and one explicit step fusion."""
 
-    min_temp = _writer_attribute(homekit, "min_temp", "number")
-    max_temp = _writer_attribute(homekit, "max_temp", "number")
+    min_temp = _writer_attribute(homekit, "min_temp", "temperature")
+    max_temp = _writer_attribute(homekit, "max_temp", "temperature")
     unit = _writer_attribute(homekit, "unit_of_measurement", "temperature_unit")
     valid = (
         min_temp is not None
@@ -663,8 +673,8 @@ def _ecobee_temperature_metadata(
 ) -> tuple[float | None, float | None, str | None]:
     """Normalize vacation bounds from the mapped Ecobee command writer."""
 
-    minimum = _writer_attribute(ecobee, "min_temp", "number")
-    maximum = _writer_attribute(ecobee, "max_temp", "number")
+    minimum = _writer_attribute(ecobee, "min_temp", "temperature", source_name="ecobee")
+    maximum = _writer_attribute(ecobee, "max_temp", "temperature", source_name="ecobee")
     unit = _writer_attribute(ecobee, "unit_of_measurement", "temperature_unit")
     if minimum is None or maximum is None or minimum > maximum or unit is None:
         return None, None, None
@@ -706,7 +716,7 @@ def _source_metadata_attribute(source: RawSource, key: str, value_type: str) -> 
     """Read stable capability metadata without treating observation age as loss."""
 
     return (
-        _normalize_field(source.attributes.get(key), value_type)
+        _normalize_source_attribute(source, key, value_type)
         if source.health in {SourceHealth.HEALTHY, SourceHealth.STALE}
         and source.state is not None
         and source.state not in UNAVAILABLE_STATES
@@ -730,14 +740,14 @@ def _select_attribute(
     primary: RawSource, fallback: RawSource, key: str, value_type: str
 ) -> tuple[Any, str | None]:
     primary_value = (
-        _normalize_field(primary.attributes.get(key), value_type)
+        _normalize_source_attribute(primary, key, value_type)
         if primary.usable
         else None
     )
     if primary_value is not None:
         return primary_value, "homekit"
     fallback_value = (
-        _normalize_field(fallback.attributes.get(key), value_type)
+        _normalize_source_attribute(fallback, key, value_type, source_name="ecobee")
         if fallback.usable
         else None
     )
@@ -746,14 +756,59 @@ def _select_attribute(
     return None, None
 
 
+def _invalid_climate_fields(homekit: RawSource, ecobee: RawSource) -> set[str]:
+    """Report present malformed observations without changing transport health."""
+
+    reasons: set[str] = set()
+    fields_to_check = (
+        ("current_temperature", "current_temperature", "temperature"),
+        *STANDARD_FIELDS,
+    )
+    for source_name, source in (("homekit", homekit), ("ecobee", ecobee)):
+        if not source.usable:
+            continue
+        own_field = (
+            ("target_humidity", "humidity", "humidity")
+            if source_name == "homekit"
+            else ("minimum_fan_runtime", "fan_min_on_time", "fan_runtime")
+        )
+        for field_name, attribute, value_type in (*fields_to_check, own_field):
+            if (
+                source.attributes.get(attribute) is not None
+                and _normalize_source_attribute(
+                    source, attribute, value_type, source_name=source_name
+                )
+                is None
+            ):
+                reasons.add(f"{source_name}_{field_name}_invalid")
+    return reasons
+
+
+def _normalize_source_attribute(
+    source: RawSource, key: str, value_type: str, *, source_name: str = "homekit"
+) -> Any:
+    """Apply absolute temperature validity in the source's declared unit."""
+
+    value = source.attributes.get(key)
+    if value_type == "temperature":
+        return finite_temperature(
+            value,
+            source.attributes.get("unit_of_measurement"),
+            climate_source=source_name,
+        )
+    if value_type == "fan_runtime":
+        return _bounded_integer(value, 0, 60)
+    return _normalize_field(value, value_type)
+
+
 def _normalize_field(value: Any, value_type: str) -> Any:
     if value_type == "number":
-        return _number(value)
+        return finite_number(value)
     if value_type == "positive_number":
-        number = _number(value)
+        number = finite_number(value)
         return number if number is not None and number > 0 else None
     if value_type == "humidity":
-        number = _number(value)
+        number = finite_number(value)
         return number if number is not None and 0 <= number <= 100 else None
     if value_type == "hvac_action":
         text = _text(value)
@@ -794,11 +849,52 @@ def _bounded_equipment_running(value: Any) -> str | None:
     return value[:MAX_ATTRIBUTE_TEXT] if isinstance(value, str) else None
 
 
-def _number(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+def finite_number(value: object, *, allow_text: bool = False) -> float | None:
+    """Parse one bounded numeric shape without leaking conversion failures."""
+
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
-    number = float(value)
+    if isinstance(value, str) and not allow_text:
+        return None
+    try:
+        number = float(value)
+    except OverflowError, TypeError, ValueError:
+        return None
     return number if isfinite(number) else None
+
+
+def finite_temperature(
+    value: object,
+    unit: object,
+    *,
+    allow_text: bool = False,
+    climate_source: str | None = None,
+) -> float | None:
+    """Reject physical impossibility, never a comfort or setpoint-range breach.
+
+    Unknown units cannot justify a physical bound; source contracts validate
+    units independently. Climate attributes can round across absolute zero by
+    their serialization envelope; precise sensors get only conversion roundoff.
+    """
+
+    number = finite_number(value, allow_text=allow_text)
+    minimum = ABSOLUTE_ZERO.get(unit) if isinstance(unit, str) else None
+    if minimum is not None and climate_source is not None:
+        envelope = (
+            ROUNDING_ENVELOPE
+            if climate_source == "homekit"
+            else ECOBEE_ROUNDING_ENVELOPE
+            if climate_source == "ecobee"
+            else {}
+        )
+        minimum -= envelope.get(str(unit), 0.0)
+    if (
+        number is not None
+        and minimum is not None
+        and number < minimum - FLOAT_COMPARISON_EPSILON
+    ):
+        return None
+    return number
 
 
 def _integer(value: Any) -> int:
@@ -814,10 +910,8 @@ def _integer(value: Any) -> int:
 
 
 def _bounded_integer(value: Any, minimum: int, maximum: int) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    numeric_value = float(value)
-    if not isfinite(numeric_value) or not numeric_value.is_integer():
+    numeric_value = finite_number(value)
+    if numeric_value is None or not numeric_value.is_integer():
         return None
     number = int(numeric_value)
     return number if minimum <= number <= maximum else None
@@ -843,21 +937,22 @@ def _optional_source_state(source: RawSource | None) -> str | None:
 def _optional_source_number(source: RawSource | None) -> float | None:
     if source is None or not source.usable or source.state is None:
         return None
-    try:
-        value = float(source.state)
-    except ValueError:
-        return None
-    return value if isfinite(value) and value >= 0 else None
+    value = finite_number(source.state, allow_text=True)
+    return value if value is not None and value >= 0 else None
 
 
-def _optional_source_finite_number(source: RawSource | None) -> float | None:
+def _optional_source_temperature(
+    source: RawSource | None, homekit: RawSource
+) -> float | None:
     if source is None or not source.usable or source.state is None:
         return None
-    try:
-        value = float(source.state)
-    except ValueError:
-        return None
-    return value if isfinite(value) else None
+    # The manager has converted this state into the climate's unit. Its source
+    # attributes may still describe the sensor's original unit.
+    return finite_temperature(
+        source.state,
+        homekit.attributes.get("unit_of_measurement"),
+        allow_text=True,
+    )
 
 
 def _source_diagnostics(

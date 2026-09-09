@@ -38,6 +38,10 @@ PATTERNS = {
 EMAIL_PATTERN = re.compile(
     r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE
 )
+PUBLIC_URL_PATTERN = re.compile(r"(?<![\w:/])https?://[^\s<>()\"'`]+")
+REVIEWED_UNIX_PATH_URLS = frozenset(
+    {"https://www.ecobee.com/home/developer/api/documentation/v1/objects/Runtime.shtml"}
+)
 MAX_HISTORY_BLOB_BYTES = 1_000_000
 REVIEWED_BINARY_SHA256 = {
     "custom_components/ecobee_unified/brand/icon.png": (
@@ -48,7 +52,18 @@ REVIEWED_BINARY_HASHES = frozenset(REVIEWED_BINARY_SHA256.values())
 
 
 def _text_failures(text: str) -> set[str]:
-    failures = {name for name, pattern in PATTERNS.items() if pattern.search(text)}
+    # Only this path check may ignore an exact reviewed public documentation URL.
+    unix_path_text = PUBLIC_URL_PATTERN.sub(
+        lambda match: (
+            "" if match.group(0) in REVIEWED_UNIX_PATH_URLS else match.group(0)
+        ),
+        text,
+    )
+    failures = {
+        name
+        for name, pattern in PATTERNS.items()
+        if pattern.search(text if name != "absolute Unix user path" else unix_path_text)
+    }
     for match in EMAIL_PATTERN.finditer(text):
         email = match.group(0).rstrip(".").lower()
         domain = match.group(1).rstrip(".").lower()

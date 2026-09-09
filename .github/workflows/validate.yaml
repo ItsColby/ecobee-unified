@@ -45,7 +45,7 @@ jobs:
 
 
   home_assistant_current:
-    name: Home Assistant integration tests (Core 2026.8.1 current)
+    name: Home Assistant integration tests (Core 2026.9.1 current)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

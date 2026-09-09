@@ -20,12 +20,14 @@ class EcobeeUnifiedEntity(Entity):
         self,
         manager: MappingManager,
         mapping: MappingConfig,
-        suffix: str,
+        suffix: str | None,
         translation_key: str,
     ) -> None:
         self._manager = manager
         self._mapping = mapping
-        self._attr_unique_id = f"{mapping.mapping_id}_{suffix}"
+        self._attr_unique_id = (
+            mapping.mapping_id if suffix is None else f"{mapping.mapping_id}_{suffix}"
+        )
         self._attr_translation_key = translation_key
         source_entity_id = manager.resolve_entity_id(mapping.homekit_entity)
         self.device_entry = (

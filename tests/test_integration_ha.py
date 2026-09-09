@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import (
     device_registry as dr,
@@ -17,8 +17,10 @@ from homeassistant.helpers import (
 from homeassistant.helpers import (
     issue_registry as ir,
 )
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
     CONF_ECOBEE_ENTITY,
@@ -26,14 +28,13 @@ from custom_components.ecobee_unified.const import (
     CONF_MAPPINGS,
     CONF_NAME,
     DOMAIN,
+    SIGNAL_SNAPSHOT_UPDATED,
 )
 from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig
-
-pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
 async def test_config_flow_creates_two_explicit_mappings(
@@ -113,20 +114,54 @@ async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
         ),
     )
 
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    registry = er.async_get(hass)
-    unified_a = registry.async_get_entity_id("climate", DOMAIN, "mapping_a")
-    unified_b = registry.async_get_entity_id("climate", DOMAIN, "mapping_b")
-    assert unified_a is not None
-    assert unified_b is not None
-    assert registry.async_get(unified_a).device_id == hk_a.device_id
-    assert registry.async_get(unified_b).device_id == hk_b.device_id
+    added: list[str] = []
+    writes: list[str] = []
+    native_added = ClimateEntity.async_added_to_hass
+    native_write = EcobeeUnifiedClimate.async_write_ha_state
 
-    source_device = dr.async_get(hass).async_get(hk_a.device_id)
-    assert source_device is not None
-    assert source_device.config_entry_id != entry.entry_id
-    assert await hass.config_entries.async_unload(entry.entry_id)
+    async def track_added(entity: ClimateEntity) -> None:
+        added.append(entity.entity_id)
+        await native_added(entity)
+
+    @callback
+    def track_write(entity: EcobeeUnifiedClimate) -> None:
+        writes.append(entity.entity_id)
+        native_write(entity)
+
+    with (
+        patch.object(ClimateEntity, "async_added_to_hass", track_added),
+        patch.object(EcobeeUnifiedClimate, "async_write_ha_state", track_write),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        registry = er.async_get(hass)
+        unified_a = registry.async_get_entity_id("climate", DOMAIN, "mapping_a")
+        unified_b = registry.async_get_entity_id("climate", DOMAIN, "mapping_b")
+        assert unified_a is not None
+        assert unified_b is not None
+        assert registry.async_get(unified_a).device_id == hk_a.device_id
+        assert registry.async_get(unified_b).device_id == hk_b.device_id
+        assert sorted(added) == sorted([unified_a, unified_b])
+
+        writes.clear()
+        async_dispatcher_send(hass, f"{SIGNAL_SNAPSHOT_UPDATED}_mapping_a")
+        await hass.async_block_till_done()
+        assert writes == [unified_a]
+        writes.clear()
+        async_dispatcher_send(hass, f"{SIGNAL_SNAPSHOT_UPDATED}_mapping_b")
+        await hass.async_block_till_done()
+        assert writes == [unified_b]
+
+        source_device = dr.async_get(hass).async_get(hk_a.device_id)
+        assert source_device is not None
+        assert source_device.config_entry_id != entry.entry_id
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        writes.clear()
+        async_dispatcher_send(hass, f"{SIGNAL_SNAPSHOT_UPDATED}_mapping_a")
+        async_dispatcher_send(hass, f"{SIGNAL_SNAPSHOT_UPDATED}_mapping_b")
+        await hass.async_block_till_done()
+        assert writes == []
 
 
 async def test_rename_loss_fallback_recovery_and_removal_repair(

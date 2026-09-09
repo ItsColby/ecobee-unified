@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
@@ -11,28 +10,22 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
 from homeassistant.helpers.event import async_call_later
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
 
-from . import test_runtime_core_api as runtime_tests
+from .runtime_fixture import CoreRuntimeTestCase
 
 
-class SetupLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    """Compose the native fixture without collecting its existing tests again."""
+class SetupLifecycleTests(CoreRuntimeTestCase):
+    """Exercise cancellation through native config-entry setup."""
 
     async def asyncSetUp(self) -> None:
-        self.runtime = runtime_tests.RuntimeCoreApiTests()
-        self.runtime.setUp()
-        await self.runtime.asyncSetUp()
-        self.hass = self.runtime.hass
-        await self.runtime.manager.async_stop()
+        await super().asyncSetUp()
+        await self.manager.async_stop()
         self.assertTrue(await async_setup_component(self.hass, DOMAIN, {}))
-
-    async def asyncTearDown(self) -> None:
-        await self.runtime.asyncTearDown()
-        self.runtime.tearDown()
 
     async def test_cancel_during_manager_start(self) -> None:
         await self._cancel_setup("start", "mismatch")
@@ -45,16 +38,16 @@ class SetupLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def _cancel_setup(self, phase: str, deadline: str) -> None:
         mapping = replace(
-            self.runtime.mapping,
-            homekit_temperature_entity=self.runtime.homekit_temperature.id,
+            self.mapping,
+            homekit_temperature_entity=self.homekit_temperature.id,
         )
         if deadline == "mismatch":
             self.hass.states.async_set(
-                self.runtime.homekit.entity_id,
+                self.homekit.entity_id,
                 "heat",
-                self.runtime._attributes(21.0),
+                self._attributes(21.0),
             )
-        entry = runtime_tests.MockConfigEntry(
+        entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
@@ -100,7 +93,7 @@ class SetupLifecycleTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await asyncio.wait_for(reached.wait(), 5)
                 manager = entry.runtime_data.manager
-                self.runtime.manager = manager
+                self.manager = manager
                 self.assertEqual(ConfigEntryState.SETUP_IN_PROGRESS, entry.state)
                 await manager.async_standard_command(
                     mapping.mapping_id,
@@ -110,9 +103,7 @@ class SetupLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     None,
                 )
                 if deadline == "settle":
-                    source = self.hass.states.get(
-                        self.runtime.homekit_temperature.entity_id
-                    )
+                    source = self.hass.states.get(self.homekit_temperature.entity_id)
                     self.assertIsNotNone(source)
                     self.hass.states.async_set(
                         source.entity_id, "21.2", source.attributes
@@ -166,9 +157,9 @@ class SetupLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 )
                 snapshot = manager.snapshot(mapping.mapping_id)
                 self.hass.states.async_set(
-                    self.runtime.ecobee.entity_id,
+                    self.ecobee.entity_id,
                     "heat",
-                    self.runtime._attributes(23.0),
+                    self._attributes(23.0),
                 )
                 await self.hass.async_block_till_done()
                 self.assertIs(snapshot, manager.snapshot(mapping.mapping_id))

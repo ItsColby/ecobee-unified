@@ -26,7 +26,7 @@ from custom_components.ecobee_unified.source_contracts import (
     sensor_contract_valid,
 )
 
-from . import test_runtime_core_api as runtime_tests
+from .runtime_fixture import CoreRuntimeTestCase
 
 
 def climate(
@@ -288,17 +288,8 @@ class NumericValidityTests(unittest.TestCase):
                 )
 
 
-class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
+class NumericBoundaryTests(CoreRuntimeTestCase):
     """Exercise conversion against real Core registry/state objects."""
-
-    async def asyncSetUp(self) -> None:
-        self.runtime = runtime_tests.RuntimeCoreApiTests()
-        self.runtime.setUp()
-        await self.runtime.asyncSetUp()
-
-    async def asyncTearDown(self) -> None:
-        await self.runtime.asyncTearDown()
-        self.runtime.tearDown()
 
     async def test_precise_conversion_retains_raw_state_and_transport_health(
         self,
@@ -310,18 +301,18 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ("NaN", "°F", 74.0, None),
         ):
             with self.subTest(state=state, unit=unit):
-                self.runtime.hass.states.async_set(
-                    self.runtime.homekit_temperature.entity_id,
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
                     state,
                     {"device_class": "temperature", "unit_of_measurement": unit},
                 )
                 homekit = climate(homekit_temperature)
-                source = self.runtime.manager._temperature_raw_source(
-                    self.runtime.homekit_temperature.id,
+                source = self.manager._temperature_raw_source(
+                    self.homekit_temperature.id,
                     homekit,
                     now=dt_util.utcnow(),
                     report_times=None,
-                    required_device_id=self.runtime.homekit.device_id,
+                    required_device_id=self.homekit.device_id,
                 )
                 assert source is not None
                 self.assertIs(SourceHealth.HEALTHY, source.health)
@@ -339,9 +330,7 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
                         "homekit_temperature",
                         snapshot.provenance["current_temperature"],
                     )
-                original = self.runtime.hass.states.get(
-                    self.runtime.homekit_temperature.entity_id
-                )
+                original = self.hass.states.get(self.homekit_temperature.entity_id)
                 assert original is not None
                 self.assertEqual(state, original.state)
                 self.assertEqual(unit, original.attributes["unit_of_measurement"])
@@ -351,15 +340,15 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         for state, unit in (("1e400", None), ("42", []), ("NaN", None)):
             with self.subTest(state=state, unit=unit):
-                self.runtime.hass.states.async_set(
-                    self.runtime.ecobee_aqi.entity_id,
+                self.hass.states.async_set(
+                    self.ecobee_aqi.entity_id,
                     state,
                     {"device_class": "aqi", "unit_of_measurement": unit},
                 )
                 self.assertFalse(
                     sensor_contract_valid(
-                        self.runtime.hass,
-                        self.runtime.ecobee_aqi.id,
+                        self.hass,
+                        self.ecobee_aqi.id,
                         AIR_QUALITY_SENSOR_CONTRACTS["aqi"],
                     )
                 )
@@ -367,16 +356,16 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_voc_live_unit_and_quantity_override_native_registry_metadata(
         self,
     ) -> None:
-        ecobee_entry = self.runtime.hass.config_entries.async_get_entry(
-            self.runtime.ecobee.config_entry_id
+        ecobee_entry = self.hass.config_entries.async_get_entry(
+            self.ecobee.config_entry_id
         )
         assert ecobee_entry is not None
-        voc = er.async_get(self.runtime.hass).async_get_or_create(
+        voc = er.async_get(self.hass).async_get_or_create(
             "sensor",
             "ecobee",
             "numeric_validity_voc",
             config_entry=ecobee_entry,
-            device_id=self.runtime.ecobee.device_id,
+            device_id=self.ecobee.device_id,
             original_device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
             unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         )
@@ -392,20 +381,20 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ("125", {}, 125),
         ):
             with self.subTest(attributes=attributes):
-                self.runtime.hass.states.async_set(voc.entity_id, state, attributes)
+                self.hass.states.async_set(voc.entity_id, state, attributes)
                 self.assertEqual(
                     expected is not None,
                     sensor_contract_valid(
-                        self.runtime.hass, voc.id, AIR_QUALITY_SENSOR_CONTRACTS["voc"]
+                        self.hass, voc.id, AIR_QUALITY_SENSOR_CONTRACTS["voc"]
                     ),
                 )
-                source = self.runtime.manager._air_quality_raw_source(
+                source = self.manager._air_quality_raw_source(
                     voc.id,
                     "voc",
                     1800,
                     now=dt_util.utcnow(),
                     report_times=None,
-                    required_device_id=self.runtime.ecobee.device_id,
+                    required_device_id=self.ecobee.device_id,
                     physical_identity_proven=True,
                 )
                 assert source is not None
@@ -417,7 +406,7 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.assertIs(SourceHealth.HEALTHY, source.health)
                     self.assertNotIn("voc_unavailable", snapshot.degradation)
-                original = self.runtime.hass.states.get(voc.entity_id)
+                original = self.hass.states.get(voc.entity_id)
                 assert original is not None
                 self.assertEqual(state, original.state)
                 for attribute, value in attributes.items():

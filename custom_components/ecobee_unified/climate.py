@@ -19,8 +19,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
-from homeassistant.helpers.device import async_entity_id_to_device
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
@@ -30,12 +28,11 @@ from .const import (
     SERVICE_RESUME_PROGRAM,
     SERVICE_SET_OCCUPANCY_MODES,
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
-    SIGNAL_SNAPSHOT_UPDATED,
 )
+from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
 from .models import (
     MappingConfig,
-    NormalizedSnapshot,
     degradation_advisories,
     degradation_problem_reasons,
 )
@@ -163,11 +160,9 @@ async def async_setup_entry(
     )
 
 
-class EcobeeUnifiedClimate(ClimateEntity):
+class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
     """One no-I/O projection of a normalized thermostat snapshot."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "thermostat"
     _unrecorded_attributes = frozenset(
         {
             "active_comfort_sensors",
@@ -179,31 +174,7 @@ class EcobeeUnifiedClimate(ClimateEntity):
     )
 
     def __init__(self, manager: MappingManager, mapping: MappingConfig) -> None:
-        self._manager = manager
-        self._mapping = mapping
-        self._attr_unique_id = mapping.mapping_id
-        source_entity_id = manager.resolve_entity_id(mapping.homekit_entity)
-        self.device_entry = (
-            async_entity_id_to_device(manager.hass, source_entity_id)
-            if source_entity_id
-            else None
-        )
-
-    @property
-    def _snapshot(self) -> NormalizedSnapshot:
-        return self._manager.snapshot(self._mapping.mapping_id)
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe the entity to its mapping's normalized snapshot."""
-
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_SNAPSHOT_UPDATED}_{self._mapping.mapping_id}",
-                self.async_write_ha_state,
-            )
-        )
+        super().__init__(manager, mapping, None, "thermostat")
 
     @property
     @override

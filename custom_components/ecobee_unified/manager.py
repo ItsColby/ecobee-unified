@@ -6,6 +6,7 @@ from asyncio import FIRST_COMPLETED, CancelledError, Lock, create_task, gather, 
 from asyncio import Event as AsyncEvent
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import datetime
 from functools import partial
 from math import isfinite
@@ -133,17 +134,7 @@ class MappingManager:
         self._watched_entity_references = {
             reference
             for mapping in mappings
-            for reference in (
-                mapping.homekit_entity,
-                mapping.ecobee_entity,
-                mapping.homekit_preset_entity,
-                mapping.homekit_clear_hold_entity,
-                mapping.homekit_temperature_entity,
-                mapping.ecobee_aqi_entity,
-                mapping.ecobee_co2_entity,
-                mapping.ecobee_voc_entity,
-                mapping.ecobee_notify_entity,
-            )
+            for reference in _source_references(mapping)
             if reference
         }
         self._watched_device_ids: set[str] = set()
@@ -379,34 +370,7 @@ class MappingManager:
         ):
             self._cancel_timeout(mapping_id)
             self._subscribe_state_reports()
-            snapshot = build_snapshot(
-                mapping_id,
-                homekit,
-                ecobee,
-                homekit_preset=homekit_preset,
-                homekit_temperature=homekit_temperature,
-                homekit_temperature_recovery_pending=temperature_recovery_pending,
-                air_quality_index=cloud_sensors[0],
-                co2=cloud_sensors[1],
-                voc=cloud_sensors[2],
-                command=self._tracker.summary(mapping_id),
-                homekit_preset_writable=homekit_preset_writable,
-                homekit_clear_hold_writable=homekit_clear_hold_writable,
-                temperature_step_fusion_proven=(
-                    physical_identity_proven and HOMEKIT_WRITER_GRANULARITY_PROVEN
-                ),
-                physical_identity_proven=physical_identity_proven,
-                physical_identity_mismatch=(
-                    identity_status is PhysicalIdentityStatus.MISMATCH
-                ),
-                ecobee_notify_writable=(
-                    physical_identity_proven
-                    and self._writer_available(
-                        mapping.ecobee_notify_entity,
-                        required_device_id=ecobee_device_id,
-                    )
-                ),
-            )
+            snapshot = replace(snapshot, command=self._tracker.summary(mapping_id))
         self._snapshots[mapping_id] = snapshot
         stale_inputs = [(ecobee, ecobee_stale_seconds)]
         stale_inputs.extend(
@@ -437,7 +401,7 @@ class MappingManager:
                     translation_domain=DOMAIN,
                     translation_key="homekit_writer_unavailable",
                 )
-            await self._async_confirmable_call(
+            await self._async_tracked_call(
                 mapping_id,
                 service,
                 "climate",
@@ -460,7 +424,7 @@ class MappingManager:
 
         async with self._command_slot(mapping_id):
             entity_id = self._vendor_writer_entity(mapping_id, service)
-            await self._async_confirmable_call(
+            await self._async_tracked_call(
                 mapping_id,
                 service,
                 "ecobee",
@@ -482,11 +446,13 @@ class MappingManager:
 
         async with self._command_slot(mapping_id):
             entity_id = self._vendor_writer_entity(mapping_id, service)
-            await self._async_unconfirmable_call(
+            await self._async_tracked_call(
                 mapping_id,
+                service,
                 "ecobee",
                 service,
                 {**service_data, "entity_id": entity_id},
+                None,
                 context,
                 "ecobee_command_failed",
             )
@@ -510,11 +476,13 @@ class MappingManager:
                     translation_domain=DOMAIN,
                     translation_key="homekit_writer_unavailable",
                 )
-            await self._async_unconfirmable_call(
+            await self._async_tracked_call(
                 mapping_id,
+                "press",
                 "button",
                 "press",
                 {"entity_id": button_id},
+                None,
                 context,
                 "homekit_command_failed",
             )
@@ -542,7 +510,7 @@ class MappingManager:
                     translation_domain=DOMAIN,
                     translation_key="unsupported_preset_mode",
                 )
-            await self._async_confirmable_call(
+            await self._async_tracked_call(
                 mapping_id,
                 "set_preset_mode",
                 "select",
@@ -615,22 +583,25 @@ class MappingManager:
                     translation_key="ecobee_notification_failed",
                 ) from None
 
-    async def _async_confirmable_call(
+    async def _async_tracked_call(
         self,
         mapping_id: str,
         operation: str,
         domain: str,
         service: str,
         service_data: Mapping[str, Any],
-        expected: Mapping[str, Any],
+        expected: Mapping[str, Any] | None,
         context: Context | None,
         error_key: str,
     ) -> None:
-        """Dispatch one writer call before enabling source confirmation."""
+        """Track one write, using None expectations for submitted-only effects."""
 
-        revision = self._tracker.begin(mapping_id, operation, expected)
+        revision = self._tracker.begin(
+            mapping_id, operation, expected if expected is not None else {}
+        )
         self._cancel_timeout(mapping_id)
-        self._subscribe_state_reports()
+        if expected is not None:
+            self._subscribe_state_reports()
         self.refresh_mapping(mapping_id)
         try:
             await self.hass.services.async_call(
@@ -657,57 +628,22 @@ class MappingManager:
                 translation_key=error_key,
             ) from None
 
-        if self._stopped.is_set() or not self._tracker.accept_write(
-            mapping_id, revision
-        ):
+        if self._stopped.is_set():
+            return
+        accepted = (
+            self._tracker.accept_write(mapping_id, revision)
+            if expected is not None
+            else self._tracker.submit(mapping_id, revision)
+        )
+        if not accepted:
             return
         self._subscribe_state_reports()
-        if self._tracker.pending_revision(mapping_id) == revision:
+        if (
+            expected is not None
+            and self._tracker.pending_revision(mapping_id) == revision
+        ):
             self._replace_timeout(mapping_id, revision)
         self.refresh_mapping(mapping_id)
-
-    async def _async_unconfirmable_call(
-        self,
-        mapping_id: str,
-        domain: str,
-        service: str,
-        service_data: Mapping[str, Any],
-        context: Context | None,
-        error_key: str,
-    ) -> None:
-        """Dispatch one writer call before recording its submitted result."""
-
-        revision = self._tracker.begin(mapping_id, service, {})
-        self._cancel_timeout(mapping_id)
-        self.refresh_mapping(mapping_id)
-        try:
-            await self.hass.services.async_call(
-                domain,
-                service,
-                dict(service_data),
-                blocking=True,
-                context=context,
-            )
-        except CancelledError:
-            if (
-                self._tracker.unconfirm(mapping_id, revision)
-                and not self._stopped.is_set()
-            ):
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise
-        except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision) and not self._stopped.is_set():
-                self._subscribe_state_reports()
-                self.refresh_mapping(mapping_id)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key=error_key,
-            ) from None
-
-        if not self._stopped.is_set() and self._tracker.submit(mapping_id, revision):
-            self._subscribe_state_reports()
-            self.refresh_mapping(mapping_id)
 
     def _require_command_admission(self) -> None:
         """A stopped manager can never become a command writer again."""
@@ -782,20 +718,9 @@ class MappingManager:
             return
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
-            references = (
-                mapping.homekit_entity,
-                mapping.ecobee_entity,
-                mapping.homekit_preset_entity,
-                mapping.homekit_clear_hold_entity,
-                mapping.homekit_temperature_entity,
-                mapping.ecobee_aqi_entity,
-                mapping.ecobee_co2_entity,
-                mapping.ecobee_voc_entity,
-                mapping.ecobee_notify_entity,
-            )
             if entity_id not in {
                 resolved
-                for reference in references
+                for reference in _source_references(mapping)
                 if reference and (resolved := self.resolve_entity_id(reference))
             }:
                 continue
@@ -1146,17 +1071,7 @@ class MappingManager:
         entity_ids = {
             resolved
             for mapping in self.mappings
-            for reference in (
-                mapping.homekit_entity,
-                mapping.ecobee_entity,
-                mapping.homekit_preset_entity,
-                mapping.homekit_clear_hold_entity,
-                mapping.homekit_temperature_entity,
-                mapping.ecobee_aqi_entity,
-                mapping.ecobee_co2_entity,
-                mapping.ecobee_voc_entity,
-                mapping.ecobee_notify_entity,
-            )
+            for reference in _source_references(mapping)
             if reference and (resolved := self.resolve_entity_id(reference))
         }
         self._watched_entity_ids = entity_ids
@@ -1214,12 +1129,11 @@ class MappingManager:
             else None
         )
 
-    def _sync_helper_device_links(self) -> bool:
+    def _sync_helper_device_links(self) -> None:
         """Relink unified entities when their HomeKit source device changes."""
 
         registry = er.async_get(self.hass)
         device_registry = dr.async_get(self.hass)
-        changed = False
         mapping_by_unique_id = {
             unique_id: mapping
             for mapping in self.mappings
@@ -1255,8 +1169,6 @@ class MappingManager:
             registry.async_update_entity(
                 helper_entry.entity_id, device_id=source_device_id
             )
-            changed = True
-        return changed
 
     def _optional_raw_source(
         self,
@@ -1383,12 +1295,7 @@ class MappingManager:
                 raise ValueError
             target_unit_enum = UnitOfTemperature(str(target_unit))
         except TypeError, ValueError:
-            return RawSource(
-                None,
-                source.attributes,
-                age_seconds=source.age_seconds,
-                health=SourceHealth.UNAVAILABLE,
-            )
+            return self._invalid_source(source)
         value = finite_temperature(value, source_unit)
         try:
             converted = (
@@ -1709,6 +1616,22 @@ class MappingManager:
             ):
                 invalid.append(label)
         return invalid
+
+
+def _source_references(mapping: MappingConfig) -> tuple[str | None, ...]:
+    """Return every mapped source in the shared subscription order."""
+
+    return (
+        mapping.homekit_entity,
+        mapping.ecobee_entity,
+        mapping.homekit_preset_entity,
+        mapping.homekit_clear_hold_entity,
+        mapping.homekit_temperature_entity,
+        mapping.ecobee_aqi_entity,
+        mapping.ecobee_co2_entity,
+        mapping.ecobee_voc_entity,
+        mapping.ecobee_notify_entity,
+    )
 
 
 def _state_age_seconds(last_reported: datetime, now: datetime) -> int:

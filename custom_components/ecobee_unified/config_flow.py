@@ -737,15 +737,7 @@ def _mapping_form_defaults(hass: Any, mapping: dict[str, str]) -> dict[str, Any]
         or mapping[CONF_ECOBEE_ENTITY],
         **{
             key: _resolved_or_reference(registry, mapping.get(key))
-            for key in (
-                CONF_HOMEKIT_PRESET_ENTITY,
-                CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
-                CONF_HOMEKIT_TEMPERATURE_ENTITY,
-                CONF_ECOBEE_AQI_ENTITY,
-                CONF_ECOBEE_CO2_ENTITY,
-                CONF_ECOBEE_VOC_ENTITY,
-                CONF_ECOBEE_NOTIFY_ENTITY,
-            )
+            for key in OPTIONAL_SOURCE_KEYS
         },
     }
 

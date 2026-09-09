@@ -87,6 +87,22 @@ def _record_unreviewed_binary(failures: set[str], message: str, content: bytes) 
         failures.add(message)
 
 
+def _content_failures(path: Path, content: bytes) -> tuple[bool, list[str]]:
+    """Classify payload bytes and preserve the working-tree scan denominator."""
+
+    if path.suffix.lower() not in TEXT_SUFFIXES:
+        if _is_reviewed_binary(path, content):
+            return True, []
+        return False, ["unreviewed binary content"]
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return True, ["non-UTF-8 content"]
+    if "\0" in text:
+        return True, ["unreviewed binary content"]
+    return True, sorted(_text_failures(text))
+
+
 def run_guard(root: Path) -> tuple[int, list[str]]:
     failures: list[str] = []
     count = 0
@@ -111,24 +127,9 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
             f"{relative}: filename {failure}"
             for failure in sorted(_text_failures(str(relative)))
         )
-        if path.suffix.lower() not in TEXT_SUFFIXES:
-            if _is_reviewed_binary(relative, path.read_bytes()):
-                count += 1
-            else:
-                failures.append(f"{relative}: unreviewed binary content")
-            continue
-        count += 1
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            failures.append(f"{relative}: non-UTF-8 content")
-            continue
-        if "\0" in text:
-            failures.append(f"{relative}: unreviewed binary content")
-            continue
-        failures.extend(
-            f"{relative}: {failure}" for failure in sorted(_text_failures(text))
-        )
+        counted, content_failures = _content_failures(relative, path.read_bytes())
+        count += counted
+        failures.extend(f"{relative}: {failure}" for failure in content_failures)
     return count, failures
 
 
@@ -174,24 +175,9 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
                     f"Source archive {name}: filename {failure}"
                     for failure in sorted(_text_failures(name))
                 )
-                suffix = Path(name).suffix.lower()
-                if suffix not in TEXT_SUFFIXES:
-                    if not _is_reviewed_binary(Path(name), archive.read(name)):
-                        failures.append(
-                            f"Source archive {name}: unreviewed binary content"
-                        )
-                    continue
-                try:
-                    text = archive.read(name).decode("utf-8")
-                except UnicodeDecodeError:
-                    failures.append(f"Source archive {name}: non-UTF-8 content")
-                    continue
-                if "\0" in text:
-                    failures.append(f"Source archive {name}: unreviewed binary content")
-                    continue
+                _, content_failures = _content_failures(Path(name), archive.read(name))
                 failures.extend(
-                    f"Source archive {name}: {failure}"
-                    for failure in sorted(_text_failures(text))
+                    f"Source archive {name}: {failure}" for failure in content_failures
                 )
     return len(tracked), failures
 

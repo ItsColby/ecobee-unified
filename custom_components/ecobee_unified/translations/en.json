@@ -171,6 +171,7 @@
     }
   },
   "exceptions": {
+    "command_unavailable": {"message": "The integration is unloading or unavailable; no command was sent."},
     "ecobee_command_failed": {"message": "The Ecobee action failed."},
     "ecobee_notification_failed": {"message": "The Ecobee thermostat notification failed."},
     "ecobee_notification_unavailable": {"message": "The mapped Ecobee thermostat notification writer is unavailable, or the message is empty."},

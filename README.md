@@ -19,9 +19,10 @@ another Ecobee or Beestat API client.
 
 The integration keeps Home Assistant Core 2026.8.0 as its distribution minimum
 and dependency-closed minimum lane. A second dependency-closed lane targets the
-maintained Core 2026.8.1 patch with its matching published harness. Source
-state, immutable GitHub releases, HACS installation, and live deployment remain
-separately verifiable lifecycle states.
+maintained Core 2026.9.1 release with its matching published harness. The older
+distribution floor and current stable lane deliberately span monthly releases.
+Source state, immutable GitHub releases, HACS installation, and live deployment
+remain separately verifiable lifecycle states.
 
 The complete presentation-versus-transport boundary and batch disposition is
 documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
@@ -61,6 +62,12 @@ release state.
 - An empty Ecobee equipment report is the healthy idle state. Missing or
   unusable source state remains unavailable rather than being collapsed into
   idle.
+- Numeric inputs must be representable and finite; temperatures below absolute
+  zero beyond the source's serialization uncertainty and humidity outside
+  0–100 percent are invalid. Present invalid fields produce bounded degradation
+  reasons without relabeling source connectivity.
+  Use eligible documented fallback or unavailable, never comfort-band clipping,
+  smoothing, or replacement measurements.
 - Read fallback never changes the command writer. A timeout never retries a
   command through another backend.
 
@@ -192,8 +199,9 @@ surface reports `homekit_temperature_recovery_pending` while appropriate.
 This guard detects observed inconsistency, not physical accuracy. Quiet agreeing
 sources remain valid. Reloading or restarting Unified clears its observation
 memory; matching stale values after startup cannot be identified without new
-evidence. No source reloads, thermostat commands, smoothing, or history edits are
-performed by this guard.
+evidence. A faulty climate comparator can temporarily suppress valid precise
+data, and only the last rejected value is remembered. No source reloads,
+thermostat commands, smoothing, or history edits are performed by this guard.
 
 Options expose the cadence-backed Ecobee freshness threshold and the
 command-confirmation window. Saved values must be whole, selector-aligned
@@ -207,6 +215,15 @@ failover.
 
 ## Actions
 
+Unloading closes command admission and rejects queued commands before dispatch.
+An already dispatched source action may still take effect; its tracked outcome
+remains unconfirmed, with no retry or old-manager listeners/timers recreated
+after it returns. Cancelling a caller's wait likewise does not undo a physical
+action.
+Confirmation observes the operation's mapped source before dispatch so a fresh
+unchanged report during the write can be retained, but only writer success
+permits confirmation.
+
 Climate preset selection calls the mapped HomeKit Current Mode select exactly
 once and only for an advertised option. An unreadable current option does not
 disable that same-device writer when the select remains enabled, available,
@@ -216,6 +233,7 @@ misassociated select still removes preset control before any effect.
 
 `ecobee_unified.resume_program` targets a unified climate entity and presses the
 mapped local HomeKit Clear Hold button exactly once.
+This is one Unified service dispatch; HomeKit owns its internal protocol writes.
 
 The same operation is available as an optional **Resume program** button on
 the Unified thermostat device, so dashboards do not need to expose or target
@@ -292,7 +310,7 @@ pytest tests -q
 Current maintained Core lane:
 
 ```text
-python -m pip install "pytest-homeassistant-custom-component==0.13.355"
+python -m pip install "pytest-homeassistant-custom-component==0.13.364"
 python -m pip install --upgrade -r requirements-ha-current.txt
 python -m pip install "mypy==2.3.0"
 python -m pip check

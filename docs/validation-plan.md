@@ -38,6 +38,12 @@ For every standard and vendor field, test:
 - primary unavailable, fallback valid;
 - primary unknown/unavailable with stale fallback;
 - source field absent or malformed;
+- huge numeric integers, conversion overflow, booleans and non-finite values
+  fail without snapshot exceptions; temperatures below absolute zero beyond
+  source serialization uncertainty are invalid in each supported unit, while
+  rounding at absolute zero and physically possible extremes are not clipped;
+- present-invalid optional fields produce bounded degradation reasons; absent
+  optional fields and source transport health preserve their distinct semantics;
 - both unavailable;
 - unequal values that prove no averaging/freshest-wins behavior;
 - honest primary precision, writer-owned temperature units/bounds, explicit
@@ -120,12 +126,19 @@ decimal places or a newer timestamp.
 - confirmation success, mismatch, timeout, reload, and source loss;
 - matching report during an awaited writer followed by success or failure,
   proving that only success permits confirmation and starts timeout ownership;
+- real preset dispatch retains semantic operation identity and confirms from the
+  local select without a cloud report; unchanged preset/humidity reports during
+  awaited success or failure follow the same observer and acceptance boundary;
 - confirmation from a fresh matching report whose state and attributes are
   unchanged;
 - rapid repeated commands, per-mapping writer dispatch order, and superseded
   pending state, including a delayed first call that cannot finish after and
   overwrite the second;
 - late observations for an older revision cannot mutate the current command;
+- native config-entry unload while a source write awaits rejects queued/new
+  commands without dispatch and prevents listener, timer or snapshot resurrection
+  after writer success, failure or cancellation; cover standard, submitted-only
+  vendor and notification paths plus a replacement manager;
 - service error propagation and diagnostics redaction.
 
 ### Home Assistant Contracts
@@ -170,9 +183,9 @@ decimal places or a newer timestamp.
   attributes when first-class Beestat/number/sensor entities own them;
 - Repairs only for persistent actionable faults, including user-disabled or
   detached required/optional sources, with recovery deletion;
-- exact Home Assistant Core 2026.8.0 minimum and 2026.8.1 maintained-current
-  support/test lanes, with no lane outside that year/month unless the support
-  contract is intentionally widened;
+- exact Home Assistant Core 2026.8.0 minimum and 2026.9.1 maintained-current
+  support/test lanes with matching published harnesses; this intentionally
+  broader contract spans stable monthly releases without a dependency exception;
 - explicit pytest asyncio ownership so every top-level HA integration test is
   collected and executed rather than silently skipped;
 - matching harness/Core requirement installation and final dependency closure

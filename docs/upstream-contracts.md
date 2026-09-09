@@ -1,7 +1,8 @@
 # Upstream Contract Refresh
 
-Verified against installed Home Assistant Core 2026.8.1 on
-2026-08-08. These are implementation inputs, not proof of live deployment.
+The original Core 2026.8.1 contract review is retained below; compatibility,
+source semantics and command lifecycle were refreshed against Core 2026.9.1 on
+2026-09-08. These are implementation inputs, not proof of live deployment.
 
 ## Resolved implementation checks
 
@@ -25,11 +26,11 @@ Verified against installed Home Assistant Core 2026.8.1 on
    from the first-class number to that writer exactly once.
 5. **Compatibility lanes:** Core 2026.8.0 remains the distribution minimum and
    dependency-closed minimum lane with harness 0.13.354. Installed Core
-   2026.8.1 is the maintained-current target and has its own dependency-closed
-   lane with matching published harness 0.13.355. Each lane installs its exact
+   2026.9.1 is the maintained-current target and has its own dependency-closed
+   lane with matching published harness 0.13.364. Each lane installs its exact
    harness before exact Core, installs product-owned tooling last, runs
-   `pip check`, and executes the complete HA test surface. Support outside the
-   Core 2026.8 year/month remains unclaimed.
+   `pip check`, and executes the complete HA test surface. These exact lanes
+   intentionally maintain the older distribution floor across stable months.
 6. **Source-device lifecycle:** Core 2026.8's helper lifecycle updates helper
    entity registry links when the selected source entity's device association
    changes. Ecobee Unified applies supported entity/device registry listeners
@@ -98,6 +99,15 @@ Verified against installed Home Assistant Core 2026.8.1 on
     that healthy empty report through normalization so its bounded equipment
     sensor projects `idle`; absent or unusable source state still projects
     unavailable.
+15. **Current source and lifecycle limits:** Core 2026.9.1's Ecobee climate
+    consumes `actualTemperature`, the thermostat-displayed quantity, which may
+    be feels-like under humidex. It is not independent dry-bulb corroboration.
+    HomeKit's duplicate sensor caches its characteristic object while the
+    climate reads the current service; Unified's recovery guard does not fix
+    acquisition. Core entity-platform removal does not drain arbitrary custom
+    manager service calls, so Unified closes its own command admission and
+    fences late completions. A single Clear Hold dispatch may perform multiple
+    source-owned protocol writes.
 
 Potential improvements to the source integrations are recorded separately in
 `upstream-opportunities.md`; none is required for this product and none has
@@ -109,6 +119,13 @@ source and shipped state belong to Git and immutable releases; private runtime
 state belongs to the owning Home Assistant deployment record.
 
 ## Primary sources
+
+- [Core 2026.9.1 entity-platform lifecycle](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/helpers/entity_platform.py)
+- [Core 2026.9.1 Ecobee climate source](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py)
+- [Ecobee Runtime temperature semantics](https://www.ecobee.com/home/developer/api/documentation/v1/objects/Runtime.shtml)
+- [Core 2026.9.1 HomeKit sensor source](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/sensor.py)
+- [Core 2026.9.1 HomeKit entity lifecycle](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/entity.py)
+- [Core 2026.9.1 HomeKit Clear Hold](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/button.py)
 
 - [Core 2026.8 device ownership and helper-linking change](https://developers.home-assistant.io/blog/2026/07/21/device-registry-single-config-entry/)
 - [Helper integrations linking to source devices](https://developers.home-assistant.io/blog/2025/07/18/updated-pattern-for-helpers-linking-to-devices/)

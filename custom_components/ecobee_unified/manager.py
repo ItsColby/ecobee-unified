@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from asyncio import Lock
-from collections.abc import Callable, Mapping
+from asyncio import FIRST_COMPLETED, CancelledError, Lock, create_task, gather, wait
+from asyncio import Event as AsyncEvent
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import partial
 from math import isfinite
@@ -67,6 +69,7 @@ from .models import (
     RawSource,
     SourceHealth,
     build_snapshot,
+    finite_temperature,
     homekit_temperature_agrees,
 )
 from .source_contracts import (
@@ -112,6 +115,7 @@ class MappingManager:
         self._snapshots: dict[str, NormalizedSnapshot] = {}
         self._tracker = CommandTracker()
         self._command_locks = {mapping.mapping_id: Lock() for mapping in self.mappings}
+        self._stopped = AsyncEvent()
         self._options = options
         self._unsub_state: Callable[[], None] | None = None
         self._unsub_state_report: Callable[[], None] | None = None
@@ -146,6 +150,7 @@ class MappingManager:
     async def async_start(self) -> None:
         """Start subscriptions and build initial snapshots."""
 
+        self._require_command_admission()
         self._subscribe_states()
         self._unsub_registry = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_event
@@ -156,8 +161,16 @@ class MappingManager:
         self.refresh_all()
 
     async def async_stop(self) -> None:
-        """Stop only subscriptions and timers owned by this manager."""
+        """Close admission and stop callbacks without retrying dispatched effects."""
 
+        # A dispatched source call may already have changed the thermostat. Let its
+        # caller receive the result, but do not retain confirmation or publish later.
+        self._stopped.set()
+        for mapping in self.mappings:
+            if (
+                revision := self._tracker.pending_revision(mapping.mapping_id)
+            ) is not None:
+                self._tracker.unconfirm(mapping.mapping_id, revision)
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
@@ -250,6 +263,8 @@ class MappingManager:
     ) -> None:
         """Normalize mapped states once and publish every projection from it."""
 
+        if self._stopped.is_set():
+            return
         mapping = self._mapping_by_id[mapping_id]
         now = dt_util.utcnow()
         ecobee_stale_seconds = int(
@@ -407,7 +422,7 @@ class MappingManager:
     ) -> None:
         """Call exactly one HomeKit writer and observe Ecobee without retry."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             mapping = self._mapping_by_id[mapping_id]
             snapshot = self.snapshot(mapping_id)
             entity_id = self.resolve_entity_id(mapping.homekit_entity)
@@ -418,6 +433,7 @@ class MappingManager:
                 )
             await self._async_confirmable_call(
                 mapping_id,
+                service,
                 "climate",
                 service,
                 {**service_data, "entity_id": entity_id},
@@ -436,10 +452,11 @@ class MappingManager:
     ) -> None:
         """Call exactly one explicit Ecobee action with no fallback."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             entity_id = self._vendor_writer_entity(mapping_id, service)
             await self._async_confirmable_call(
                 mapping_id,
+                service,
                 "ecobee",
                 service,
                 {**service_data, "entity_id": entity_id},
@@ -457,7 +474,7 @@ class MappingManager:
     ) -> None:
         """Submit one Ecobee effect that has no honest state confirmation."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             entity_id = self._vendor_writer_entity(mapping_id, service)
             await self._async_unconfirmable_call(
                 mapping_id,
@@ -473,7 +490,7 @@ class MappingManager:
     ) -> None:
         """Submit one mapped local clear-hold action without false confirmation."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             mapping = self._mapping_by_id[mapping_id]
             button_id = (
                 self.resolve_entity_id(mapping.homekit_clear_hold_entity)
@@ -502,7 +519,7 @@ class MappingManager:
     ) -> None:
         """Select one capability-advertised HomeKit preset exactly once."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             mapping = self._mapping_by_id[mapping_id]
             snapshot = self.snapshot(mapping_id)
             entity_id = (
@@ -521,6 +538,7 @@ class MappingManager:
                 )
             await self._async_confirmable_call(
                 mapping_id,
+                "set_preset_mode",
                 "select",
                 "select_option",
                 {"entity_id": entity_id, "option": preset_mode},
@@ -559,7 +577,7 @@ class MappingManager:
     ) -> None:
         """Forward one message to the explicitly mapped Ecobee notify entity."""
 
-        async with self._command_locks[mapping_id]:
+        async with self._command_slot(mapping_id):
             mapping = self._mapping_by_id[mapping_id]
             entity_id = (
                 self.resolve_entity_id(mapping.ecobee_notify_entity)
@@ -594,6 +612,7 @@ class MappingManager:
     async def _async_confirmable_call(
         self,
         mapping_id: str,
+        operation: str,
         domain: str,
         service: str,
         service_data: Mapping[str, Any],
@@ -603,8 +622,9 @@ class MappingManager:
     ) -> None:
         """Dispatch one writer call before enabling source confirmation."""
 
-        revision = self._tracker.begin(mapping_id, service, expected)
+        revision = self._tracker.begin(mapping_id, operation, expected)
         self._cancel_timeout(mapping_id)
+        self._subscribe_state_reports()
         self.refresh_mapping(mapping_id)
         try:
             await self.hass.services.async_call(
@@ -614,8 +634,16 @@ class MappingManager:
                 blocking=True,
                 context=context,
             )
+        except CancelledError:
+            if (
+                self._tracker.unconfirm(mapping_id, revision)
+                and not self._stopped.is_set()
+            ):
+                self._subscribe_state_reports()
+                self.refresh_mapping(mapping_id)
+            raise
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
+            if self._tracker.fail(mapping_id, revision) and not self._stopped.is_set():
                 self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
@@ -623,7 +651,9 @@ class MappingManager:
                 translation_key=error_key,
             ) from None
 
-        if not self._tracker.accept_write(mapping_id, revision):
+        if self._stopped.is_set() or not self._tracker.accept_write(
+            mapping_id, revision
+        ):
             return
         self._subscribe_state_reports()
         if self._tracker.pending_revision(mapping_id) == revision:
@@ -652,8 +682,16 @@ class MappingManager:
                 blocking=True,
                 context=context,
             )
+        except CancelledError:
+            if (
+                self._tracker.unconfirm(mapping_id, revision)
+                and not self._stopped.is_set()
+            ):
+                self._subscribe_state_reports()
+                self.refresh_mapping(mapping_id)
+            raise
         except Exception:  # noqa: BLE001 - source services may raise arbitrary errors
-            if self._tracker.fail(mapping_id, revision):
+            if self._tracker.fail(mapping_id, revision) and not self._stopped.is_set():
                 self._subscribe_state_reports()
                 self.refresh_mapping(mapping_id)
             raise HomeAssistantError(
@@ -661,9 +699,45 @@ class MappingManager:
                 translation_key=error_key,
             ) from None
 
-        if self._tracker.submit(mapping_id, revision):
+        if not self._stopped.is_set() and self._tracker.submit(mapping_id, revision):
             self._subscribe_state_reports()
             self.refresh_mapping(mapping_id)
+
+    def _require_command_admission(self) -> None:
+        """A stopped manager can never become a command writer again."""
+
+        if self._stopped.is_set():
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="command_unavailable",
+            )
+
+    @asynccontextmanager
+    async def _command_slot(self, mapping_id: str) -> AsyncIterator[None]:
+        """Keep FIFO dispatch while rejecting queued commands promptly on stop."""
+
+        self._require_command_admission()
+        lock = self._command_locks[mapping_id]
+        acquire = create_task(lock.acquire())
+        stopped = create_task(self._stopped.wait())
+        try:
+            await wait((acquire, stopped), return_when=FIRST_COMPLETED)
+            self._require_command_admission()
+            yield
+        finally:
+            for task in (acquire, stopped):
+                if not task.done():
+                    task.cancel()
+            try:
+                await gather(acquire, stopped, return_exceptions=True)
+            finally:
+                if (
+                    acquire.done()
+                    and not acquire.cancelled()
+                    and acquire.exception() is None
+                    and acquire.result()
+                ):
+                    lock.release()
 
     def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
         """Resolve one healthy mapped Ecobee writer for a supported action."""
@@ -698,6 +772,8 @@ class MappingManager:
 
     @callback
     def _handle_state_event(self, event: Event[EventStateChangedData]) -> None:
+        if self._stopped.is_set():
+            return
         entity_id = event.data["entity_id"]
         for mapping in self.mappings:
             references = (
@@ -971,6 +1047,8 @@ class MappingManager:
     def _handle_entity_registry_event(
         self, event: Event[er.EventEntityRegistryUpdatedData]
     ) -> None:
+        if self._stopped.is_set():
+            return
         affected = {event.data["entity_id"]}
         old_entity_id = event.data.get("old_entity_id")
         if isinstance(old_entity_id, str):
@@ -998,6 +1076,8 @@ class MappingManager:
     def _handle_device_registry_event(
         self, event: Event[dr.EventDeviceRegistryUpdatedData]
     ) -> None:
+        if self._stopped.is_set():
+            return
         if event.data["device_id"] not in self._watched_device_ids:
             return
         self._subscribe_states()
@@ -1295,12 +1375,6 @@ class MappingManager:
                 raise ValueError
             source_unit_enum = UnitOfTemperature(str(source_unit))
             target_unit_enum = UnitOfTemperature(str(target_unit))
-            value = float(source.state)
-            if not isfinite(value):
-                raise ValueError
-            converted = TemperatureConverter.convert(
-                value, source_unit_enum, target_unit_enum
-            )
         except TypeError, ValueError:
             return RawSource(
                 None,
@@ -1308,8 +1382,22 @@ class MappingManager:
                 age_seconds=source.age_seconds,
                 health=SourceHealth.UNAVAILABLE,
             )
+        value = finite_temperature(source.state, source_unit_enum, allow_text=True)
+        try:
+            converted = (
+                finite_temperature(
+                    TemperatureConverter.convert(
+                        value, source_unit_enum, target_unit_enum
+                    ),
+                    target_unit_enum,
+                )
+                if value is not None
+                else None
+            )
+        except TypeError, ValueError, OverflowError:
+            converted = None
         return RawSource(
-            str(converted),
+            str(converted) if converted is not None else None,
             source.attributes,
             age_seconds=source.age_seconds,
             health=source.health,

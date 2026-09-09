@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from math import isfinite
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
@@ -16,6 +15,8 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+
+from .models import finite_number
 
 
 class PhysicalIdentityStatus(StrEnum):
@@ -85,16 +86,13 @@ def sensor_contract_valid(
     unit = entry.unit_of_measurement or (
         state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
     )
-    normalized_unit = str(unit) if unit not in {None, ""} else None
+    normalized_unit = str(unit) if unit is not None and unit != "" else None
     if device_class != contract.device_class or normalized_unit != contract.unit:
         return False
     if state is None or state.state in {"unknown", "unavailable"}:
         return True
-    try:
-        value = float(state.state)
-    except ValueError:
-        return False
-    return isfinite(value) and value >= 0
+    value = finite_number(state.state, allow_text=True)
+    return value is not None and value >= 0
 
 
 def _device_for_reference(

@@ -344,8 +344,8 @@ def build_snapshot(
     )
     provenance.update(metadata_provenance)
     degradation.update(metadata_degradation)
-    ecobee_min_temp, ecobee_max_temp, ecobee_temperature_unit = (
-        _ecobee_temperature_metadata(ecobee)
+    ecobee_min_temp, ecobee_max_temp, ecobee_temperature_unit = _temperature_bounds(
+        ecobee, source_name="ecobee"
     )
 
     source_health, source_ages = _source_diagnostics(
@@ -455,7 +455,9 @@ def homekit_temperature_agrees(
     """Compare normalized local temperatures, or return no usable comparison."""
 
     precise_value = _optional_source_temperature(homekit_temperature, homekit)
-    homekit_value = _writer_attribute(homekit, "current_temperature", "temperature")
+    homekit_value = _usable_source_attribute(
+        homekit, "current_temperature", "temperature"
+    )
     homekit_unit = (
         _normalize_field(
             homekit.attributes.get("unit_of_measurement"), "temperature_unit"
@@ -561,13 +563,13 @@ def _confirmation_values(
         values.update(
             {
                 "hvac_mode": _hvac_mode(ecobee.state),
-                "target_temperature": _writer_attribute(
+                "target_temperature": _usable_source_attribute(
                     ecobee, "temperature", "temperature", source_name="ecobee"
                 ),
-                "target_temperature_low": _writer_attribute(
+                "target_temperature_low": _usable_source_attribute(
                     ecobee, "target_temp_low", "temperature", source_name="ecobee"
                 ),
-                "target_temperature_high": _writer_attribute(
+                "target_temperature_high": _usable_source_attribute(
                     ecobee, "target_temp_high", "temperature", source_name="ecobee"
                 ),
                 "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
@@ -587,10 +589,10 @@ def _confirmation_values(
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _writer_attribute(
+def _usable_source_attribute(
     source: RawSource, key: str, value_type: str, *, source_name: str = "homekit"
 ) -> Any:
-    """Normalize metadata only from the mapped command writer."""
+    """Normalize an attribute only while its source is usable."""
 
     return (
         _normalize_source_attribute(source, key, value_type, source_name=source_name)
@@ -607,22 +609,14 @@ def _temperature_metadata(
 ) -> tuple[int, dict[str, Any], dict[str, str], set[str]]:
     """Project writer-owned temperature metadata and one explicit step fusion."""
 
-    min_temp = _writer_attribute(homekit, "min_temp", "temperature")
-    max_temp = _writer_attribute(homekit, "max_temp", "temperature")
-    unit = _writer_attribute(homekit, "unit_of_measurement", "temperature_unit")
-    valid = (
-        min_temp is not None
-        and max_temp is not None
-        and min_temp <= max_temp
-        and unit is not None
-    )
+    min_temp, max_temp, unit = _temperature_bounds(homekit, source_name="homekit")
     provenance: dict[str, str] = {}
     degradation: set[str] = set()
     temperature_features = TARGET_TEMPERATURE_FEATURE | TARGET_TEMPERATURE_RANGE_FEATURE
-    if supported_features & temperature_features and not valid:
-        supported_features &= ~temperature_features
-        degradation.add("homekit_temperature_metadata_unavailable")
-    if not valid:
+    if min_temp is None or max_temp is None or unit is None:
+        if supported_features & temperature_features:
+            supported_features &= ~temperature_features
+            degradation.add("homekit_temperature_metadata_unavailable")
         return (
             supported_features,
             {
@@ -638,7 +632,7 @@ def _temperature_metadata(
     provenance.update(
         {"min_temp": "homekit", "max_temp": "homekit", "temperature_unit": "homekit"}
     )
-    step = _writer_attribute(homekit, "target_temp_step", "positive_number")
+    step = _usable_source_attribute(homekit, "target_temp_step", "positive_number")
     native_step_present = homekit.attributes.get("target_temp_step") is not None
     if native_step_present and (step is None or step > max_temp - min_temp):
         step = None
@@ -672,14 +666,18 @@ def _temperature_metadata(
     )
 
 
-def _ecobee_temperature_metadata(
-    ecobee: RawSource,
+def _temperature_bounds(
+    source: RawSource, *, source_name: str
 ) -> tuple[float | None, float | None, str | None]:
-    """Normalize vacation bounds from the mapped Ecobee command writer."""
+    """Normalize ordered climate bounds in their source's serialized unit."""
 
-    minimum = _writer_attribute(ecobee, "min_temp", "temperature", source_name="ecobee")
-    maximum = _writer_attribute(ecobee, "max_temp", "temperature", source_name="ecobee")
-    unit = _writer_attribute(ecobee, "unit_of_measurement", "temperature_unit")
+    minimum = _usable_source_attribute(
+        source, "min_temp", "temperature", source_name=source_name
+    )
+    maximum = _usable_source_attribute(
+        source, "max_temp", "temperature", source_name=source_name
+    )
+    unit = _usable_source_attribute(source, "unit_of_measurement", "temperature_unit")
     if minimum is None or maximum is None or minimum > maximum or unit is None:
         return None, None, None
     return minimum, maximum, unit
@@ -697,8 +695,8 @@ def _humidity_metadata(
     }
     if not supported_features & TARGET_HUMIDITY_FEATURE:
         return supported_features, values, {}, set()
-    minimum = _writer_attribute(homekit, "min_humidity", "humidity")
-    maximum = _writer_attribute(homekit, "max_humidity", "humidity")
+    minimum = _usable_source_attribute(homekit, "min_humidity", "humidity")
+    maximum = _usable_source_attribute(homekit, "max_humidity", "humidity")
     if minimum is None or maximum is None or minimum > maximum:
         return (
             supported_features & ~TARGET_HUMIDITY_FEATURE,
@@ -706,7 +704,7 @@ def _humidity_metadata(
             {},
             {"homekit_humidity_bounds_unavailable"},
         )
-    target = _writer_attribute(homekit, "humidity", "humidity")
+    target = _usable_source_attribute(homekit, "humidity", "humidity")
     values.update(
         {"target_humidity": target, "min_humidity": minimum, "max_humidity": maximum}
     )
@@ -743,20 +741,12 @@ def _select_state(
 def _select_attribute(
     primary: RawSource, fallback: RawSource, key: str, value_type: str
 ) -> tuple[Any, str | None]:
-    primary_value = (
-        _normalize_source_attribute(primary, key, value_type)
-        if primary.usable
-        else None
-    )
-    if primary_value is not None:
-        return primary_value, "homekit"
-    fallback_value = (
-        _normalize_source_attribute(fallback, key, value_type, source_name="ecobee")
-        if fallback.usable
-        else None
-    )
-    if fallback_value is not None:
-        return fallback_value, "ecobee"
+    for source_name, source in (("homekit", primary), ("ecobee", fallback)):
+        value = _usable_source_attribute(
+            source, key, value_type, source_name=source_name
+        )
+        if value is not None:
+            return value, source_name
     return None, None
 
 
@@ -806,8 +796,6 @@ def _normalize_source_attribute(
 
 
 def _normalize_field(value: Any, value_type: str) -> Any:
-    if value_type == "number":
-        return finite_number(value)
     if value_type == "positive_number":
         number = finite_number(value)
         return number if number is not None and number > 0 else None

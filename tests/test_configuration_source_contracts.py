@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import unittest
 from dataclasses import replace
 from typing import Any
 
@@ -31,28 +30,19 @@ from custom_components.ecobee_unified.const import (
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig, SourceHealth
 
-from . import test_runtime_core_api as runtime_tests
+from .runtime_fixture import CoreRuntimeTestCase
 
 
-class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
+class ConfigurationSourceContractTests(CoreRuntimeTestCase):
     async def asyncSetUp(self) -> None:
-        self.runtime = runtime_tests.RuntimeCoreApiTests()
-        self.runtime.setUp()
-        await self.runtime.asyncSetUp()
-        self.hass = self.runtime.hass
+        await super().asyncSetUp()
         self.registry = er.async_get(self.hass)
-
-    async def asyncTearDown(self) -> None:
-        await self.runtime.asyncTearDown()
-        self.runtime.tearDown()
 
     async def test_live_temperature_metadata_cannot_be_masked_by_registry(
         self,
     ) -> None:
-        inputs = _mapping_form_defaults(self.hass, self.runtime.mapping.as_dict())
-        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = (
-            self.runtime.homekit_temperature.entity_id
-        )
+        inputs = _mapping_form_defaults(self.hass, self.mapping.as_dict())
+        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = self.homekit_temperature.entity_id
         for attributes in (
             {"device_class": "humidity", "unit_of_measurement": "%"},
             {"device_class": "temperature", "unit_of_measurement": "widgets"},
@@ -61,7 +51,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(attributes=attributes):
                 self.hass.states.async_set(
-                    self.runtime.homekit_temperature.entity_id, "20.04", attributes
+                    self.homekit_temperature.entity_id, "20.04", attributes
                 )
                 with self.assertRaisesRegex(
                     vol.Invalid, "invalid_homekit_temperature_source"
@@ -71,10 +61,8 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_valid_live_temperature_unit_and_registry_fallback_are_supported(
         self,
     ) -> None:
-        inputs = _mapping_form_defaults(self.hass, self.runtime.mapping.as_dict())
-        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = (
-            self.runtime.homekit_temperature.entity_id
-        )
+        inputs = _mapping_form_defaults(self.hass, self.mapping.as_dict())
+        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = self.homekit_temperature.entity_id
         for state, attributes in (
             ("68.072", {"device_class": "temperature", "unit_of_measurement": "°F"}),
             ("293.19", {"device_class": "temperature", "unit_of_measurement": "K"}),
@@ -82,26 +70,26 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(attributes=attributes):
                 self.hass.states.async_set(
-                    self.runtime.homekit_temperature.entity_id, state, attributes
+                    self.homekit_temperature.entity_id, state, attributes
                 )
                 configured = _mapping_from_input(self.hass, inputs)
                 self.assertEqual(
-                    self.runtime.homekit_temperature.id,
+                    self.homekit_temperature.id,
                     configured[CONF_HOMEKIT_TEMPERATURE_ENTITY],
                 )
         self.registry.async_update_entity(
-            self.runtime.homekit_temperature.entity_id,
+            self.homekit_temperature.entity_id,
             original_device_class=SensorDeviceClass.HUMIDITY,
             unit_of_measurement="widgets",
         )
         self.hass.states.async_set(
-            self.runtime.homekit_temperature.entity_id,
+            self.homekit_temperature.entity_id,
             "20.04",
             {"device_class": "temperature", "unit_of_measurement": "°C"},
         )
         configured = _mapping_from_input(self.hass, inputs, mapping_id="live_contract")
         self.assertEqual(
-            self.runtime.homekit_temperature.id,
+            self.homekit_temperature.id,
             configured[CONF_HOMEKIT_TEMPERATURE_ENTITY],
         )
         mapping = MappingConfig.from_dict(configured)
@@ -123,10 +111,8 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_live_contract_degrades_repairs_and_recovers_consistently(
         self,
     ) -> None:
-        inputs = _mapping_form_defaults(self.hass, self.runtime.mapping.as_dict())
-        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = (
-            self.runtime.homekit_temperature.entity_id
-        )
+        inputs = _mapping_form_defaults(self.hass, self.mapping.as_dict())
+        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = self.homekit_temperature.entity_id
         mapping = MappingConfig.from_dict(
             _mapping_from_input(self.hass, inputs, mapping_id="contract_recovery")
         )
@@ -153,7 +139,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.subTest(state=state, attributes=attributes):
                     self.hass.states.async_set(
-                        self.runtime.homekit_temperature.entity_id, state, attributes
+                        self.homekit_temperature.entity_id, state, attributes
                     )
                     await self.hass.async_block_till_done()
                     await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.01)
@@ -178,7 +164,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                     self.hass.states.async_set(
-                        self.runtime.homekit_temperature.entity_id,
+                        self.homekit_temperature.entity_id,
                         "20.04",
                         valid_attributes,
                     )
@@ -203,10 +189,8 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_unreadable_temperature_state_retains_valid_mapping_contract(
         self,
     ) -> None:
-        inputs = _mapping_form_defaults(self.hass, self.runtime.mapping.as_dict())
-        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = (
-            self.runtime.homekit_temperature.entity_id
-        )
+        inputs = _mapping_form_defaults(self.hass, self.mapping.as_dict())
+        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = self.homekit_temperature.entity_id
         mapping = MappingConfig.from_dict(
             _mapping_from_input(self.hass, inputs, mapping_id="contract_unreadable")
         )
@@ -217,11 +201,11 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(state=state):
                     if state is None:
                         self.hass.states.async_remove(
-                            self.runtime.homekit_temperature.entity_id
+                            self.homekit_temperature.entity_id
                         )
                     else:
                         self.hass.states.async_set(
-                            self.runtime.homekit_temperature.entity_id,
+                            self.homekit_temperature.entity_id,
                             state,
                             {
                                 "device_class": "temperature",
@@ -231,7 +215,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
                     await self.hass.async_block_till_done()
                     configured = _mapping_from_input(self.hass, inputs)
                     self.assertEqual(
-                        self.runtime.homekit_temperature.id,
+                        self.homekit_temperature.id,
                         configured[CONF_HOMEKIT_TEMPERATURE_ENTITY],
                     )
                     snapshot = manager.snapshot(mapping.mapping_id)
@@ -248,11 +232,11 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_homekit_parent_preserves_saved_sources_only(self) -> None:
         await self._assert_missing_parent_boundary(
-            self.runtime.homekit,
+            self.homekit,
             (
-                (CONF_HOMEKIT_PRESET_ENTITY, self.runtime.homekit_preset),
-                (CONF_HOMEKIT_CLEAR_HOLD_ENTITY, self.runtime.homekit_clear_hold),
-                (CONF_HOMEKIT_TEMPERATURE_ENTITY, self.runtime.homekit_temperature),
+                (CONF_HOMEKIT_PRESET_ENTITY, self.homekit_preset),
+                (CONF_HOMEKIT_CLEAR_HOLD_ENTITY, self.homekit_clear_hold),
+                (CONF_HOMEKIT_TEMPERATURE_ENTITY, self.homekit_temperature),
             ),
         )
 
@@ -266,12 +250,12 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
             UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         )
         await self._assert_missing_parent_boundary(
-            self.runtime.ecobee,
+            self.ecobee,
             (
-                (CONF_ECOBEE_AQI_ENTITY, self.runtime.ecobee_aqi),
+                (CONF_ECOBEE_AQI_ENTITY, self.ecobee_aqi),
                 (CONF_ECOBEE_CO2_ENTITY, co2),
                 (CONF_ECOBEE_VOC_ENTITY, voc),
-                (CONF_ECOBEE_NOTIFY_ENTITY, self.runtime.ecobee_notify),
+                (CONF_ECOBEE_NOTIFY_ENTITY, self.ecobee_notify),
             ),
         )
 
@@ -279,7 +263,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
         self, unique_id: str, device_class: SensorDeviceClass, unit: str
     ) -> er.RegistryEntry:
         config_entry = self.hass.config_entries.async_get_entry(
-            self.runtime.ecobee.config_entry_id
+            self.ecobee.config_entry_id
         )
         assert config_entry is not None
         entry = self.registry.async_get_or_create(
@@ -287,7 +271,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
             "ecobee",
             unique_id,
             config_entry=config_entry,
-            device_id=self.runtime.ecobee.device_id,
+            device_id=self.ecobee.device_id,
             original_device_class=device_class,
             unit_of_measurement=unit,
         )
@@ -307,7 +291,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
         await self.hass.async_block_till_done()
         for key, original in sources:
             with self.subTest(role=key):
-                mapping = replace(self.runtime.mapping, **{key: original.id})
+                mapping = replace(self.mapping, **{key: original.id})
                 defaults = _mapping_form_defaults(self.hass, mapping.as_dict())
 
                 def configure(
@@ -321,7 +305,7 @@ class ConfigurationSourceContractTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                 self.assertEqual(original.id, configure(defaults)[key])
-                foreign = self.runtime._source(
+                foreign = self._source(
                     original.platform,
                     f"foreign_{key}",
                     domain=original.domain,

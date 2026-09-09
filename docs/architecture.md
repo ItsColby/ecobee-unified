@@ -86,6 +86,8 @@ does not recreate or reload the config entry and never mutates foreign records.
 Optional HomeKit and Ecobee sibling capabilities remain valid only while their
 registry entities stay on the selected source device; association drift
 degrades only the affected capability and blocks its writer before effects.
+Removing a mapping or optional projection deletes only that config entry's
+orphaned Unified entities on reload, preserving retained stable IDs.
 Identity drift between the two required source devices preserves local HomeKit
 state/control but disables all Ecobee-derived semantics and creates a bounded
 Repair until the supported registry identities match again.
@@ -114,11 +116,8 @@ Repair until the supported registry identities match again.
 Selection is semantic, not temporal. Do not average duplicate measurements or
 select a source merely because its event arrived last. Report chosen source and
 source health compactly so provenance remains inspectable without presenting
-duplicate normal-use entities. Exact continuously advancing ages are calculated
-from the selected sources and command tracker when bounded diagnostics are
-requested, so ordinary source reports do not create climate history rows
-without a semantic state change. All other diagnostic semantics remain a
-projection of the immutable normalized snapshot.
+duplicate normal-use entities. The [entity surface](#entity-surface) defines
+diagnostic projection and Recorder boundaries.
 Writable features, safety bounds, modes, and options always come from the
 documented writer. A read fallback may preserve current state, but it never
 expands the controls advertised while that writer is unavailable. For the
@@ -271,34 +270,25 @@ Exactly one backend writes each operation:
 
 Serialize effect dispatch per mapping within one running manager so a slower
 earlier writer call cannot finish after and overwrite a later command admitted
-by that manager. Give every tracked command a
-monotonically increasing revision, mark it pending while its sole writer is
-awaited, and permit source confirmation only after that writer returns
-successfully. A matching observation received during dispatch may be retained
-and applied after success, but a later writer failure always leaves that
-revision failed. After a successful standard HomeKit command, observe the
-operation-owned source and update confirmation only if the observation still
-belongs to the current revision. A late cloud update must not confirm or fail a
-superseded command. Start the confirmation timeout after writer success; a
-timeout reports an unconfirmed command and must not send a second write. The
+by that manager. Track each semantic operation independently of its backend
+service name, with a monotonically increasing revision. Before awaiting its sole
+writer, register the operation-owned observer: the HomeKit select for presets,
+HomeKit climate for humidity, and the documented Ecobee source for other
+confirmable operations. Keep the revision pending during dispatch. A matching
+report, including unchanged state and attributes, may be retained in flight,
+but only writer success permits confirmation; writer failure leaves it failed.
+Late observations, writer results, and timeouts cannot mutate a newer revision.
+Start the confirmation timeout after writer success; expiration reports an
+unconfirmed command and never sends a second write. The
 default confirmation window is 30 minutes, calibrated above the observed
 cloud-reporting tail and still subject to command-specific shadow validation.
 Temperature observations use a writer-step-aware tolerance capped at half of
 the mapped HomeKit target step so ordinary HomeKit/Ecobee quantization can
 confirm without accepting a different target. Non-temperature confirmation
 retains its strict fixed tolerance. Clear Hold is submitted, not state-confirmed.
-Normal source processing must continue while confirmation is pending. A
-matching Ecobee state report counts
-as a new observation even when state and attributes are unchanged; report-event
-handling retains the same revision guard. Every service facade injects its
-resolved mapped entity after validating caller data, so caller-provided service
-data cannot redirect a command to another entity.
-
-The tracker records the semantic operation independently of the backend service
-name. Preset confirmation observes the HomeKit select, humidity observes the
-HomeKit climate, and the other confirmable operations observe their documented
-Ecobee source. Register that observer before awaiting the writer so an unchanged
-in-flight report can be retained; writer failure must still win over it.
+Normal source processing continues while confirmation is pending. Every facade
+injects its resolved mapped entity after validating caller data, so caller-
+provided service data cannot redirect a command to another entity.
 
 Stopping a manager permanently closes command admission before subscriptions
 and deadlines are removed. Commands waiting for its per-mapping lock are
@@ -344,13 +334,17 @@ not falsely `confirmed`; service errors remain `failed`. Microphone and
 daylight-saving administration remain outside the routine thermostat surface.
 
 Keep climate attributes bounded: selected sources, source status,
-active climate mode/sensors and command confirmation. Schedule/transition,
-equipment stage, and minimum fan runtime have first-class owners. Do not record large raw
+active climate mode/sensors and command confirmation. Both the legacy
+`active_comfort_sensors` and clearer `configured_comfort_sensors` names expose
+the configured Ecobee profile members. Schedule/transition, equipment stage,
+and minimum fan runtime have first-class owners. Do not record large raw
 payloads, long lists, historical samples, or continuously advancing ages as
 attributes. Active-sensor detail and command-confirmation operation/status
 remain live but unrecorded; bounded redacted diagnostics calculate exact source
 and command ages at request time while retaining the snapshot's selected-source
-and command semantics. This avoids the Core state-machine comparison that
+and command semantics. Other diagnostics project the same immutable snapshot;
+mapping names, entity/device/config-entry IDs, and source values are omitted.
+Keeping advancing ages out of climate attributes avoids the Core comparison that
 otherwise creates Recorder rows before unrecorded attributes are stripped from
 storage.
 

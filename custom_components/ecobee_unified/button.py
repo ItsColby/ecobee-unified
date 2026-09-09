@@ -33,9 +33,6 @@ async def async_setup_entry(
 class EcobeeUnifiedResumeProgramButton(EcobeeUnifiedEntity, ButtonEntity):
     """Resume the thermostat schedule through one HomeKit Clear Hold writer."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = SUFFIX_RESUME_PROGRAM
-
     def __init__(self, manager: MappingManager, mapping: MappingConfig) -> None:
         super().__init__(
             manager,
@@ -49,9 +46,7 @@ class EcobeeUnifiedResumeProgramButton(EcobeeUnifiedEntity, ButtonEntity):
     def available(self) -> bool:
         """Return whether the explicit local writer is usable."""
 
-        return self._manager.snapshot(
-            self._mapping.mapping_id
-        ).homekit_clear_hold_writable
+        return self._snapshot.homekit_clear_hold_writable
 
     async def async_press(self) -> None:
         """Press the mapped writer exactly once through the manager."""

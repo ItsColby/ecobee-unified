@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import unittest
 from unittest.mock import patch
 
 import voluptuous as vol
@@ -27,29 +26,20 @@ from custom_components.ecobee_unified.const import (
 )
 from custom_components.ecobee_unified.models import SourceHealth
 
-from . import test_runtime_core_api as runtime_tests
+from .runtime_fixture import CoreRuntimeTestCase
 
 
-class HomeKitActionRoleTests(unittest.IsolatedAsyncioTestCase):
-    """Reuse Core's registry/state fixture without collecting its tests twice."""
+class HomeKitActionRoleTests(CoreRuntimeTestCase):
+    """Exercise action roles through real Core registries and states."""
 
     async def asyncSetUp(self) -> None:
-        self.runtime = runtime_tests.RuntimeCoreApiTests()
-        self.runtime.setUp()
-        await self.runtime.asyncSetUp()
-        self.hass = self.runtime.hass
-        self.manager = self.runtime.manager
-        self.mapping = self.runtime.mapping
+        await super().asyncSetUp()
         self.registry = er.async_get(self.hass)
-        self.preset = self.runtime.homekit_preset
-        self.clear_hold = self.runtime.homekit_clear_hold
+        self.preset = self.homekit_preset
+        self.clear_hold = self.homekit_clear_hold
         self.calls: list[ServiceCall] = []
         self.hass.services.async_register("select", "select_option", self._capture)
         self.hass.services.async_register("button", "press", self._capture)
-
-    async def asyncTearDown(self) -> None:
-        await self.runtime.asyncTearDown()
-        self.runtime.tearDown()
 
     async def _capture(self, call: ServiceCall) -> None:
         self.calls.append(call)
@@ -57,8 +47,8 @@ class HomeKitActionRoleTests(unittest.IsolatedAsyncioTestCase):
     def _mapping_input(self) -> dict[str, str]:
         return {
             CONF_NAME: "Zone A",
-            CONF_HOMEKIT_ENTITY: self.runtime.homekit.entity_id,
-            CONF_ECOBEE_ENTITY: self.runtime.ecobee.entity_id,
+            CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+            CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
             CONF_HOMEKIT_PRESET_ENTITY: self.preset.entity_id,
             CONF_HOMEKIT_CLEAR_HOLD_ENTITY: self.clear_hold.entity_id,
         }

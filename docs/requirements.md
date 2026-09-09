@@ -53,7 +53,7 @@ justify ambiguous values or dual writes.
 - No direct `.storage` access.
 - No name-guess remapping.
 - No unbounded/high-churn Recorder attributes.
-- No automatic write failover in the initial release.
+- No automatic write failover.
 - No duplicate command caused by retries, confirmation, or source changes.
 - Serialize calls within one running manager; unloading or cancelling a wait
   cannot undo an already dispatched source action or prove its physical outcome.
@@ -68,38 +68,32 @@ justify ambiguous values or dual writes.
   Core 2026.9.1 current stable release using their matching published harnesses.
   Further support changes require explicit version owners and passing evidence.
 
-## MVP Acceptance
+## Acceptance
 
-MVP is complete when all of the following are true:
+Acceptance requires the functional requirements above and the complete
+[validation matrix](validation-plan.md), including:
 
-1. Two or more generic thermostat mappings can coexist in one config entry.
-2. The climate entity reports every standard field from the documented owner
-   and uses only the documented fallback under tested failure conditions.
-3. Standard climate commands produce exactly one HomeKit service call.
-4. Preset and clear-hold operations produce exactly one HomeKit action, with
-   Clear Hold reported as submitted rather than falsely confirmed;
-   minimum-fan, vacation, occupancy-policy, and sensor-participation controls
-   and thermostat-display notifications produce exactly one mapped Ecobee
-   action, with no failover.
-5. Command confirmation observes but never retries through another source.
-6. Reload, rename, source loss/recovery, and removal tests pass.
-7. Device linkage is correct on the supported Home Assistant Core 2026.8
-   baseline.
-8. Diagnostics are useful and redact credentials, account identifiers,
-   household-specific data, and raw backend responses.
-9. All repository and Home Assistant test/quality workflows are terminal green.
-10. A local shadow deployment passes the current comparison and safety
-    criteria before any existing consumer is migrated; acceptance has no
-    mandatory elapsed-time minimum.
-11. A report cannot confirm a command before writer success, and a late
-    observation, writer result, or timeout cannot confirm, fail, or clear a
-    newer command. Observe the semantic operation's source before dispatch,
-    including unchanged reports, and reject queued effects after unload.
-12. Physical-identity or optional-sensor semantic drift disables only the
-    affected Ecobee capabilities before any effect and recovers from supported
-    registry/state evidence without recreating the config entry.
+1. Two or more generic mappings coexist in one entry with correct Core 2026.8
+   device linkage, documented field ownership/fallback, and passing reload,
+   rename, source loss/recovery, and removal cases.
+2. Every standard, preset, and Clear Hold action makes exactly one HomeKit call;
+   minimum-fan, vacation, occupancy-policy, sensor-participation, and notification
+   actions make exactly one mapped Ecobee call. There is no retry or failover,
+   and successful Clear Hold and other unprojectable effects remain submitted.
+3. Operation-owned observation starts before dispatch, including unchanged
+   reports, but confirmation requires writer success. Late reports, results,
+   and timeouts cannot mutate newer revisions; unload rejects queued effects.
+4. Physical-identity and optional-sensor semantic drift block affected Ecobee
+   capabilities before effects and recover from supported registry/state
+   evidence without recreating the config entry.
+5. Useful diagnostics redact credentials, account identifiers, household data,
+   and raw backend responses; all repository and HA test/quality workflows
+   finish green.
+6. [Shadow acceptance](validation-plan.md#local-shadow-acceptance) passes the
+   comparison and safety criteria before existing consumers migrate. There is
+   no mandatory elapsed-time minimum.
 
-## Explicit Non-goals for MVP
+## Explicit Non-goals
 
 - Re-exporting all source sensors rather than the justified cloud-only subset.
 - Creating weather, occupancy, motion, battery, or history duplicates.

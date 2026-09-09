@@ -94,18 +94,7 @@ run_unit() {
     python -m ruff check custom_components tests scripts &&
     python -m unittest tests.test_public_safety &&
     python -m compileall -q custom_components/ecobee_unified tests scripts &&
-    python scripts/check_public_safety.py --history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY" &&
-    python - <<"PY"
-import json
-from pathlib import Path
-for name in (
-    "custom_components/ecobee_unified/icons.json",
-    "custom_components/ecobee_unified/manifest.json",
-    "custom_components/ecobee_unified/translations/en.json",
-    "hacs.json",
-):
-    json.loads(Path(name).read_text(encoding="utf-8"))
-PY
+    python scripts/check_public_safety.py --history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY"
   '
 }
 

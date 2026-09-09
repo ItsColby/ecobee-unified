@@ -33,9 +33,6 @@ async def async_setup_entry(
 class EcobeeUnifiedNotify(EcobeeUnifiedEntity, NotifyEntity):
     """Forward a display message through one mapped Ecobee notify writer."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "notification"
-
     def __init__(self, manager: MappingManager, mapping: MappingConfig) -> None:
         super().__init__(
             manager,

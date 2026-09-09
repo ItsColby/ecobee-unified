@@ -3,42 +3,35 @@
 from __future__ import annotations
 
 import asyncio
-import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
 
-from . import test_runtime_core_api as runtime_tests
+from .runtime_fixture import CoreRuntimeTestCase
 
 
-class CommandLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    """Reuse the real Core registry/state fixture without collecting its tests twice."""
+class CommandLifecycleTests(CoreRuntimeTestCase):
+    """Exercise command lifecycle through real Core registries and states."""
 
     async def asyncSetUp(self) -> None:
-        self.runtime = runtime_tests.RuntimeCoreApiTests()
-        self.runtime.setUp()
-        await self.runtime.asyncSetUp()
-        self.hass = self.runtime.hass
+        await super().asyncSetUp()
+        self.source_mapping = self.mapping
         await self._new_manager()
 
-    async def asyncTearDown(self) -> None:
-        await self.runtime.asyncTearDown()
-        self.runtime.tearDown()
-
     async def _new_manager(self) -> None:
-        await self.runtime.manager.async_stop()
+        await self.manager.async_stop()
         self.mapping = replace(
-            self.runtime.mapping,
-            ecobee_notify_entity=self.runtime.ecobee_notify.id,
+            self.source_mapping,
+            ecobee_notify_entity=self.ecobee_notify.id,
         )
         self.manager = MappingManager(self.hass, "entry_a", (self.mapping,), {})
-        self.runtime.manager = self.manager
         await self.manager.async_start()
         await self.hass.async_block_till_done()
 
@@ -245,9 +238,9 @@ class CommandLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         self.hass.states.async_set(
-            self.runtime.homekit.entity_id,
+            self.homekit.entity_id,
             "heat",
-            self.runtime._attributes(20.3),
+            self._attributes(20.3),
         )
         await self.manager.async_stop()
         with patch(
@@ -261,11 +254,11 @@ class CommandLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_native_unload_fences_old_manager_without_waiting_for_writer(
         self,
     ) -> None:
-        entry = runtime_tests.MockConfigEntry(
+        entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [self.runtime.mapping.as_dict()]},
+            data={CONF_MAPPINGS: [self.source_mapping.as_dict()]},
             version=1,
             minor_version=3,
         )
@@ -312,16 +305,16 @@ class CommandLifecycleTests(unittest.IsolatedAsyncioTestCase):
                         await self._new_manager()
                         is_preset = operation == "set_preset_mode"
                         entity_id = (
-                            self.runtime.homekit_preset.entity_id
+                            self.homekit_preset.entity_id
                             if is_preset
-                            else self.runtime.homekit.entity_id
+                            else self.homekit.entity_id
                         )
                         wanted_state = "Away" if is_preset else "heat"
                         initial_state = "Home" if is_preset else "heat"
                         attributes = (
                             {"options": ["Home", "Away"]}
                             if is_preset
-                            else self.runtime._attributes(20.0) | {"humidity": 40}
+                            else self._attributes(20.0) | {"humidity": 40}
                         )
                         initial_attributes = (
                             attributes if is_preset else attributes | {"humidity": 36}
@@ -401,20 +394,18 @@ class CommandLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self._register_writer("preset", writer)
         self.hass.states.async_set(
-            self.runtime.homekit_preset.entity_id, "Away", {"options": ["Home", "Away"]}
+            self.homekit_preset.entity_id, "Away", {"options": ["Home", "Away"]}
         )
         await self.hass.async_block_till_done()
         await self.manager.async_set_preset_mode("mapping_a", "Away", None)
-        state = self.hass.states.get(self.runtime.ecobee.entity_id)
-        self.hass.states.async_set(
-            self.runtime.ecobee.entity_id, state.state, state.attributes
-        )
+        state = self.hass.states.get(self.ecobee.entity_id)
+        self.hass.states.async_set(self.ecobee.entity_id, state.state, state.attributes)
         await self.hass.async_block_till_done()
         self.assertIs(
             CommandStatus.PENDING, self.manager.snapshot("mapping_a").command.status
         )
         self.hass.states.async_set(
-            self.runtime.homekit_preset.entity_id, "Away", {"options": ["Home", "Away"]}
+            self.homekit_preset.entity_id, "Away", {"options": ["Home", "Away"]}
         )
         await self.hass.async_block_till_done()
         self.assertIs(

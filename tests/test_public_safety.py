@@ -5,8 +5,12 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
+import shutil
 import subprocess
+import sys
 import tempfile
+import textwrap
 import tomllib
 import unittest
 from pathlib import Path
@@ -118,6 +122,19 @@ class PublicSafetyTests(unittest.TestCase):
         digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
         self.assertEqual(REVIEWED_BINARY_SHA256[relative], digest)
 
+    def test_working_tree_rejects_utf16_content_under_text_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            (root / "notes.txt").write_bytes(
+                ("private address " + "192" + ".168.1.2").encode("utf-16-le")
+            )
+
+            count, failures = run_guard(root)
+
+        self.assertEqual(1, count)
+        self.assertEqual(["notes.txt: unreviewed binary content"], failures)
+
     def test_tracked_source_archive_is_public_safe(self) -> None:
         root = Path(__file__).resolve().parents[1]
         count, failures = run_archive_guard(root)
@@ -137,6 +154,24 @@ class PublicSafetyTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         self.assertIn("Source archive README.md: private IPv4 address", failures)
+
+    def test_tracked_archive_rejects_utf16_content_under_text_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._git(root, "init")
+            notes = root / "notes.txt"
+            notes.write_bytes(
+                ("private address " + "192" + ".168.1.2").encode("utf-16-le")
+            )
+            self._git(root, "add", "notes.txt")
+            notes.write_text("public-safe worktree", encoding="utf-8")
+
+            count, failures = run_archive_guard(root)
+
+        self.assertEqual(1, count)
+        self.assertEqual(
+            ["Source archive notes.txt: unreviewed binary content"], failures
+        )
 
     def test_pytest_collects_async_home_assistant_tests(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -173,6 +208,160 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertIn("Git history metadata: non-example email address", failures)
         self.assertIn("Git history filename: unreviewed binary content", failures)
         self.assertIn("Git history blob: non-UTF-8 content", failures)
+
+    def test_history_guard_rejects_unavailable_and_shallow_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self.assertEqual(
+                ["Git history: requested repository is unavailable"],
+                _history_failures(root / "missing"),
+            )
+            source = root / "source"
+            source.mkdir()
+            self._git(source, "init")
+            (source / "README.md").write_text("safe", encoding="utf-8")
+            self._git(source, "add", "README.md")
+            self._git(source, "commit", "-m", "Initial content")
+            self._git(root, "clone", "--depth", "1", source.as_uri(), "shallow")
+            self.assertEqual(
+                ["Git history: complete history is required; repository is shallow"],
+                _history_failures(root / "shallow"),
+            )
+
+    @unittest.skipUnless(
+        os.name == "posix" and shutil.which("bash"),
+        "The product shell runner executes in the Linux validation lanes",
+    )
+    def test_local_unit_orchestration_checks_original_history_and_exact_payload(
+        self,
+    ) -> None:
+        product_root = Path(__file__).resolve().parents[1]
+        cases = {
+            "clean": None,
+            "removed_blob": "Git history blob: private IPv4 address",
+            "detached_metadata": "Git history metadata: non-example email address",
+            "linked_metadata": "Git history metadata: non-example email address",
+            "worktree": "README.md: private IPv4 address",
+            "shallow": "Complete original Git history is required",
+        }
+        for case, expected in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "source"
+                scripts = source / "scripts"
+                scripts.mkdir(parents=True)
+                for filename in ("verify-release-local.sh", "check_public_safety.py"):
+                    (scripts / filename).write_text(
+                        (product_root / "scripts" / filename).read_text(
+                            encoding="utf-8"
+                        ),
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                readme = source / "README.md"
+                private_address = "192" + ".168.1.2"
+                readme.write_text(
+                    private_address if case == "removed_blob" else "safe",
+                    encoding="utf-8",
+                )
+                self._git(source, "init")
+                self._git(source, "add", ".")
+                self._git(source, "commit", "-m", "Initial candidate")
+                if case == "removed_blob":
+                    readme.write_text("safe", encoding="utf-8")
+                    self._git(source, "add", "README.md")
+                    self._git(source, "commit", "-m", "Remove private content")
+                elif case in {"detached_metadata", "linked_metadata"}:
+                    if case == "linked_metadata":
+                        self._git(
+                            source, "worktree", "add", "--detach", str(root / "linked")
+                        )
+                        source = root / "linked"
+                    else:
+                        self._git(source, "checkout", "--detach")
+                    self._git(
+                        source,
+                        "commit",
+                        "--allow-empty",
+                        "-m",
+                        "Candidate for " + "person" + "@real-domain.dev",
+                    )
+                elif case == "worktree":
+                    readme.write_text(private_address, encoding="utf-8")
+                elif case == "shallow":
+                    self._git(root, "clone", "--depth", "1", source.as_uri(), "shallow")
+                    source = root / "shallow"
+
+                binary_directory = root / "bin"
+                binary_directory.mkdir()
+                podman = binary_directory / "podman"
+                podman.write_text(
+                    f"#!{sys.executable}\n"
+                    + textwrap.dedent(
+                        """\
+                        import os
+                        import subprocess
+                        import sys
+                        from pathlib import Path
+
+                        arguments = sys.argv[1:]
+                        mounts = {}
+                        environment = {}
+                        for index, argument in enumerate(arguments[:-1]):
+                            if argument == "-v":
+                                source, target, *_ = arguments[index + 1].split(":")
+                                mounts[target] = source
+                            elif argument == "-e" and "=" in arguments[index + 1]:
+                                key, value = arguments[index + 1].split("=", 1)
+                                environment[key] = value
+                        if "/workspace" not in mounts:
+                            sys.exit(0)  # The unrelated Actionlint image.
+                        assert '--history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY"' in arguments[-1]
+                        history = mounts[environment["PUBLIC_SAFETY_HISTORY_REPOSITORY"]]
+                        workspace = mounts["/workspace"]
+                        result = subprocess.run(
+                            [sys.executable, "-B", str(Path(workspace) / "scripts/check_public_safety.py"),
+                             "--history-repository", history],
+                            cwd=workspace,
+                            env=os.environ | {"PYTHONDONTWRITEBYTECODE": "1"},
+                        )
+                        sys.exit(result.returncode)
+                        """
+                    ),
+                    encoding="utf-8",
+                )
+                podman.chmod(0o755)
+                command = [
+                    "bash",
+                    "scripts/verify-release-local.sh",
+                    "unit",
+                    "container",
+                ]
+                if case == "linked_metadata":
+                    git_directory = subprocess.run(
+                        ["git", "rev-parse", "--path-format=absolute", "--git-dir"],
+                        cwd=source,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    command.append(git_directory)
+                result = subprocess.run(
+                    command,
+                    cwd=source,
+                    env=os.environ
+                    | {"PATH": f"{binary_directory}:{os.environ['PATH']}"},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                output = result.stdout + result.stderr
+                if expected is None:
+                    self.assertEqual(0, result.returncode, output)
+                    self.assertIn("Public-safety guard passed", output)
+                else:
+                    self.assertNotEqual(0, result.returncode, output)
+                    self.assertIn(expected, output)
 
     @staticmethod
     def _git(root: Path, *arguments: str) -> None:
@@ -249,6 +438,10 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertNotIn("matrix.", workflow)
         self.assertNotIn("ubuntu-latest", workflow)
         self.assertEqual(6, workflow.count("runs-on: ubuntu-24.04"))
+        unit_job = workflow[
+            workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
+        ]
+        self.assertIn("fetch-depth: 0", unit_job)
         self.assertIn("CodeQL default setup is active", validation_plan)
         self.assertIn("Zizmor auditor", validation_plan)
         self.assertIn('"shellcheck-py==0.11.0.1" "zizmor==1.29.0"', release_runner)

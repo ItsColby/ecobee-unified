@@ -996,6 +996,14 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             original_device_class=SensorDeviceClass.HUMIDITY,
         )
         self.assertIs(SensorDeviceClass.HUMIDITY, non_temperature.original_device_class)
+        self.hass.states.async_set(
+            non_temperature.entity_id,
+            "40",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.HUMIDITY,
+                ATTR_UNIT_OF_MEASUREMENT: "%",
+            },
+        )
         with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
             _mapping_from_input(
                 self.hass,
@@ -1011,6 +1019,14 @@ class RuntimeCoreApiTests(unittest.IsolatedAsyncioTestCase):
             self.homekit_temperature.entity_id,
             original_device_class=SensorDeviceClass.TEMPERATURE,
             unit_of_measurement="widgets",
+        )
+        self.hass.states.async_set(
+            self.homekit_temperature.entity_id,
+            "20.04",
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_UNIT_OF_MEASUREMENT: "widgets",
+            },
         )
         with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
             _mapping_from_input(

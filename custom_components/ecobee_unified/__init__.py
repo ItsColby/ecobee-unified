@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from asyncio import CancelledError
 from copy import deepcopy
 from typing import Any
 
@@ -52,7 +53,7 @@ async def async_setup_entry(
     try:
         await manager.async_start()
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
-    except Exception:
+    except Exception, CancelledError:
         await manager.async_stop()
         raise
     return True

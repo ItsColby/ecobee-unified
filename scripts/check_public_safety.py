@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import re
 import subprocess
@@ -122,6 +123,9 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
         except UnicodeDecodeError:
             failures.append(f"{relative}: non-UTF-8 content")
             continue
+        if "\0" in text:
+            failures.append(f"{relative}: unreviewed binary content")
+            continue
         failures.extend(
             f"{relative}: {failure}" for failure in sorted(_text_failures(text))
         )
@@ -182,6 +186,9 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
                 except UnicodeDecodeError:
                     failures.append(f"Source archive {name}: non-UTF-8 content")
                     continue
+                if "\0" in text:
+                    failures.append(f"Source archive {name}: unreviewed binary content")
+                    continue
                 failures.extend(
                     f"Source archive {name}: {failure}"
                     for failure in sorted(_text_failures(text))
@@ -189,7 +196,35 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
     return len(tracked), failures
 
 
+def _history_source_failure(root: Path) -> str | None:
+    try:
+        shallow = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+    except OSError, subprocess.CalledProcessError:
+        return "Git history: requested repository is unavailable"
+    if shallow.stdout.strip() != "false":
+        return "Git history: complete history is required; repository is shallow"
+    return None
+
+
 def _history_failures(root: Path) -> list[str]:
+    if source_failure := _history_source_failure(root):
+        return [source_failure]
+    return _scan_history(root)
+
+
+def _scan_history(root: Path) -> list[str]:
     failures: set[str] = set()
     metadata = subprocess.run(
         ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce%n%B%x00"],
@@ -300,8 +335,16 @@ def _history_failures(root: Path) -> list[str]:
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--history-repository",
+        type=Path,
+        default=root,
+        help="Complete original Git repository when payload validation uses a snapshot",
+    )
+    arguments = parser.parse_args()
     count, failures = run_guard(root)
-    failures.extend(_history_failures(root))
+    failures.extend(_history_failures(arguments.history_repository))
     archive_count, archive_failures = run_archive_guard(root)
     failures.extend(archive_failures)
     if failures:

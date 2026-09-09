@@ -16,6 +16,8 @@
       "invalid_ecobee_source": "Select an entity supplied by Ecobee on the mapped Ecobee device.",
       "invalid_ecobee_voc_source": "Select an Ecobee volatile organic compounds sensor measured in micrograms per cubic meter on the mapped Ecobee device.",
       "invalid_homekit_controller_source": "Select an entity supplied by HomeKit Controller on the mapped thermostat device.",
+      "invalid_homekit_preset_source": "Select the HomeKit Current Mode control on this thermostat with supported Home, Sleep, or Away options.",
+      "invalid_homekit_clear_hold_source": "Select the HomeKit Clear Hold button on this thermostat. Administrative and diagnostic buttons cannot resume its program.",
       "invalid_homekit_temperature_source": "Select a numeric HomeKit temperature sensor on the mapped thermostat device with a supported temperature unit.",
       "invalid_name": "Enter a name of 1 to 64 characters.",
       "physical_device_identity_unproven": "Select HomeKit and Ecobee climates whose supported device identities prove they represent the same thermostat.",

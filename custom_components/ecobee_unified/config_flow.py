@@ -4,18 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from math import isfinite
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.const import (
-    ATTR_DEVICE_CLASS,
-    ATTR_UNIT_OF_MEASUREMENT,
-    UnitOfTemperature,
-)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -58,8 +52,10 @@ from .models import MappingConfig, merge_mapping_data
 from .source_contracts import (
     AIR_QUALITY_SENSOR_CONTRACTS,
     PhysicalIdentityStatus,
+    homekit_action_contract_valid,
     physical_identity_status,
     sensor_contract_valid,
+    temperature_source_unit,
 )
 
 HOMEKIT_CLIMATE_SELECTOR = EntitySelector(
@@ -474,39 +470,24 @@ def _mapping_from_input(
         and ecobee_entity == preserved.ecobee_entity
     ):
         raise vol.Invalid("physical_device_identity_unproven")
-    if (
-        any(
-            user_input.get(key)
-            for key in (
-                CONF_ECOBEE_AQI_ENTITY,
-                CONF_ECOBEE_CO2_ENTITY,
-                CONF_ECOBEE_VOC_ENTITY,
-                CONF_ECOBEE_NOTIFY_ENTITY,
-            )
-        )
-        and ecobee_device_id is None
-    ):
-        raise vol.Invalid("invalid_ecobee_source")
     mapping = MappingConfig(
         mapping_id=mapping_id or uuid4().hex,
         name=name,
         homekit_entity=homekit_entity,
         ecobee_entity=ecobee_entity,
-        homekit_preset_entity=_optional_entity_reference(
+        homekit_preset_entity=_homekit_action_reference(
             hass,
             user_input.get(CONF_HOMEKIT_PRESET_ENTITY),
-            "homekit_controller",
-            "select",
             preserved.homekit_preset_entity if preserved else None,
             required_device_id=homekit_device_id,
+            role="preset",
         ),
-        homekit_clear_hold_entity=_optional_entity_reference(
+        homekit_clear_hold_entity=_homekit_action_reference(
             hass,
             user_input.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY),
-            "homekit_controller",
-            "button",
             preserved.homekit_clear_hold_entity if preserved else None,
             required_device_id=homekit_device_id,
+            role="clear_hold",
         ),
         homekit_temperature_entity=_temperature_entity_reference(
             hass,
@@ -596,10 +577,12 @@ def _optional_entity_reference(
         and er.async_resolve_entity_id(er.async_get(hass), reference) is None
     ):
         return reference
-    if (
-        required_device_id is not None
-        and _reference_device_id(hass, reference) != required_device_id
-    ):
+    if required_device_id is None:
+        # An absent parent can preserve saved intent, but cannot establish the
+        # physical association of a newly selected optional source.
+        if reference != preserve_reference:
+            raise vol.Invalid(f"invalid_{platform}_source")
+    elif _reference_device_id(hass, reference) != required_device_id:
         raise vol.Invalid(f"invalid_{platform}_source")
     return reference
 
@@ -609,6 +592,32 @@ def _reference_device_id(hass: Any, reference: str) -> str | None:
     entity_id = er.async_resolve_entity_id(registry, reference)
     entry = registry.async_get(entity_id) if entity_id else None
     return entry.device_id if entry is not None else None
+
+
+def _homekit_action_reference(
+    hass: Any,
+    entity_id: Any,
+    preserve_reference: str | None,
+    *,
+    required_device_id: str | None,
+    role: Literal["preset", "clear_hold"],
+) -> str | None:
+    reference = _optional_entity_reference(
+        hass,
+        entity_id,
+        "homekit_controller",
+        "select" if role == "preset" else "button",
+        preserve_reference,
+        required_device_id=required_device_id,
+    )
+    if reference is None or (
+        reference == preserve_reference
+        and er.async_resolve_entity_id(er.async_get(hass), reference) is None
+    ):
+        return reference
+    if not homekit_action_contract_valid(hass, reference, role):
+        raise vol.Invalid(f"invalid_homekit_{role}_source")
+    return reference
 
 
 def _temperature_entity_reference(
@@ -632,28 +641,8 @@ def _temperature_entity_reference(
     resolved_id = er.async_resolve_entity_id(registry, reference)
     if resolved_id is None and preserve_reference == reference:
         return reference
-    entry = registry.async_get(resolved_id) if resolved_id else None
-    state = hass.states.get(resolved_id) if resolved_id else None
-    if entry is None:
+    if temperature_source_unit(hass, reference) is None:
         raise vol.Invalid("invalid_homekit_temperature_source")
-    device_class = entry.original_device_class or (
-        state.attributes.get(ATTR_DEVICE_CLASS) if state else None
-    )
-    unit = entry.unit_of_measurement or (
-        state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
-    )
-    try:
-        UnitOfTemperature(str(unit))
-    except ValueError as err:
-        raise vol.Invalid("invalid_homekit_temperature_source") from err
-    if device_class != SensorDeviceClass.TEMPERATURE:
-        raise vol.Invalid("invalid_homekit_temperature_source")
-    if state is not None and state.state not in {"unknown", "unavailable"}:
-        try:
-            if not isfinite(float(state.state)):
-                raise ValueError
-        except ValueError as err:
-            raise vol.Invalid("invalid_homekit_temperature_source") from err
     return reference
 
 

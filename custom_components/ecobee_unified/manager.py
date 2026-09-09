@@ -9,11 +9,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import partial
 from math import isfinite
-from typing import Any
+from typing import Any, Literal
 
-from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
-    ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -69,14 +67,17 @@ from .models import (
     RawSource,
     SourceHealth,
     build_snapshot,
+    finite_number,
     finite_temperature,
     homekit_temperature_agrees,
 )
 from .source_contracts import (
     AIR_QUALITY_SENSOR_CONTRACTS,
     PhysicalIdentityStatus,
+    homekit_action_contract_valid,
     physical_identity_status,
     sensor_contract_valid,
+    temperature_source_unit,
 )
 from .temperature_quality import (
     SourceIdentity,
@@ -302,6 +303,15 @@ class MappingManager:
             required_device_id=homekit_device_id,
             require_matching_device=True,
         )
+        if (
+            homekit_preset is not None
+            and homekit_preset.health in {SourceHealth.HEALTHY, SourceHealth.UNKNOWN}
+            and mapping.homekit_preset_entity is not None
+            and not homekit_action_contract_valid(
+                self.hass, mapping.homekit_preset_entity, "preset"
+            )
+        ):
+            homekit_preset = self._invalid_source(homekit_preset)
         homekit_temperature = self._temperature_raw_source(
             mapping.homekit_temperature_entity,
             homekit,
@@ -332,14 +342,10 @@ class MappingManager:
                 (mapping.ecobee_voc_entity, "voc"),
             )
         )
-        homekit_clear_hold_writable = self._writer_available(
-            mapping.homekit_clear_hold_entity,
-            required_device_id=homekit_device_id,
+        homekit_clear_hold_writable = self._homekit_action_available(
+            mapping, "clear_hold"
         )
-        homekit_preset_writable = self._writer_available(
-            mapping.homekit_preset_entity,
-            required_device_id=homekit_device_id,
-        )
+        homekit_preset_writable = self._homekit_action_available(mapping, "preset")
         snapshot = build_snapshot(
             mapping_id,
             homekit,
@@ -497,9 +503,8 @@ class MappingManager:
                 if mapping.homekit_clear_hold_entity
                 else None
             )
-            if button_id is None or not self._writer_available(
-                mapping.homekit_clear_hold_entity,
-                required_device_id=self._source_device_id(mapping.homekit_entity),
+            if button_id is None or not self._homekit_action_available(
+                mapping, "clear_hold"
             ):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
@@ -530,6 +535,7 @@ class MappingManager:
             if (
                 not snapshot.homekit_preset_writable
                 or entity_id is None
+                or not self._homekit_action_available(mapping, "preset")
                 or preset_mode not in snapshot.preset_modes
             ):
                 raise ServiceValidationError(
@@ -1359,21 +1365,22 @@ class MappingManager:
         )
         if not source.usable:
             return source
-        entity_id = self.resolve_entity_id(entity_reference)
-        entry = er.async_get(self.hass).async_get(entity_id) if entity_id else None
-        device_class = source.attributes.get(ATTR_DEVICE_CLASS) or (
-            entry.original_device_class if entry else None
-        )
-        source_unit = source.attributes.get(ATTR_UNIT_OF_MEASUREMENT) or (
-            entry.unit_of_measurement if entry else None
-        )
+        value = finite_number(source.state, allow_text=True)
+        if value is None:
+            # Invalid measurements do not establish a transport outage.
+            return RawSource(
+                None,
+                source.attributes,
+                age_seconds=source.age_seconds,
+                health=source.health,
+            )
+        source_unit = temperature_source_unit(self.hass, entity_reference)
         target_unit = homekit.attributes.get(
             ATTR_UNIT_OF_MEASUREMENT, self.hass.config.units.temperature_unit
         )
         try:
-            if source.state is None or device_class != SensorDeviceClass.TEMPERATURE:
+            if source_unit is None:
                 raise ValueError
-            source_unit_enum = UnitOfTemperature(str(source_unit))
             target_unit_enum = UnitOfTemperature(str(target_unit))
         except TypeError, ValueError:
             return RawSource(
@@ -1382,13 +1389,11 @@ class MappingManager:
                 age_seconds=source.age_seconds,
                 health=SourceHealth.UNAVAILABLE,
             )
-        value = finite_temperature(source.state, source_unit_enum, allow_text=True)
+        value = finite_temperature(value, source_unit)
         try:
             converted = (
                 finite_temperature(
-                    TemperatureConverter.convert(
-                        value, source_unit_enum, target_unit_enum
-                    ),
+                    TemperatureConverter.convert(value, source_unit, target_unit_enum),
                     target_unit_enum,
                 )
                 if value is not None
@@ -1508,6 +1513,23 @@ class MappingManager:
             and registry_entry.device_id == required_device_id
             and state is not None
             and state.state != STATE_UNAVAILABLE
+        )
+
+    def _homekit_action_available(
+        self, mapping: MappingConfig, role: Literal["preset", "clear_hold"]
+    ) -> bool:
+        reference = (
+            mapping.homekit_preset_entity
+            if role == "preset"
+            else mapping.homekit_clear_hold_entity
+        )
+        return bool(
+            reference is not None
+            and self._writer_available(
+                reference,
+                required_device_id=self._source_device_id(mapping.homekit_entity),
+            )
+            and homekit_action_contract_valid(self.hass, reference, role)
         )
 
     def ecobee_sensor_devices_valid(
@@ -1660,44 +1682,33 @@ class MappingManager:
             ):
                 invalid.append(f"{label} association")
             elif (
-                label == "HomeKit temperature"
-                and not self._temperature_contract_valid(reference)
-            ) or (
-                contract_name is not None
-                and not sensor_contract_valid(
-                    self.hass,
-                    reference,
-                    AIR_QUALITY_SENSOR_CONTRACTS[contract_name],
+                (
+                    label == "HomeKit temperature"
+                    and temperature_source_unit(self.hass, reference) is None
+                )
+                or (
+                    label == "HomeKit preset"
+                    and not homekit_action_contract_valid(
+                        self.hass, reference, "preset"
+                    )
+                )
+                or (
+                    label == "HomeKit clear hold"
+                    and not homekit_action_contract_valid(
+                        self.hass, reference, "clear_hold"
+                    )
+                )
+                or (
+                    contract_name is not None
+                    and not sensor_contract_valid(
+                        self.hass,
+                        reference,
+                        AIR_QUALITY_SENSOR_CONTRACTS[contract_name],
+                    )
                 )
             ):
                 invalid.append(label)
         return invalid
-
-    def _temperature_contract_valid(self, entity_reference: str) -> bool:
-        registry = er.async_get(self.hass)
-        entity_id = er.async_resolve_entity_id(registry, entity_reference)
-        entry = registry.async_get(entity_id) if entity_id else None
-        state = self.hass.states.get(entity_id) if entity_id else None
-        if entry is None:
-            return False
-        device_class = entry.original_device_class or (
-            state.attributes.get(ATTR_DEVICE_CLASS) if state else None
-        )
-        unit = entry.unit_of_measurement or (
-            state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
-        )
-        try:
-            UnitOfTemperature(str(unit))
-        except ValueError:
-            return False
-        if device_class != SensorDeviceClass.TEMPERATURE:
-            return False
-        if state is None or state.state in {"unknown", "unavailable"}:
-            return True
-        try:
-            return isfinite(float(state.state))
-        except ValueError:
-            return False
 
 
 def _state_age_seconds(last_reported: datetime, now: datetime) -> int:

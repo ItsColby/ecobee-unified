@@ -24,8 +24,8 @@ distribution floor and current stable lane deliberately span monthly releases.
 Source state, immutable GitHub releases, HACS installation, and live deployment
 remain separately verifiable lifecycle states.
 
-The complete presentation-versus-transport boundary and batch disposition is
-documented in [Unified Surface Convergence](docs/unified-surface-convergence.md).
+The presentation and transport boundaries are defined in
+[Architecture](docs/architecture.md).
 Separate, undecided Home Assistant Core improvement ideas are recorded in
 [Upstream Opportunities](docs/upstream-opportunities.md); the product does not
 depend on them.
@@ -168,6 +168,13 @@ selections. Selectors are filtered to the owning integration before backend
 validation. AQI, CO2, and VOC selections must also advertise the matching sensor
 device class and unit, and one optional source cannot fill multiple semantic
 roles. Reconfiguration supports explicit add, edit, and remove operations.
+Current Mode must advertise only Home, Sleep, or Away options. Administrative
+or diagnostic selects and buttons are rejected. Clear Hold has no definitive
+role marker in the supported registry, so an otherwise eligible button still
+relies on the user's explicit selection. Runtime checks repeat these contracts
+before dispatch and after source recovery. Live sensor units and device classes
+take precedence over registry defaults; an unsupported unit degrades the
+mapped sensor instead of relabeling its value.
 Editing physical association or command routing requires a second confirmation.
 If the saved mappings change while a reconfiguration session is open, that
 session stops without overwriting the newer configuration.
@@ -208,8 +215,9 @@ command-confirmation window. Saved values must be whole, selector-aligned
 seconds, so direct or restored flow input cannot be silently truncated. Both
 default to 30 minutes, calibrated above the observed cloud-reporting tail while
 retaining a bounded silent-wedge and effect deadline. HomeKit push/event silence
-remains diagnostic age; only actual source unavailability changes HomeKit
-health or read ownership. Ecobee freshness can make a cadence-backed vendor
+remains diagnostic age and does not by itself change health or read eligibility.
+Source validity and consistency still govern read selection.
+Ecobee freshness can make a cadence-backed vendor
 writer unsafe to use, but it never changes the selected writer or causes write
 failover.
 
@@ -269,6 +277,9 @@ turn-off operations call only the selected HomeKit climate. Temperature unit
 and safety bounds remain writer-owned. When the mapped HomeKit adapter omits
 its proven native step, the matching Ecobee climate may supply only that static
 same-device presentation metadata; it never replaces the primary reading.
+A present step must be finite, positive, and no larger than the writer's
+temperature span. Invalid metadata degrades explicitly and cannot be replaced
+by a cloud step.
 Temperature-command confirmation accepts only the writer's half-step
 quantization envelope, while other numeric fields retain the stricter default
 tolerance.
@@ -319,8 +330,9 @@ pytest tests -q
 ```
 
 The Home Assistant test surface is Linux-owned because Core imports POSIX-only
-modules. Hassfest and HACS validation are defined in CI but cannot be claimed
-green until a separately authorized public repository runs them.
+modules. The local runner validates the candidate with pinned Hassfest.
+Hosted HACS validation checks the published repository and remains a separate
+delivery gate.
 
 ## Known limits
 

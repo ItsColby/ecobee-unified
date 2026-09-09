@@ -23,7 +23,7 @@ justify ambiguous values or dual writes.
 | F-04 | Implement the deterministic field ownership and fallback table in `architecture.md`. |
 | F-05 | Route every command to exactly one documented backend service/entity. |
 | F-06 | Subscribe to source state changes; never perform I/O from entity properties. |
-| F-07 | Degrade per capability when an optional source is absent, stale, unavailable, renamed, removed, or re-added, and recover a stale cadence-backed source from its next unchanged report without refreshing healthy reports. |
+| F-07 | Degrade only affected capabilities when a configured source is missing, stale, unavailable, or invalid; preserve supported registry renames and recover when a source is restored. Recover a stale cadence-backed source from its next unchanged report without refreshing healthy reports. |
 | F-08 | Link every unified entity to the selected physical thermostat device using the supported helper pattern, following source-device move/detach/removal/restoration without recreating stable identity. |
 | F-09 | Expose compact live provenance, source health, configured comfort sensors, and command-confirmation status; expose a native per-mapping degradation problem entity whose state represents actionable degradation while retaining bounded advisory details; keep exact continuously advancing source and command ages in bounded diagnostics. |
 | F-10 | Provide redacted diagnostics that explain mappings, capabilities, selection, freshness, advisory/actionable degradation, and recent command state. |

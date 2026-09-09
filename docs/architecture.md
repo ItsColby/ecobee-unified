@@ -72,7 +72,7 @@ entry.
 
 ## Device Model
 
-Every unified climate, number, sensor, and notification entity links to the
+Every Unified entity links to the
 selected physical HomeKit thermostat device using Home Assistant's current
 helper-device linking pattern.
 The integration must not return foreign identifiers or connections and must not
@@ -96,7 +96,7 @@ Repair until the supported registry identities match again.
 |---|---|---|---|
 | HVAC mode and action | HomeKit climate | Ecobee climate | Local state is canonical for normal operation. |
 | Target temperature/range | HomeKit climate | Ecobee climate | Reads may fall back, but unit and safety bounds remain HomeKit-writer-owned. The Ecobee target step is an explicit same-device metadata fusion only when Core writer granularity is independently proven and the HomeKit adapter omits the step. |
-| Current temperature | Explicit same-device HomeKit temperature sensor when mapped, valid, and consistent with the current HomeKit climate serialization envelope; otherwise HomeKit climate | Ecobee climate `current_temperature` only when the local climate chain is unavailable | The explicit sensor preserves honest accessory precision without trusting a silent divergent duplicate projection. Require temperature class, compatible unit, finite state, same-device association, and agreement within half of Core's unit-specific climate display step; otherwise degrade explicitly and fall back. |
+| Current temperature | Explicit same-device HomeKit temperature sensor when mapped, valid, and consistent with the current HomeKit climate serialization envelope; otherwise HomeKit climate | Ecobee climate `current_temperature` when the local climate chain has no valid reading | The explicit sensor preserves honest accessory precision without trusting a silent divergent duplicate projection. Require temperature class, compatible unit, finite state, same-device association, and agreement within half of Core's unit-specific climate display step; otherwise degrade explicitly and fall back. |
 | Current humidity | HomeKit climate | Ecobee climate | Expose only when valid. |
 | Target humidity and bounds | HomeKit climate | none | Advertise and write only when the mapped HomeKit writer exposes the capability and valid bounds; confirm from its report. |
 | Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
@@ -126,6 +126,11 @@ HomeKit Current Mode select specifically, an `unknown` current option is an
 unreadable value rather than writer unavailability: an enabled, available,
 same-device select may continue to advertise its bounded options while Unified
 keeps the current preset unknown. Actual unavailability still removes control.
+Current Mode options must be a nonempty subset of Home, Sleep, and Away.
+Configuration and runtime dispatch reject action sources with contradictory
+domain, integration, category, device-class, or translation metadata. Clear Hold
+has no positive role marker in the supported registry: explicit selection of an
+otherwise eligible button remains a user assertion, not verified semantics.
 
 Numeric normalization rejects conversion overflow, non-finite values and proven
 quantity violations, including temperatures below absolute zero beyond the
@@ -136,6 +141,14 @@ source/field reasons to the existing degradation projection; absent optional
 fields do not. Transport health retains its separate meaning. Raw source
 observations remain unchanged, and selection uses only eligible documented
 fallbacks or unavailable values. No smoothing or synthetic readings are used.
+Air-quality checks use explicit live unit and device-class attributes before
+registry defaults so a user-selected unit cannot silently relabel a value.
+Temperature mapping, source selection, and Repairs share the same contract for
+live metadata and finite state. Explicit null or empty metadata is invalid;
+registry defaults apply only when the live attribute is absent.
+A native target-temperature step must be finite, positive, and within the
+writer's valid temperature span. Present-invalid metadata degrades and cannot
+borrow the Ecobee step reserved for an omitted native value.
 
 Ecobee cloud `current_temperature` is the thermostat-displayed `actualTemperature`
 semantic and may be feels-like under humidex. It is not guaranteed independent
@@ -246,7 +259,9 @@ Exactly one backend writes each operation:
 | Operation | Writer | Policy |
 |---|---|---|
 | Set HVAC mode | HomeKit climate | No automatic fallback. |
+| Turn on/off | HomeKit climate | Preserve the mapped writer's native on/off semantics; no automatic fallback. |
 | Set temperature/range | HomeKit climate | No automatic fallback. |
+| Set target humidity | HomeKit climate | Advertised writer bounds and local report confirmation; no automatic fallback. |
 | Set fan mode | HomeKit climate | No automatic fallback. |
 | Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. An unreadable current option does not disable an otherwise available same-device writer. |
 | Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; a successful button call is reported as submitted because no source state can prove the hold cleared. It does not require the independent current-mode select. |
@@ -254,8 +269,9 @@ Exactly one backend writes each operation:
 | Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |
 | Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
 
-Serialize effect dispatch per mapping so a slower earlier writer call cannot
-finish after and overwrite a later user command. Give every command a
+Serialize effect dispatch per mapping within one running manager so a slower
+earlier writer call cannot finish after and overwrite a later command admitted
+by that manager. Give every tracked command a
 monotonically increasing revision, mark it pending while its sole writer is
 awaited, and permit source confirmation only after that writer returns
 successfully. A matching observation received during dispatch may be retained
@@ -294,23 +310,25 @@ the tracked outcome unconfirmed when cancellation interrupts the dispatched
 source call. Cancellation after acceptance preserves the established tracking
 result; a cancelled queued command owns no tracked revision. Notifications
 preserve their one-way source service semantics and use the same admission
-fence without inventing delivery
-confirmation.
+fence without inventing delivery confirmation.
 
 ## Entity Surface
 
 Source candidate per thermostat:
 
 1. One unified climate with optional HomeKit preset support.
-2. An optional Unified resume-program button backed by one explicitly mapped
+2. One enabled Source degraded problem binary sensor for actionable mapping
+   faults, with bounded advisories available separately.
+3. An optional Unified resume-program button backed by one explicitly mapped
    HomeKit Clear Hold writer.
-3. One Ecobee minimum-fan-runtime number.
-4. One bounded equipment-stage sensor.
-5. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
-6. An optional thermostat-display notification entity backed by one explicitly
+4. One Ecobee minimum-fan-runtime number.
+5. One bounded equipment-stage sensor.
+6. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
+7. An optional thermostat-display notification entity backed by one explicitly
    mapped Ecobee writer.
-7. Existing Beestat schedule/filter/alert entities linked independently to the
-   same device; no re-export or Recorder ownership transfer.
+
+Existing Beestat schedule/filter/alert entities link independently to the same
+device; there is no re-export or Recorder ownership transfer.
 
 Unified climate actions also expose bounded vacation creation/deletion,
 Smart Home/Away and Follow Me policy, and comfort-sensor participation. They

@@ -639,7 +639,11 @@ def _temperature_metadata(
         {"min_temp": "homekit", "max_temp": "homekit", "temperature_unit": "homekit"}
     )
     step = _writer_attribute(homekit, "target_temp_step", "positive_number")
-    if step is not None:
+    native_step_present = homekit.attributes.get("target_temp_step") is not None
+    if native_step_present and (step is None or step > max_temp - min_temp):
+        step = None
+        degradation.add("homekit_target_temperature_step_invalid")
+    elif step is not None:
         provenance["target_temperature_step"] = "homekit"
     elif fusion_proven:
         ecobee_step = _source_metadata_attribute(

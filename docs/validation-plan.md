@@ -18,8 +18,13 @@
 - removing a mapping or optional projection deletes only that config entry's
   orphaned Unified entities and preserves retained stable IDs;
 - startup before each source integration and later source setup/reload;
+- setup cancellation after manager startup or during platform forwarding stops
+  the manager, releases native setup ownership, cancels subscriptions/deadlines,
+  and prevents late callbacks from restoring runtime state;
 - config-entry version migration and rollback fixtures.
 - options/mapping changes that preserve temporarily missing entity selections;
+- a missing parent device permits preserving or removing saved optional
+  references, but cannot establish a newly selected source association;
 - explicit confirmation for physical-device or command-writer changes.
 - concurrent reconfigure sessions and external config-entry updates fail closed
   at completion, preserve the winning mapping collection, and do not schedule a
@@ -71,7 +76,12 @@ For every standard and vendor field, test:
   confirmation, invalid input, source loss, recovery, and no fabricated
   presentation step when the supported writer contract exposes none.
 - AQI, CO2, and VOC device-class/unit contracts, non-finite/negative state,
-  within-mapping source reuse, semantic drift, Repair creation, and recovery.
+  within-mapping source reuse, semantic drift, Repair creation, and recovery;
+- live sensor unit/class precedence over registry defaults, including native
+  user-unit conversion and rejection without relabeling; temperature mapping,
+  source selection and Repairs agree through invalid metadata and recovery;
+- present-invalid HomeKit temperature steps, including a step larger than the
+  writer span, cannot inflate confirmation tolerance or borrow cloud metadata.
 
 Include fixtures where climate `current_temperature` intentionally differs from
 an explicitly mapped same-device HomeKit temperature sensor and an unmapped raw
@@ -83,6 +93,9 @@ decimal places or a newer timestamp.
 ### Commands
 
 - each standard climate method makes exactly one HomeKit service call;
+- action-role validation rejects Display Units, Identify, administrative and
+  diagnostic sources at configuration, recovery, and dispatch; valid unknown
+  Current Mode values retain bounded Home/Sleep/Away writer options;
 - preset and both Unified clear-hold entry points each make exactly one mapped
   HomeKit service call; Clear Hold works without the preset source, becomes
   submitted rather than confirmed, and the native button exists only for an
@@ -151,7 +164,8 @@ decimal places or a newer timestamp.
 - capability-aware creation/projection of equipment stage, optional AQI/CO2/VOC,
   optional precise current temperature, and optional notification, with no
   duplicate temperature/humidity/occupancy/weather entities;
-- disabled-by-default policy for diagnostic/noisy entities;
+- disabled-by-default policy for optional diagnostic/noisy entities, with the
+  per-mapping Source degraded problem binary sensor enabled by default;
 - the sole custom-integration runtime English owner at `translations/en.json`,
   including entity and config-flow strings, with no Core-only `strings.json`
   mirror;
@@ -219,6 +233,12 @@ Fixtures use names such as `zone_a`, `room_sensor_a`, and synthetic IDs only.
 History scanning covers commit metadata, every historical filename, and every
 reachable bounded blob so removed private text or binary content cannot evade a
 patch-only scan.
+Hosted validation fetches complete history. The local container runner exports
+the source repository's available refs and detached HEAD into a read-only mirror,
+separate from the exact candidate payload and its synthetic archive index.
+Unavailable or shallow history fails validation. Orchestration regressions cover
+removed private content, commit metadata, linked worktrees, detached HEAD, dirty
+payloads, and shallow sources.
 
 ## Local Shadow Acceptance
 

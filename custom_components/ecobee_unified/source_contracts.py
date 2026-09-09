@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
@@ -11,6 +12,7 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     UnitOfDensity,
     UnitOfRatio,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -43,6 +45,7 @@ AIR_QUALITY_SENSOR_CONTRACTS = {
         UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
     ),
 }
+HOMEKIT_PRESET_OPTIONS = frozenset({"home", "sleep", "away"})
 
 
 def physical_identity_status(
@@ -80,12 +83,11 @@ def sensor_contract_valid(
     state = hass.states.get(entity_id) if entity_id else None
     if entry is None:
         return False
-    device_class = entry.original_device_class or (
-        state.attributes.get(ATTR_DEVICE_CLASS) if state else None
-    )
-    unit = entry.unit_of_measurement or (
-        state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
-    )
+    # A sensor's live value may use a user-selected unit or device class. Native
+    # registry metadata must never relabel an explicitly different live value.
+    attributes = state.attributes if state else {}
+    device_class = attributes.get(ATTR_DEVICE_CLASS, entry.original_device_class)
+    unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT, entry.unit_of_measurement)
     normalized_unit = str(unit) if unit is not None and unit != "" else None
     if device_class != contract.device_class or normalized_unit != contract.unit:
         return False
@@ -93,6 +95,89 @@ def sensor_contract_valid(
         return True
     value = finite_number(state.state, allow_text=True)
     return value is not None and value >= 0
+
+
+def temperature_source_unit(
+    hass: HomeAssistant, entity_reference: str
+) -> UnitOfTemperature | None:
+    """Validate temperature metadata and present numeric state consistently.
+
+    Explicit live class/unit attributes belong to the current value, including
+    invalid null or empty attributes. Registry metadata fills only absent keys.
+    Missing, unknown, or unavailable state retains a valid metadata contract;
+    availability, association, conversion, and physical limits have other owners.
+    """
+
+    registry = er.async_get(hass)
+    entity_id = er.async_resolve_entity_id(registry, entity_reference)
+    entry = registry.async_get(entity_id) if entity_id else None
+    if entry is None:
+        return None
+    state = hass.states.get(entry.entity_id)
+    attributes = state.attributes if state else {}
+    device_class = attributes.get(ATTR_DEVICE_CLASS, entry.original_device_class)
+    if device_class != SensorDeviceClass.TEMPERATURE:
+        return None
+    unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT, entry.unit_of_measurement)
+    try:
+        temperature_unit = UnitOfTemperature(str(unit))
+    except ValueError:
+        return None
+    if (
+        state is not None
+        and state.state not in {"unknown", "unavailable"}
+        and finite_number(state.state, allow_text=True) is None
+    ):
+        return None
+    return temperature_unit
+
+
+def homekit_action_contract_valid(
+    hass: HomeAssistant,
+    entity_reference: str,
+    role: Literal["preset", "clear_hold"],
+) -> bool:
+    """Reject action roles contradicted by supported public entity metadata.
+
+    Current Mode has a supported option contract. Clear Hold has no positive
+    public role marker: an explicitly selected uncategorized, classless button
+    can only be checked for known incompatibility, not proven to clear a hold.
+    Association and current writer availability are separate caller checks.
+    """
+
+    registry = er.async_get(hass)
+    entity_id = er.async_resolve_entity_id(registry, entity_reference)
+    entry = registry.async_get(entity_id) if entity_id else None
+    expected_domain = "select" if role == "preset" else "button"
+    if (
+        entry is None
+        or entry.platform != "homekit_controller"
+        or entry.domain != expected_domain
+        or entry.entity_category is not None
+    ):
+        return False
+    state = hass.states.get(entry.entity_id)
+    attributes = state.attributes if state else {}
+    if any(
+        device_class is not None and device_class != ""
+        for device_class in (
+            entry.original_device_class,
+            entry.device_class,
+            attributes.get(ATTR_DEVICE_CLASS),
+        )
+    ):
+        return False
+    if role == "clear_hold":
+        return entry.translation_key is None
+    if entry.translation_key not in {None, "ecobee_mode"}:
+        return False
+    options = attributes.get("options", (entry.capabilities or {}).get("options"))
+    if not isinstance(options, list | tuple) or not 1 <= len(options) <= 3:
+        return False
+    if not all(isinstance(option, str) for option in options):
+        return False
+    normalized = {option.casefold() for option in options}
+    return len(normalized) == len(options) and normalized <= HOMEKIT_PRESET_OPTIONS
 
 
 def _device_for_reference(

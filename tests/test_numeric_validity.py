@@ -7,6 +7,9 @@ from dataclasses import replace
 from math import inf, nan
 from types import MappingProxyType
 
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import UnitOfDensity
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from custom_components.ecobee_unified.models import (
@@ -233,6 +236,57 @@ class NumericValidityTests(unittest.TestCase):
                 )
                 self.assertFalse(command_matches(corrupt, {"target_temperature": 74}))
 
+    def test_invalid_native_step_cannot_expand_confirmation_or_use_cloud_fusion(
+        self,
+    ) -> None:
+        for step in (1000, 40.01, 0, -1, nan, inf, 10**400, "0.5", True):
+            with self.subTest(step_type=type(step).__name__):
+                homekit = climate(
+                    supported_features=1,
+                    min_temp=50,
+                    max_temp=90,
+                    target_temp_step=step,
+                )
+                homekit = replace(
+                    homekit, attributes={**homekit.attributes, "temperature": 85}
+                )
+                snapshot = build_snapshot(
+                    "mapping",
+                    homekit,
+                    climate(target_temp_step=0.5),
+                    temperature_step_fusion_proven=True,
+                )
+                self.assertEqual(1, snapshot.supported_features)
+                self.assertEqual((50, 90), (snapshot.min_temp, snapshot.max_temp))
+                self.assertIsNone(snapshot.target_temperature_step)
+                self.assertNotIn("target_temperature_step", snapshot.provenance)
+                self.assertIn(
+                    "homekit_target_temperature_step_invalid", snapshot.degradation
+                )
+                self.assertFalse(command_matches(snapshot, {"target_temperature": 70}))
+
+    def test_native_step_span_and_omitted_step_fusion_boundaries(self) -> None:
+        for attributes, expected_step, expected_owner in (
+            ({"target_temp_step": 0.5}, 0.5, "homekit"),
+            ({"target_temp_step": 40}, 40, "homekit"),
+            ({}, 0.5, "ecobee_same_device_fusion"),
+            ({"target_temp_step": None}, 0.5, "ecobee_same_device_fusion"),
+        ):
+            with self.subTest(attributes=attributes):
+                snapshot = build_snapshot(
+                    "mapping",
+                    climate(min_temp=50, max_temp=90, **attributes),
+                    climate(target_temp_step=0.5),
+                    temperature_step_fusion_proven=True,
+                )
+                self.assertEqual(expected_step, snapshot.target_temperature_step)
+                self.assertEqual(
+                    expected_owner, snapshot.provenance["target_temperature_step"]
+                )
+                self.assertNotIn(
+                    "homekit_target_temperature_step_invalid", snapshot.degradation
+                )
+
 
 class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
     """Exercise conversion against real Core registry/state objects."""
@@ -309,3 +363,62 @@ class NumericBoundaryTests(unittest.IsolatedAsyncioTestCase):
                         AIR_QUALITY_SENSOR_CONTRACTS["aqi"],
                     )
                 )
+
+    async def test_voc_live_unit_and_quantity_override_native_registry_metadata(
+        self,
+    ) -> None:
+        ecobee_entry = self.runtime.hass.config_entries.async_get_entry(
+            self.runtime.ecobee.config_entry_id
+        )
+        assert ecobee_entry is not None
+        voc = er.async_get(self.runtime.hass).async_get_or_create(
+            "sensor",
+            "ecobee",
+            "numeric_validity_voc",
+            config_entry=ecobee_entry,
+            device_id=self.runtime.ecobee.device_id,
+            original_device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+            unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
+        )
+        for state, attributes, expected in (
+            ("0.125", {"unit_of_measurement": "mg/m³"}, None),
+            ("125", {"unit_of_measurement": None}, None),
+            ("125", {"device_class": "humidity"}, None),
+            (
+                "125",
+                {"unit_of_measurement": UnitOfDensity.MICROGRAMS_PER_CUBIC_METER},
+                125,
+            ),
+            ("125", {}, 125),
+        ):
+            with self.subTest(attributes=attributes):
+                self.runtime.hass.states.async_set(voc.entity_id, state, attributes)
+                self.assertEqual(
+                    expected is not None,
+                    sensor_contract_valid(
+                        self.runtime.hass, voc.id, AIR_QUALITY_SENSOR_CONTRACTS["voc"]
+                    ),
+                )
+                source = self.runtime.manager._air_quality_raw_source(
+                    voc.id,
+                    "voc",
+                    1800,
+                    now=dt_util.utcnow(),
+                    report_times=None,
+                    required_device_id=self.runtime.ecobee.device_id,
+                    physical_identity_proven=True,
+                )
+                assert source is not None
+                snapshot = build_snapshot("mapping", climate(), climate(), voc=source)
+                self.assertEqual(expected, snapshot.voc)
+                if expected is None:
+                    self.assertIs(SourceHealth.UNAVAILABLE, source.health)
+                    self.assertIn("voc_unavailable", snapshot.degradation)
+                else:
+                    self.assertIs(SourceHealth.HEALTHY, source.health)
+                    self.assertNotIn("voc_unavailable", snapshot.degradation)
+                original = self.runtime.hass.states.get(voc.entity_id)
+                assert original is not None
+                self.assertEqual(state, original.state)
+                for attribute, value in attributes.items():
+                    self.assertEqual(value, original.attributes[attribute])

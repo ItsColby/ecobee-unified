@@ -7,12 +7,25 @@ source_git_dir="${3:-}"
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$source_root"
 if [[ "$backend" == container ]]; then
-  repo_root="$(mktemp -d)"
-  trap 'rm -rf "$repo_root"' EXIT
+  temporary_root="$(mktemp -d)"
+  trap 'rm -rf "$temporary_root"' EXIT
+  repo_root="$temporary_root/payload"
+  history_root="$temporary_root/history.git"
+  mkdir "$repo_root"
   source_git=(git -C "$source_root")
   if [[ -n "$source_git_dir" ]]; then
     source_git=(git --git-dir="$source_git_dir" --work-tree="$source_root")
   fi
+  if [[ "$("${source_git[@]}" rev-parse --is-shallow-repository)" != false ]]; then
+    echo "Complete original Git history is required; source is unavailable or shallow." >&2
+    exit 1
+  fi
+  # Preserve every available original ref and detached candidate HEAD separately
+  # from the exact working-tree payload and its synthetic archive index.
+  source_head="$("${source_git[@]}" rev-parse --verify HEAD)"
+  "${source_git[@]}" bundle create "$temporary_root/history.bundle" --all HEAD
+  git clone --quiet --mirror "$temporary_root/history.bundle" "$history_root"
+  git -C "$history_root" update-ref --no-deref HEAD "$source_head"
   "${source_git[@]}" ls-files --cached --others --exclude-standard -z |
     while IFS= read -r -d '' path; do
       if [[ -e "$source_root/$path" || -L "$source_root/$path" ]]; then
@@ -40,7 +53,7 @@ hassfest_image="ghcr.io/home-assistant/hassfest@sha256:8cd7bdb8f82430c2c13703290
 
 run_python() {
   if [[ "$backend" == native ]]; then
-    (cd "$repo_root" && bash -lc "$1")
+    (cd "$repo_root" && PUBLIC_SAFETY_HISTORY_REPOSITORY="$repo_root" bash -lc "$1")
   else
     podman run --rm \
       -e HOME=/tmp/home -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -48,6 +61,8 @@ run_python() {
       -e PYTHONPYCACHEPREFIX=/tmp/pycache -e XDG_CACHE_HOME=/tmp/cache \
       -e RUFF_CACHE_DIR=/tmp/ruff-cache -e MYPY_CACHE_DIR=/tmp/mypy-cache \
       -e 'PYTEST_ADDOPTS=-p no:cacheprovider' \
+      -e PUBLIC_SAFETY_HISTORY_REPOSITORY=/source-history \
+      -v "$history_root:/source-history:ro" \
       -v "$repo_root:/workspace" -w /workspace \
       "$python_image" bash -lc \
       'apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null && eval "$1"' \
@@ -69,6 +84,8 @@ run_actionlint() {
 
 run_unit() {
   run_actionlint
+  # The validation shell expands its history path after entering the container.
+  # shellcheck disable=SC2016
   run_python '
     python -m pip install "ruff==0.16.1" "shellcheck-py==0.11.0.1" "zizmor==1.29.0" &&
     zizmor --strict-collection --persona auditor . &&
@@ -77,7 +94,7 @@ run_unit() {
     python -m ruff check custom_components tests scripts &&
     python -m unittest tests.test_public_safety &&
     python -m compileall -q custom_components/ecobee_unified tests scripts &&
-    python scripts/check_public_safety.py &&
+    python scripts/check_public_safety.py --history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY" &&
     python - <<"PY"
 import json
 from pathlib import Path

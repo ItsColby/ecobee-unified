@@ -58,12 +58,14 @@ run_python() {
     podman run --rm \
       -e HOME=/tmp/home -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
       -e PIP_ROOT_USER_ACTION=ignore -e DEBIAN_FRONTEND=noninteractive \
+      -e PIP_CACHE_DIR=/pip-cache \
       -e PYTHONPYCACHEPREFIX=/tmp/pycache -e XDG_CACHE_HOME=/tmp/cache \
       -e RUFF_CACHE_DIR=/tmp/ruff-cache -e MYPY_CACHE_DIR=/tmp/mypy-cache \
       -e 'PYTEST_ADDOPTS=-p no:cacheprovider' \
       -e PUBLIC_SAFETY_HISTORY_REPOSITORY=/source-history \
       -v "$history_root:/source-history:ro" \
-      -v "$repo_root:/workspace" -w /workspace \
+      -v "$repo_root:/workspace:ro" -w /workspace \
+      --mount type=volume,source=ecobee-unified-validation-pip,target=/pip-cache \
       "$python_image" bash -lc \
       'apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null && eval "$1"' \
       local-validation "$1"
@@ -92,7 +94,7 @@ run_unit() {
     shellcheck scripts/verify-release-local.sh &&
     python -m ruff format --check custom_components tests scripts &&
     python -m ruff check custom_components tests scripts &&
-    python -m unittest tests.test_public_safety &&
+    python -m unittest tests.test_public_safety tests.test_parallel_validation &&
     python -m compileall -q custom_components/ecobee_unified tests scripts &&
     python scripts/check_public_safety.py --history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY"
   '
@@ -120,6 +122,23 @@ run_current() {
   '
 }
 
+run_ha_matrix() {
+  if [[ "$backend" == native ]]; then
+    run_minimum
+    run_current
+  else
+    # Containers read one immutable payload; installed environments stay separate.
+    local minimum_pid current_pid minimum_status=0 current_status=0
+    run_minimum & minimum_pid=$!
+    run_current & current_pid=$!
+    # Always reap both lanes before the parent can remove the payload/history.
+    wait "$minimum_pid" || minimum_status=$?
+    wait "$current_pid" || current_status=$?
+    printf 'Home Assistant lanes: minimum=%s current=%s\n' "$minimum_status" "$current_status"
+    (( minimum_status == 0 && current_status == 0 ))
+  fi
+}
+
 run_release() {
   if [[ "$backend" == native ]]; then
     docker run --rm -v "$repo_root:/github/workspace:ro" "$hassfest_image"
@@ -129,7 +148,7 @@ run_release() {
 }
 
 case "$mode" in
-  all) run_unit; run_minimum; run_current; run_release ;;
+  all) run_unit; run_ha_matrix; run_release ;;
   unit) run_unit ;;
   minimum) run_minimum ;;
   current) run_current ;;

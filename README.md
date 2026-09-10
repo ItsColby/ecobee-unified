@@ -163,7 +163,10 @@ the Podman volume `ecobee-unified-validation-pip`; each lane still installs its
 dependencies into a fresh container and reruns every check. The disposable cache
 contains neither installed environments nor validation results and can be
 removed with `podman volume rm ecobee-unified-validation-pip` when no local
-validation is running. After unit/static checks pass, the local `all` container
+validation is running. Container pip installs defer dependency bytecode until
+imports, and mypy checks run without writing a cache. The explicit product
+`compileall` check and every test remain enabled.
+After unit/static checks pass, the local `all` container
 runner overlaps the minimum/current HA lanes against a read-only snapshot. It
 waits for both results before cleanup and runs Hassfest only when both pass;
 native execution remains sequential. The [validation plan](docs/validation-plan.md)

@@ -318,6 +318,8 @@ class PublicSafetyTests(unittest.TestCase):
                             sys.exit(0)  # The unrelated Actionlint image.
                         assert arguments[:2] == ["run", "--rm"]
                         assert environment["PIP_CACHE_DIR"] == "/pip-cache"
+                        assert environment["PIP_COMPILE"] == "0"
+                        assert environment["MYPY_CACHE_DIR"] == "/dev/null"
                         cache = arguments[arguments.index("--mount") + 1]
                         assert cache == "type=volume,source=ecobee-unified-validation-pip,target=/pip-cache"
                         assert '--history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY"' in arguments[-1]

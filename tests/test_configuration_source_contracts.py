@@ -5,25 +5,40 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from typing import Any
+from unittest.mock import patch
 
 import voluptuous as vol
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import UnitOfDensity, UnitOfRatio
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified.config_flow import (
+    OPTIONAL_SOURCE_KEYS,
+    EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
 )
 from custom_components.ecobee_unified.const import (
+    CONF_ADD_ANOTHER,
+    CONF_CONFIRM_CHANGE,
+    CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_AQI_ENTITY,
     CONF_ECOBEE_CO2_ENTITY,
+    CONF_ECOBEE_ENTITY,
     CONF_ECOBEE_NOTIFY_ENTITY,
+    CONF_ECOBEE_STALE_SECONDS,
     CONF_ECOBEE_VOC_ENTITY,
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
+    CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
     CONF_HOMEKIT_TEMPERATURE_ENTITY,
+    CONF_MAPPING_ID,
+    CONF_MAPPINGS,
+    CONF_NAME,
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
 )
@@ -37,6 +52,246 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         self.registry = er.async_get(self.hass)
+
+    async def test_mapping_error_preserves_add_another_choice(self) -> None:
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        submitted = {
+            CONF_NAME: "   ",
+            CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+            CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+            CONF_ADD_ANOTHER: True,
+        }
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], submitted
+        )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("invalid_name", result["errors"]["base"])
+        fields = {field.schema: field for field in result["data_schema"].schema}
+        self.assertTrue(fields[CONF_ADD_ANOTHER].default())
+
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            submitted
+            | {
+                CONF_NAME: "Zone A",
+                CONF_ADD_ANOTHER: fields[CONF_ADD_ANOTHER].default(),
+            },
+        )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("mapping", result["step_id"])
+        self.hass.config_entries.flow.async_abort(result["flow_id"])
+
+    async def test_edit_errors_keep_cleared_optional_sources_empty(self) -> None:
+        co2 = self._ecobee_sensor(
+            "clear_co2", SensorDeviceClass.CO2, UnitOfRatio.PARTS_PER_MILLION
+        )
+        voc = self._ecobee_sensor(
+            "clear_voc",
+            SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+            UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
+        )
+        mapping = replace(
+            self.mapping,
+            homekit_temperature_entity=self.homekit_temperature.id,
+            ecobee_notify_entity=self.ecobee_notify.id,
+            ecobee_co2_entity=co2.id,
+            ecobee_voc_entity=voc.id,
+        )
+        future_mapping = {"opaque": ["preserve"]}
+        original_data = {
+            CONF_MAPPINGS: [mapping.as_dict() | {"future_mapping": future_mapping}],
+            "future_entry": {"opaque": ["preserve"]},
+        }
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data=original_data,
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        for name, confirm, error in (
+            ("   ", True, "invalid_name"),
+            ("Zone A", False, "confirmation_required"),
+        ):
+            with self.subTest(error=error):
+                result = await self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": "reconfigure", "entry_id": entry.entry_id},
+                )
+                result = await self.hass.config_entries.flow.async_configure(
+                    result["flow_id"], {"next_step_id": "reconfigure_edit"}
+                )
+                result = await self.hass.config_entries.flow.async_configure(
+                    result["flow_id"], {CONF_MAPPING_ID: mapping.mapping_id}
+                )
+                # The frontend omits optional fields that the user clears.
+                submitted = {
+                    CONF_NAME: name,
+                    CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
+                    CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
+                    CONF_CONFIRM_CHANGE: confirm,
+                }
+                result = await self.hass.config_entries.flow.async_configure(
+                    result["flow_id"], submitted
+                )
+                self.assertIs(FlowResultType.FORM, result["type"])
+                self.assertEqual(error, result["errors"]["base"])
+                fields = {field.schema: field for field in result["data_schema"].schema}
+                for key in OPTIONAL_SOURCE_KEYS:
+                    self.assertIsNone(fields[key].description["suggested_value"])
+                self.assertEqual(original_data, dict(entry.data))
+                if error == "invalid_name":
+                    self.hass.config_entries.flow.async_abort(result["flow_id"])
+
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], submitted | {CONF_CONFIRM_CHANGE: True}
+        )
+        self.assertIs(FlowResultType.MENU, result["type"])
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+        self.assertEqual("reconfigure_successful", result["reason"])
+        schedule_reload.assert_called_once_with(entry.entry_id)
+        saved = entry.data[CONF_MAPPINGS][0]
+        self.assertEqual(mapping.mapping_id, saved[CONF_MAPPING_ID])
+        self.assertEqual(future_mapping, saved["future_mapping"])
+        self.assertEqual(original_data["future_entry"], entry.data["future_entry"])
+        self.assertTrue(all(key not in saved for key in OPTIONAL_SOURCE_KEYS))
+
+    async def test_options_error_preserves_both_submitted_timings(self) -> None:
+        original_options = {
+            CONF_ECOBEE_STALE_SECONDS: 1800,
+            CONF_CONFIRMATION_SECONDS: 1800,
+            "future_option": {"opaque": ["preserve"]},
+        }
+        original_data = {CONF_MAPPINGS: [self.mapping.as_dict()]}
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data=original_data,
+            options=original_options,
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        result = await self.hass.config_entries.options.async_init(entry.entry_id)
+        submitted = {
+            CONF_ECOBEE_STALE_SECONDS: 1210,
+            CONF_CONFIRMATION_SECONDS: 720,
+        }
+        result = await self.hass.config_entries.options.async_configure(
+            result["flow_id"], submitted
+        )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        self.assertEqual("invalid_timing", result["errors"]["base"])
+        displayed = result["data_schema"]({})
+        self.assertEqual(submitted, displayed)
+        self.assertEqual(original_options, entry.options)
+
+        result = await self.hass.config_entries.options.async_configure(
+            result["flow_id"], displayed | {CONF_ECOBEE_STALE_SECONDS: 1200}
+        )
+        self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
+        self.assertEqual(
+            original_options
+            | {CONF_ECOBEE_STALE_SECONDS: 1200, CONF_CONFIRMATION_SECONDS: 720},
+            entry.options,
+        )
+        self.assertEqual(original_data, dict(entry.data))
+
+    async def test_last_mapping_keeps_staged_changes_available_to_save(self) -> None:
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_staged_b",
+            device=True,
+            physical_identity="thermostat_staged_b",
+        )
+        ecobee_b = self._source(
+            "ecobee",
+            "ec_staged_b",
+            device=True,
+            physical_identity="thermostat_staged_b",
+        )
+        mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
+        original_data = {
+            CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()],
+            "future_entry": {"opaque": ["preserve"]},
+        }
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data=original_data,
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        result = await self.hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": "reconfigure", "entry_id": entry.entry_id},
+        )
+        self.assertIn("reconfigure_remove", result["menu_options"])
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_edit"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_MAPPING_ID: self.mapping.mapping_id}
+        )
+        form_values = {
+            key: value
+            for key, value in _mapping_form_defaults(
+                self.hass, self.mapping.as_dict()
+            ).items()
+            if value is not None
+        }
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            form_values | {CONF_NAME: "Renamed Zone A"},
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_remove"}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_MAPPING_ID: mapping_b.mapping_id}
+        )
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONFIRM_CHANGE: True}
+        )
+        self.assertIs(FlowResultType.MENU, result["type"])
+        self.assertNotIn("reconfigure_remove", result["menu_options"])
+        self.assertIn("reconfigure_finish", result["menu_options"])
+        self.assertEqual(original_data, dict(entry.data))
+
+        with self.assertRaises(InvalidData):
+            await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_remove"}
+            )
+        # Exercise the defensive step directly on the native in-progress flow.
+        flow = self.hass.config_entries.flow._progress[result["flow_id"]]
+        assert isinstance(flow, EcobeeUnifiedConfigFlow)
+        guarded = await flow.async_step_reconfigure_remove()
+        self.assertIs(FlowResultType.MENU, guarded["type"])
+        self.assertNotIn("reconfigure_remove", guarded["menu_options"])
+        self.assertEqual(original_data, dict(entry.data))
+
+        with patch.object(
+            self.hass.config_entries, "async_schedule_reload"
+        ) as schedule_reload:
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+        self.assertEqual("reconfigure_successful", result["reason"])
+        schedule_reload.assert_called_once_with(entry.entry_id)
+        self.assertEqual(
+            original_data
+            | {CONF_MAPPINGS: [self.mapping.as_dict() | {CONF_NAME: "Renamed Zone A"}]},
+            dict(entry.data),
+        )
 
     async def test_live_temperature_metadata_cannot_be_masked_by_registry(
         self,

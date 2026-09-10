@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import date as dt_date
 from datetime import time as dt_time
-from math import isfinite
 from typing import Any, NoReturn, override
 
 import voluptuous as vol
@@ -618,58 +617,15 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             self._raise_validation("unsupported_command")
 
     def _validated_temperature(self, value: Any) -> float:
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            self._raise_validation("invalid_temperature")
-        temperature = float(value)
-        if not isfinite(temperature):
-            self._raise_validation("invalid_temperature")
-        if (
-            self._snapshot.min_temp is not None
-            and temperature < self._snapshot.min_temp
-        ) or (
-            self._snapshot.max_temp is not None
-            and temperature > self._snapshot.max_temp
-        ):
-            self._raise_validation("invalid_temperature")
-        return temperature
+        return self._manager.validated_temperature(self._mapping.mapping_id, value)
 
     def _validated_humidity(self, value: Any) -> int:
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            self._raise_validation("invalid_humidity")
-        humidity = float(value)
-        if not isfinite(humidity) or not humidity.is_integer():
-            self._raise_validation("invalid_humidity")
-        if (
-            self._snapshot.min_humidity is None
-            or self._snapshot.max_humidity is None
-            or humidity < self._snapshot.min_humidity
-            or humidity > self._snapshot.max_humidity
-        ):
-            self._raise_validation("invalid_humidity")
-        return int(humidity)
+        return self._manager.validated_humidity(self._mapping.mapping_id, value)
 
     def _validated_vacation_temperature(self, value: Any) -> float:
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            self._raise_validation("invalid_vacation_temperature")
-        temperature = float(value)
-        if not isfinite(temperature):
-            self._raise_validation("invalid_vacation_temperature")
-        minimum = self._snapshot.ecobee_min_temp
-        maximum = self._snapshot.ecobee_max_temp
-        unit = self._snapshot.ecobee_temperature_unit
-        if minimum is None or maximum is None or unit is None:
-            self._raise_validation("ecobee_writer_unavailable")
-        if not minimum <= temperature <= maximum:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="invalid_vacation_temperature_bounds",
-                translation_placeholders={
-                    "minimum": f"{minimum:g}",
-                    "maximum": f"{maximum:g}",
-                    "unit": unit,
-                },
-            )
-        return temperature
+        return self._manager.validated_vacation_temperature(
+            self._mapping.mapping_id, value
+        )
 
     @staticmethod
     def _raise_validation(translation_key: str) -> NoReturn:

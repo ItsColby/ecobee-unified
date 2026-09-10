@@ -9,9 +9,9 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
 from functools import partial
-from math import isfinite
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
+from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
@@ -401,6 +401,7 @@ class MappingManager:
                     translation_domain=DOMAIN,
                     translation_key="homekit_writer_unavailable",
                 )
+            self._validate_standard_command(mapping_id, service, service_data)
             await self._async_tracked_call(
                 mapping_id,
                 service,
@@ -446,6 +447,7 @@ class MappingManager:
 
         async with self._command_slot(mapping_id):
             entity_id = self._vendor_writer_entity(mapping_id, service)
+            self._validate_vendor_action(mapping_id, service, service_data)
             await self._async_tracked_call(
                 mapping_id,
                 service,
@@ -526,18 +528,18 @@ class MappingManager:
     ) -> None:
         """Route the documented Ecobee fan-minimum action."""
 
+        numeric_minutes = finite_number(minutes)
         if (
-            isinstance(minutes, bool)
-            or not isfinite(minutes)
-            or minutes != int(minutes)
-            or not 0 <= minutes <= 60
-            or int(minutes) % 5 != 0
+            numeric_minutes is None
+            or not numeric_minutes.is_integer()
+            or not 0 <= numeric_minutes <= 60
+            or int(numeric_minutes) % 5 != 0
         ):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="invalid_fan_runtime",
             )
-        aligned_minutes = int(minutes)
+        aligned_minutes = int(numeric_minutes)
         await self.async_vendor_command(
             mapping_id,
             "set_fan_min_on_time",
@@ -665,6 +667,9 @@ class MappingManager:
         try:
             await wait((acquire, stopped), return_when=FIRST_COMPLETED)
             self._require_command_admission()
+            # Source events may still be queued. Read current registry/state
+            # contracts after admission, before validating or tracking an effect.
+            self.refresh_mapping(mapping_id)
             yield
         finally:
             for task in (acquire, stopped):
@@ -680,6 +685,130 @@ class MappingManager:
                     and acquire.result()
                 ):
                     lock.release()
+
+    def _validate_standard_command(
+        self, mapping_id: str, service: str, service_data: Mapping[str, Any]
+    ) -> None:
+        """Recheck mutable writer contracts inside the serialized command slot."""
+
+        snapshot = self.snapshot(mapping_id)
+        feature = {
+            "set_fan_mode": ClimateEntityFeature.FAN_MODE,
+            "set_humidity": ClimateEntityFeature.TARGET_HUMIDITY,
+            "turn_on": ClimateEntityFeature.TURN_ON,
+            "turn_off": ClimateEntityFeature.TURN_OFF,
+        }.get(service)
+        if feature is not None and not snapshot.supported_features & feature:
+            self._raise_validation("unsupported_command")
+        if service == "set_temperature":
+            self._validate_temperature_command(mapping_id, service_data)
+        if (
+            service in {"set_temperature", "set_hvac_mode"}
+            and "hvac_mode" in service_data
+            and service_data["hvac_mode"] not in snapshot.hvac_modes
+        ):
+            self._raise_validation("unsupported_hvac_mode")
+        if (
+            service == "set_fan_mode"
+            and service_data.get("fan_mode") not in snapshot.fan_modes
+        ):
+            self._raise_validation("unsupported_fan_mode")
+        if service == "set_humidity":
+            self.validated_humidity(mapping_id, service_data.get("humidity"))
+
+    def _validate_temperature_command(
+        self, mapping_id: str, service_data: Mapping[str, Any]
+    ) -> None:
+        """Validate every supplied target against the current HomeKit writer."""
+
+        snapshot = self.snapshot(mapping_id)
+        for key, feature in (
+            ("temperature", ClimateEntityFeature.TARGET_TEMPERATURE),
+            ("target_temp_low", ClimateEntityFeature.TARGET_TEMPERATURE_RANGE),
+            ("target_temp_high", ClimateEntityFeature.TARGET_TEMPERATURE_RANGE),
+        ):
+            if key in service_data:
+                if not snapshot.supported_features & feature:
+                    self._raise_validation("unsupported_command")
+                self.validated_temperature(mapping_id, service_data[key])
+
+    def _validate_vendor_action(
+        self, mapping_id: str, service: str, service_data: Mapping[str, Any]
+    ) -> None:
+        """Reject queued actions whose bounds or selected-device ownership changed."""
+
+        if service == SERVICE_CREATE_VACATION:
+            self.validated_vacation_temperature(
+                mapping_id, service_data.get("cool_temp")
+            )
+            self.validated_vacation_temperature(
+                mapping_id, service_data.get("heat_temp")
+            )
+        elif service == SERVICE_SET_SENSORS_USED_IN_CLIMATE:
+            if not self.ecobee_sensor_devices_valid(
+                mapping_id, service_data["device_ids"]
+            ):
+                self._raise_validation("invalid_sensor_selection")
+
+    def validated_temperature(self, mapping_id: str, value: Any) -> float:
+        """Validate a numeric target using current HomeKit bounds."""
+
+        temperature = finite_number(value)
+        if temperature is None:
+            self._raise_validation("invalid_temperature")
+        snapshot = self.snapshot(mapping_id)
+        if (snapshot.min_temp is not None and temperature < snapshot.min_temp) or (
+            snapshot.max_temp is not None and temperature > snapshot.max_temp
+        ):
+            self._raise_validation("invalid_temperature")
+        return temperature
+
+    def validated_humidity(self, mapping_id: str, value: Any) -> int:
+        """Validate an integer target using current HomeKit humidity bounds."""
+
+        humidity = finite_number(value)
+        if humidity is None or not humidity.is_integer():
+            self._raise_validation("invalid_humidity")
+        snapshot = self.snapshot(mapping_id)
+        if (
+            snapshot.min_humidity is None
+            or snapshot.max_humidity is None
+            or humidity < snapshot.min_humidity
+            or humidity > snapshot.max_humidity
+        ):
+            self._raise_validation("invalid_humidity")
+        return int(humidity)
+
+    def validated_vacation_temperature(self, mapping_id: str, value: Any) -> float:
+        """Validate a numeric vacation target using current Ecobee writer bounds."""
+
+        temperature = finite_number(value)
+        if temperature is None:
+            self._raise_validation("invalid_vacation_temperature")
+        snapshot = self.snapshot(mapping_id)
+        minimum = snapshot.ecobee_min_temp
+        maximum = snapshot.ecobee_max_temp
+        unit = snapshot.ecobee_temperature_unit
+        if minimum is None or maximum is None or unit is None:
+            self._raise_validation("ecobee_writer_unavailable")
+        if not minimum <= temperature <= maximum:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_vacation_temperature_bounds",
+                translation_placeholders={
+                    "minimum": f"{minimum:g}",
+                    "maximum": f"{maximum:g}",
+                    "unit": unit,
+                },
+            )
+        return temperature
+
+    @staticmethod
+    def _raise_validation(translation_key: str) -> NoReturn:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key=translation_key,
+        )
 
     def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
         """Resolve one healthy mapped Ecobee writer for a supported action."""

@@ -137,7 +137,11 @@ device behavior, authorizes a deployment, or publishes a release.
 
 [`check_public_safety.py`](../scripts/check_public_safety.py) checks three
 different surfaces: current tracked and nonignored untracked files, an archive
-of staged Git-index bytes, and available original Git history. It checks content
+of Git-index bytes, and available original Git history. In a native checkout,
+that archive contains the original staged bytes. Container mode instead archives
+the synthetic index created from its working-tree snapshot; it does not validate
+an original staged version that differs from the working tree. Validate the exact
+committed candidate before publication. The guard checks content
 and names for private paths, addresses, hostnames, credential-like strings,
 non-example email addresses, and unreviewed binary content. A clean working tree
 scan cannot substitute for the history or staged-archive scan. Ignored files are
@@ -145,28 +149,8 @@ outside its working-tree scope; keep private fixtures and deployment evidence
 out of distributable source. The guard is a bounded pattern check, so review
 new public material as well.
 
-## Verify an installation before moving its consumers
-
-For an installation being evaluated, compare Unified with the mapped sources
-through their normal update cycles. Check temperature and humidity, held and
-scheduled modes, equipment state, provenance, loss/recovery, and unexpected
-Recorder or logbook churn. Exercise only the intended, authorized controls and
-record what the source or thermostat actually did, including submission,
-confirmation, and uncertainty. State which paths were not observed. There is no
-fixed waiting period that substitutes for this coverage.
-
-Move dashboard, automation, script, and voice consumers in bounded batches.
-Inventory the references and preserve their previous configuration, update a
-selected batch, then read back its references and observe each meaningful path.
-Keep mapped sources enabled and available for recovery. Change routine exposure
-only after consumer checks; removal or rollback must have a known consumer
-target. Reusing an existing climate entity ID is a separate decision because it
-can join histories with different semantics and affect rollback. Do not rewrite
-Recorder history as a side effect of adopting the Unified surface.
-
-Installation choices and live evidence belong to the installation owner. Keep
-that evidence with its version and configuration; do not turn it into a general
-promise about every installation or insert private details into product docs.
+Installation acceptance and consumer migration are covered in the
+[operating guide](user-guide.md#verify-an-installation-before-moving-its-consumers).
 
 ## Maintain the support contract
 

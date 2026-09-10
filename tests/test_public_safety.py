@@ -390,7 +390,6 @@ class PublicSafetyTests(unittest.TestCase):
         workflow = (root / ".github/workflows/validate.yaml").read_text(
             encoding="utf-8"
         )
-        validation_plan = (root / "docs/validation-plan.md").read_text(encoding="utf-8")
         release_runner = (root / "scripts/verify-release-local.sh").read_text(
             encoding="utf-8"
         )
@@ -448,8 +447,6 @@ class PublicSafetyTests(unittest.TestCase):
             workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
         ]
         self.assertIn("fetch-depth: 0", unit_job)
-        self.assertIn("CodeQL default setup is active", validation_plan)
-        self.assertIn("Zizmor auditor", validation_plan)
         self.assertIn('"shellcheck-py==0.11.0.1" "zizmor==1.29.0"', release_runner)
         self.assertIn("shellcheck scripts/verify-release-local.sh", release_runner)
         self.assertIn("zizmor --strict-collection --persona auditor .", release_runner)

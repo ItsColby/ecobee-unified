@@ -1,67 +1,103 @@
-# Decision Log
+# Design decisions
 
-## Accepted
+This document explains the choices behind the current product. Exact runtime
+rules belong to [architecture](architecture.md); required outcomes belong to
+[requirements](requirements.md). It is not a release history or a record of
+validation runs.
 
-| ID | Decision | Reason |
-|---|---|---|
-| D-001 | Build a custom integration, classified as a Home Assistant hub. | Native Home Assistant grouping and template helpers cannot produce one fully functional climate entity with deterministic multi-backend field and command ownership. One config entry manages multiple mapped thermostat devices, so `hub` is the correct native manifest type and keeps entry management on the Integrations dashboard. |
-| D-002 | Domain is `ecobee_unified`; display name is Ecobee Unified. | Clear purpose and no obvious collision found during the design review. |
-| D-003 | Do not call the Ecobee or Beestat APIs. | Existing integrations already own authentication, transport, throttling, and data acquisition. Reuse avoids another fragile owner. |
-| D-004 | HomeKit owns standard climate control and normal live climate state. | It is local and event-driven, while the cloud integration adds detail on a slower cadence. |
-| D-005 | Ecobee owns vendor-specific detail/actions. | It exposes holds/program mode, equipment detail, fan minimum, active sensors, vacations, and Ecobee policy actions that HomeKit does not. |
-| D-006 | Beestat contributes independently owned sibling entities on the same HomeKit device; Ecobee Unified does not consume Beestat source entities. | Beestat's value is schedule/history/filter/alert context, while its transport, entities, import, and Recorder ownership remain separate from unified live climate state and control. |
-| D-007 | One deterministic source per semantic; no averaging and no freshest-wins. | Equivalent-looking source fields can differ in meaning, aggregation, calibration, and cadence. |
-| D-008 | Read fallback is allowed; automatic write fallback is initially disabled. | Read continuity is useful. Retrying a command through another path risks duplicate or conflicting holds. |
-| D-009 | Link every unified entity to the existing physical HomeKit device. | This gives a native single-device presentation without creating a counterfeit hardware identity or co-owning the source device. |
-| D-010 | Keep raw backends enabled through migration and rollback. | They remain the acquisition owners and provide immediate recovery. Normal UI duplication is solved through canonical consumers and visibility, not deletion. |
-| D-011 | Use shadow entity IDs during rollout. | Reusing existing IDs would mix Recorder semantics and weaken rollback. |
-| D-012 | Public source and private deployment evidence have separate owners. | This keeps the integration publishable without leaking household topology or runtime IDs. |
-| D-013 | Maintain exact dependency-closed CI lanes for the Core 2026.8.0 distribution floor and Core 2026.9.1 current stable release. | Matching published harnesses prove both lanes across the intentionally supported monthly releases; version owners and native tests keep the broader contract reproducible. |
-| D-014 | The product is a canonical thermostat device surface, not only a canonical climate. | Home Assistant's one-entry-per-device rule supports helper entities on the foreign device while preserving source transport ownership. |
-| D-015 | HomeKit Current Mode and Clear Hold are the canonical preset/resume writers when explicitly mapped; Unified exposes resume as both a climate action and a native device button. | Core 2026.8 exposes independent local select/button entities. Current Mode can have an unreadable current option while its enabled same-device select still advertises and accepts bounded options, so read health and writer availability are evaluated separately. Action metadata must not contradict the selected role, and Current Mode options are limited to Home/Sleep/Away. Clear Hold has no definitive public registry role marker and relies on explicit selection of an eligible same-device button; it becomes submitted after one successful call because mode state cannot prove the effect. |
-| D-016 | Expose minimum fan runtime, equipment stage, and optional AQI/CO2/VOC as first-class sibling entities. | They add vendor-only semantics without duplicating HomeKit temperature, humidity, occupancy, or weather. |
-| D-017 | Do not copy Beestat schedule/transition into unified climate attributes. | Beestat already owns first-class entities and Recorder/history; colocation supplies one user-facing surface without moving transport or storage ownership. |
-| D-018 | HomeKit observation age is diagnostic, not health, because its push/event contract has no heartbeat. | Quiet healthy thermostats must not oscillate into cloud fallback merely because no value changed. Actual unavailable/unknown/missing state still degrades and recovers normally. |
-| D-019 | Target humidity is a standard HomeKit-owned climate capability. | The HomeKit writer advertises bounds, receives the only write, and supplies confirmation; Ecobee does not become a fallback writer. |
-| D-020 | Ecobee may fill only an omitted target-temperature presentation step after same-device and writer-granularity proof. | This reconciles the local writer's actual granularity with the unified UI without borrowing cloud precision, bounds, units, or read freshness. |
-| D-021 | Expose only vacations, occupancy policy, and comfort-sensor participation as opt-in Unified Ecobee actions. | These complete useful thermostat administration without requiring raw Ecobee targets. Vacation temperatures use the mapped Ecobee climate's unit/bounds; injected targets cannot be overridden, and unprojected effects are submitted rather than falsely confirmed. |
-| D-022 | Permit an explicitly mapped same-device HomeKit temperature sensor to supply precise unified current temperature and advertise tenths precision only while it agrees with the HomeKit climate serialization envelope. | The accessory sensor can retain honest decimals but can also become a silent divergent duplicate projection. Capability, unit, finite-value, association, and unit-specific agreement checks preserve honest precision; divergence or an unavailable local climate falls back explicitly. |
-| D-023 | Expose an optional Unified notification entity backed only by the mapped Ecobee notification writer. | Thermostat-display messages are a useful non-duplicate Ecobee capability. A single facade removes routine raw-entity targeting while preserving Ecobee transport ownership and exactly-one-write behavior. |
-| D-024 | Require supported HomeKit serial and Ecobee identifier equality for every active cross-backend mapping. | An explicit selection is user intent, not physical-identity proof. Known mismatches are rejected; later loss or drift preserves local HomeKit control but blocks cloud reads, actions, notification writes, and target-step fusion until identity recovers. |
-| D-025 | Keep a filtered unchanged-report listener for cadence-backed stale recovery as well as pending confirmation. | A stale source otherwise has no projection timer left and may remain stale after an unchanged recovery report. Refresh only stale or operation-owned mappings, and cancel the listener on unload, so healthy cadence reports do not churn state or Recorder. |
-| D-026 | Serialize effect dispatch per mapping and make successful writer completion the confirmation/timeout boundary. | Within one running manager, revision guards alone protect diagnostics, not physical ordering: a slow earlier call could otherwise finish after a newer one, and an in-flight matching report could falsely confirm a command whose writer later fails. |
-| D-027 | Retain one native config entry containing all thermostat mappings rather than migrate mappings to config subentries. | The mappings share one integration lifecycle and need atomic cross-mapping validation, while already surfacing as distinct thermostat devices. Subentries add migration and device-relinking complexity under Core 2026.8's one-entry/one-subentry device ownership without improving setup or routine use. |
-| D-028 | Keep exact source and command ages in diagnostics rather than climate state attributes. | Core compares the complete live attribute dictionary before Recorder removes unrecorded keys, so continuously changing ages still create duplicate history rows. Live provenance, source health, active-sensor detail, and command operation/status retain the useful semantic surface without age-only Recorder churn. |
-| D-029 | Apply a keyed 250 ms trailing-edge settle window only to routine healthy updates from an explicitly paired HomeKit climate and precise-temperature sensor. | One accessory can serialize those characteristics sequentially, briefly making an honest pair appear divergent. A short per-mapping window removes false degradation and Recorder/helper flicker while immediate command, availability, recovery, and registry paths preserve safety and a persistent mismatch still fails closed. |
-| D-030 | Preserve `unknown` as distinct source health and degradation instead of collapsing it into `unavailable`. | Home Assistant distinguishes a present source with an unreadable value from an unavailable source. The distinction keeps diagnostics honest without making the value readable or expanding writer capability; Current Mode may remain writable only through its separately proven same-device writer contract. |
-| D-031 | Project mapping degradation as one enabled diagnostic problem binary sensor and retain bounded details as unrecorded attributes. | Native problem semantics make Attention and automation consumers simple while avoiding duplicate polling, age churn, or a separate health state machine. |
-| D-032 | Calculate elapsed source and command ages when diagnostics are requested while keeping all semantic projections on the immutable normalized snapshot. | Cached event-driven snapshots cannot make age advance during quiet intervals. Request-time age calculation preserves exact diagnostics without dispatching entity updates or creating Recorder churn. |
-| D-033 | Treat an unreadable HomeKit Current Mode value as advisory rather than an active problem only while its same-device writer remains usable with bounded options. | Home Assistant's problem device class defines `on` as a detected problem. A readable current preset is not required to offer a safe explicit preset write, so one shared classification is projected as `problem_reasons` and `advisories` across climate attributes, downloadable diagnostics, and problem-entity attributes without falsely requesting intervention. The legacy degradation union remains compatible; writer loss or any other actionable degradation still activates the problem entity. |
-| D-034 | Close command admission permanently when a manager stops, reject queued writes and fence late completion. | Setup failure or cancellation and unload stop the manager. Stopping cannot undo an already dispatched physical effect; pending tracked results become unconfirmed without retries or recreated listeners/timers. Semantic operation IDs and pre-dispatch observation keep confirmation tied to its intended source. |
-| D-035 | Validate representability and proven quantity constraints at the existing source boundary, with bounded invalid-field reasons. | Overflow and impossible values must not break a snapshot or disappear silently. Source connectivity stays distinct, optional absence is not a fault, and comfort bands are not universal measurement limits. |
+## A native integration with existing source owners
 
-Temperature recovery extends D-022 and D-029: retain the last confirmed rejected
-physical temperature per stable mapped source during the manager lifetime.
-Require a different finite measurement plus current local-climate agreement
-before precise selection resumes. A bounded confirmation callback prevents
-intermediate paired events or immediate command observations from recording a
-false rejection. This preserves precision without mistaking climate convergence
-or fresh reports of an unchanged value for recovery. Persistent fault storage and
-generic anomaly filtering remain outside this observation contract.
+Native grouping and template helpers do not provide the complete climate
+control surface with deterministic ownership across HomeKit and Ecobee.
+Ecobee Unified therefore implements a custom integration under
+`ecobee_unified`, presented as a hub because one entry manages multiple
+thermostat mappings. It reuses installed integrations through Home Assistant
+interfaces instead of adding authentication, throttling, or transport code.
 
-## Deferred Until Evidence Exists
+HomeKit owns standard live state and control. Ecobee contributes vendor detail
+and supported actions. Beestat remains an independent sibling for cloud
+history and derived context. Sharing a thermostat device presentation does not
+transfer responsibility for another integration's data or storage.
 
-| Topic | Default |
-|---|---|
-| Automatic write failover | Off. Add only with an idempotency design and proven need. |
-| Additional cloud projections | Add only when they are non-duplicate, bounded, capability-proven, and have a clear device-surface role. |
-| Derived room-temperature metrics | Keep Beestat's configured-profile room spread and history ownership; add only a distinct, consumer-backed semantic. |
-| Public HACS catalog listing | Not planned; a public repository plus custom-repository install is sufficient unless later value is demonstrated. |
-| Reclaiming legacy entity IDs | Do not do during initial migration; consider only after successful migration validation and an explicit Recorder/rollback decision. |
+## One entry, stable mappings, existing thermostat devices
 
-## Remaining Validation Boundary
+Mappings share a lifecycle and need atomic duplicate and identity checks, so
+one config entry holds the collection. Per-mapping subentries would add
+migration and relinking work without improving the current configuration model.
+Separate stable mapping IDs already distinguish the thermostat entities.
 
-The 30-minute Ecobee staleness and confirmation defaults are retained from
-read-only live cadence evidence. Revalidate command-specific confirmation
-latency only during separately authorized equipment-command validation or when
-new source evidence shows the current bound is unsuitable.
+Unified links its entities to the selected HomeKit device using the helper
+pattern. Creating a second hardware identity or taking over the source device
+would make acquisition and removal harder to reason about. Raw source entities
+remain available for diagnosis and consumer rollback; visibility and consumer
+selection determine the routine UI.
+
+## Source meaning before apparent precision or recency
+
+Deterministic field ownership avoids treating similar-looking values as
+interchangeable. Read fallback can preserve a usable thermostat view, but it
+does not alter the writer or its supported controls. Physical identity proof
+is required because an explicit selection alone cannot establish that two
+backend devices are the same thermostat.
+
+The optional temperature sensor preserves accessory precision only when its
+metadata, association, and climate agreement support that meaning. A short
+settling window accommodates sequential reports. Confirmed contrary evidence
+requires a changed agreeing value for recovery, preventing fresh timestamps or
+climate movement from rehabilitating a frozen reading. The evidence remains
+in memory because persistent fault storage and generic anomaly detection are
+outside this source-comparison contract.
+
+Target-step sharing is a narrow metadata exception backed by the HomeKit
+writer contract. It is not a general mechanism for borrowing cloud bounds,
+measurement precision, or controls.
+
+## One writer and honest command results
+
+Automatic write failover is excluded. A second path could duplicate or conflict
+with a hold even when the first call timed out. Per-mapping serialization
+preserves dispatch order within a running manager; revision tracking protects
+the most recent command's observation record. Neither mechanism claims
+control over effects already dispatched to another integration.
+
+Confirmation requires the designated source report and a successful writer
+call. Actions without a complete observable result stay submitted, and
+notifications retain their native one-way service semantics. This separates
+accepted requests from demonstrated source state without building another
+command queue or retry service.
+
+## Capability and health are separate questions
+
+An unknown Current Mode value does not necessarily prevent a safe explicit
+preset selection. The integration keeps that distinction only when the source
+still proves its bounded options, device association, and writer availability.
+An advisory explains unreadable state; an actionable degradation activates the
+problem entity.
+
+Likewise, a quiet local push source has no heartbeat obligation. Ecobee cadence
+can justify a stale threshold, while HomeKit report age remains diagnostic.
+Invalid numbers are field faults rather than evidence of a transport outage.
+One normalized snapshot keeps these distinctions consistent across consumers.
+
+## Small public surfaces with private operational policy
+
+Vendor-only controls and source-derived UI belong in the product when they
+remove routine raw-source targeting and have clear semantics. Household
+decisions about occupancy, comfort, notification timing, or cross-service
+workflows belong in the user's Home Assistant configuration. That boundary does
+not require replacing a working integration or migrating runtime ownership for
+naming consistency.
+
+Bounded states and request-time diagnostic ages avoid unnecessary Recorder
+churn. Downloadable diagnostics use an allowlist; local state can still contain
+the bounded vendor and sensor names needed by household consumers. Public
+source, examples, and fixtures must not contain private deployment evidence.
+
+## Changes that need a new demonstrated use case
+
+Additional projections need a distinct semantic and consumer, including a
+defined availability and Recorder contract. Duplicate history, generic room
+metrics, additional credentials, automatic write failover, or a subentry
+migration are not implied next steps. Reclaiming existing entity IDs needs an
+explicit history and rollback decision. Public catalog submission is separate
+from maintaining a custom-repository installation path.

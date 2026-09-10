@@ -1,367 +1,302 @@
-# Architecture
+# Architecture and runtime contracts
 
-## Outcome
+Ecobee Unified presents a mapped thermostat through one climate entity and a
+small set of sibling controls and sensors. Its entities link to the existing
+HomeKit thermostat device. The source integrations remain installed and own
+their connections, credentials, acquisition, and backend behavior.
 
-Create one canonical Home Assistant thermostat device surface for each mapped
-physical thermostat while retaining specialized backend ownership. One unified
-climate is the primary control surface; colocated sibling entities expose only
-non-duplicate Ecobee capabilities and Beestat-owned entities remain the
-schedule/history presentation. Raw backends remain enabled for acquisition,
-diagnosis, and rollback.
+This document describes the implementation. [Requirements](requirements.md)
+defines acceptance boundaries; [design decisions](decisions.md) explains the
+tradeoffs; [upstream contracts](upstream-contracts.md) records external
+dependencies and their evidence.
 
 ```mermaid
 flowchart LR
-    HK["HomeKit Controller\nlocal state and standard control"] --> U["Ecobee Unified\nfield ownership and command policy"]
-    EC["Ecobee integration\nvendor detail and actions"] --> U
-    BS["Beestat entities\nschedule, alerts, filters, history"] --> P["HomeKit-owned thermostat device"]
-    U --> C["Unified climate"]
-    U --> S["Vendor-only number and sensors"]
-    C --> P
-    S --> P
-    P --> X["Canonical user-facing surface"]
+    HK["HomeKit Device integration"] --> M["Mapping manager: validated sources and one snapshot"]
+    EC["Ecobee integration"] --> M
+    M --> C["Unified climate and sibling entities"]
+    C --> D["Existing HomeKit thermostat device"]
+    B["Beestat entities and history"] -. "independent device linkage" .-> D
 ```
 
-## Ownership Boundaries
+## Configuration and identity
 
-Ecobee Unified owns mapping, field selection, degradation, command routing,
-command confirmation, and unified entities. It does not own transport,
-authentication, raw source devices, or historical import.
+One native config entry contains one or more thermostat mappings. Each mapping
+has a generated stable `mapping_id`, a display name, required HomeKit and Ecobee
+climate references, and optional source references:
 
-It must use Home Assistant's public state machine, registry, event, and service
-interfaces. It must not import another integration's runtime data object,
-write `.storage`, call the Ecobee API, or scrape diagnostics.
-
-As a custom integration, its runtime English translation owner is
-`custom_components/ecobee_unified/translations/en.json`. Do not restore the
-Core-only `strings.json` mirror; tests validate the runtime owner directly so
-the two files cannot drift.
-
-Use one config entry to hold multiple thermostat mappings. This keeps the
-cross-mapping identity and concurrency rules atomic and uses Home Assistant's
-native single-entry integration flow. Config subentries are not used: the
-mappings do not have independent authentication or lifecycle, already surface
-as separate thermostat devices, and Core 2026.8 restricts a device to one
-config entry and at most one subentry. A mapping contains:
-
-- required HomeKit climate source;
-- required Ecobee climate source for the intended full feature set;
-- optional HomeKit current-temperature sensor, current-mode select, and
-  clear-hold button on that device;
-- optional Ecobee AQI, CO2, VOC, and notification entities on the Ecobee source
-  device.
-
-The HomeKit device serial and Ecobee device identifier must independently prove
-that the two required climates represent the same physical thermostat. New or
-changed mappings fail closed when identity is missing or mismatched. A saved
-temporarily missing mapping remains recoverable, but runtime cloud reads,
-vendor actions, notification writes, and cross-interface metadata fusion stay
-disabled until registry evidence proves the pairing again.
-
-Beestat schedule, transition, filter, alert, and history entities are not
-remapped into this config entry. Beestat owns their transport/storage and links
-them independently to the same HomeKit device.
-
-Mappings use entity/device selectors and supported entity-registry tracking so
-renames survive. A missing source must not be replaced using name guesses.
-
-Reconfiguration captures the complete entry-data snapshot before edits and
-fails closed if current data differs at completion. A successful save starts
-from that accepted snapshot and replaces only the mapping collection, preserving
-additive or unrecognized fields without merging data from a concurrently changed
-entry.
-
-## Device Model
-
-Every Unified entity links to the
-selected physical HomeKit thermostat device using Home Assistant's current
-helper-device linking pattern.
-The integration must not return foreign identifiers or connections and must not
-claim co-ownership of that device. If the source device is missing, keep the
-entity registered and report degraded/unavailable state.
-
-The link follows the selected source entity rather than only its setup-time
-device. Entity/device registry changes reconcile all owned entity-registry
-records in place; moving, detaching, removing, or restoring the HomeKit source
-does not recreate or reload the config entry and never mutates foreign records.
-Optional HomeKit and Ecobee sibling capabilities remain valid only while their
-registry entities stay on the selected source device; association drift
-degrades only the affected capability and blocks its writer before effects.
-Removing a mapping or optional projection deletes only that config entry's
-orphaned Unified entities on reload, preserving retained stable IDs.
-Identity drift between the two required source devices preserves local HomeKit
-state/control but disables all Ecobee-derived semantics and creates a bounded
-Repair until the supported registry identities match again.
-
-## Deterministic Field Ownership
-
-| Semantic | Primary | Read fallback | Notes |
-|---|---|---|---|
-| HVAC mode and action | HomeKit climate | Ecobee climate | Local state is canonical for normal operation. |
-| Target temperature/range | HomeKit climate | Ecobee climate | Reads may fall back, but unit and safety bounds remain HomeKit-writer-owned. The Ecobee target step is an explicit same-device metadata fusion only when Core writer granularity is independently proven and the HomeKit adapter omits the step. |
-| Current temperature | Explicit same-device HomeKit temperature sensor when mapped, valid, and consistent with the current HomeKit climate serialization envelope; otherwise HomeKit climate | Ecobee climate `current_temperature` when the local climate chain has no valid reading | The explicit sensor preserves honest accessory precision without trusting a silent divergent duplicate projection. Require temperature class, compatible unit, finite state, same-device association, and agreement within half of Core's unit-specific climate display step; otherwise degrade explicitly and fall back. |
-| Current humidity | HomeKit climate | Ecobee climate | Expose only when valid. |
-| Target humidity and bounds | HomeKit climate | none | Advertise and write only when the mapped HomeKit writer exposes the capability and valid bounds; confirm from its report. |
-| Fan mode | HomeKit climate | Ecobee climate | Standard climate capability. |
-| Preset/current mode | HomeKit current-mode select | none | Capability-advertised climate preset; local writer only. |
-| Ecobee preset/climate context | Ecobee climate | none | Bounded vendor diagnostic context, not the preset writer. |
-| Equipment stage | Ecobee climate | none | Project a bounded translated enum sensor; do not retain raw equipment text in Recorder. |
-| Minimum fan runtime | Ecobee climate/action | none | First-class number and the sole Ecobee writer; accept only the writer's advertised five-minute increments. |
-| Active comfort sensors | Ecobee climate | none | Do not infer from occupancy. |
-| Scheduled profile/next transition | Beestat entities on the device | none | First-class Beestat presentation; never duplicate as climate attributes. |
-| Room motion/occupancy/battery | HomeKit sibling entities | none | Keep as linked sibling entities; do not copy into climate attributes. |
-| Air-quality estimates | Ecobee sibling entities | none | Require the mapped Ecobee device plus the role's exact device class and unit contract; keep separate because they are contextual estimates, not life-safety measurements. |
-| Thermostat-display notification | Ecobee notification entity | none | Optional Unified notification facade; one mapped writer and no delivery failover. |
-| History/filter/alerts | Beestat-derived entities | none | Do not re-export historical series through the climate entity. |
-
-Selection is semantic, not temporal. Do not average duplicate measurements or
-select a source merely because its event arrived last. Report chosen source and
-source health compactly so provenance remains inspectable without presenting
-duplicate normal-use entities. The [entity surface](#entity-surface) defines
-diagnostic projection and Recorder boundaries.
-Writable features, safety bounds, modes, and options always come from the
-documented writer. A read fallback may preserve current state, but it never
-expands the controls advertised while that writer is unavailable. For the
-HomeKit Current Mode select specifically, an `unknown` current option is an
-unreadable value rather than writer unavailability: an enabled, available,
-same-device select may continue to advertise its bounded options while Unified
-keeps the current preset unknown. Actual unavailability still removes control.
-Current Mode options must be a nonempty subset of Home, Sleep, and Away.
-Configuration and runtime dispatch reject action sources with contradictory
-domain, integration, category, device-class, or translation metadata. Clear Hold
-has no positive role marker in the supported registry: explicit selection of an
-otherwise eligible button remains a user assertion, not verified semantics.
-
-Numeric normalization rejects conversion overflow, non-finite values and proven
-quantity violations, including temperatures below absolute zero beyond the
-source's serialization uncertainty and humidity outside 0–100 percent.
-Temperature sensing limits are independent of setpoint bounds and household
-comfort ranges. Present invalid fields add bounded
-source/field reasons to the existing degradation projection; absent optional
-fields do not. Transport health retains its separate meaning. Raw source
-observations remain unchanged, and selection uses only eligible documented
-fallbacks or unavailable values. No smoothing or synthetic readings are used.
-Air-quality checks use explicit live unit and device-class attributes before
-registry defaults so a user-selected unit cannot silently relabel a value.
-Temperature mapping, source selection, and Repairs share the same contract for
-live metadata and finite state. Explicit null or empty metadata is invalid;
-registry defaults apply only when the live attribute is absent.
-A native target-temperature step must be finite, positive, and within the
-writer's valid temperature span. Present-invalid metadata degrades and cannot
-borrow the Ecobee step reserved for an omitted native value.
-
-Ecobee cloud `current_temperature` is the thermostat-displayed `actualTemperature`
-semantic and may be feels-like under humidex. It is not guaranteed independent
-dry-bulb evidence. The configured fallback preserves that source and provenance;
-Unified neither substitutes `rawTemperature` nor opens another API client.
-
-## Updates and Availability
-
-Subscribe to source state changes and maintain an in-memory snapshot. Entity
-properties perform no I/O. Build one normalized per-mapping snapshot and make
-the climate entity, diagnostics, and any diagnostic entity project that same
-snapshot rather than interpreting raw attributes independently. Availability is
-capability-aware:
-
-HomeKit can report a climate's serialized whole-degree temperature and its
-same-accessory precise temperature characteristic as sequential state changes.
-For mappings that explicitly select both, routine healthy precise-sensor events
-and climate events whose current temperature changed use one keyed 250 ms
-trailing-edge settle window before snapshot publication. The window is per
-mapping and preserves the latest report time for each source. Command
-confirmation observations, other climate changes, source removal,
-unavailable/unknown transitions and recovery, registry/device events, and every
-unrelated source remain immediate.
-A mismatch that persists after the window still degrades and falls back exactly
-as documented; the window never changes source ownership or health.
-
-The manager retains bounded per-mapping evidence of a confirmed rejected precise
-temperature. A separate lifecycle-owned 250 ms confirmation callback rereads the
-same source/value before recording a rejection; immediate command, cloud, and
-registry refreshes cannot turn a transient pair into lasting rejection. The
-source's registry identity and validated device binding own that evidence. The
-physical value is normalized to Celsius for comparison, so a display-unit change
-cannot masquerade as measurement progress. A changed value that remains divergent
-must itself be confirmed before replacing the last rejected observation.
-
-After rejection, the precise source is eligible again only when a different
-finite physical value passes the existing local climate agreement check. Climate
-movement toward an unchanged rejected value, timestamps, repeated reports,
-formatting, attribute changes, and unavailable/available cycles do not establish
-recovery. Renames and temporary loss of the same source retain the evidence; a
-validated different source or device binding starts its own observations. While
-recovery is pending, the pure normalized model preserves raw source health,
-selects the documented climate fallback, and reports the bounded
-`homekit_temperature_recovery_pending` reason through the existing projections.
-It does not manufacture an acquisition failure or change writer eligibility.
-
-Recovery evidence is in memory, bounded to configured mappings, and discarded
-with the manager. All confirmation callbacks are cancelled on unload. This
-protects against an observed inconsistency during the current integration
-lifetime; it cannot detect two agreeing wrong sources, prove physical accuracy,
-or retain a prior rejection across reload/restart. No new persistence, transport
-inspection, source restart, or arbitrary silence/rate/physical-range policy is
-introduced.
-
-- HomeKit available: canonical local climate state and standard control work.
-- Ecobee available with same-physical-device identity proven: vendor
-  detail/actions work.
-- Beestat independently available: its sibling schedule/history context works;
-  Ecobee Unified does not consume it as a mapped source.
-- A missing optional source removes only its capabilities.
-- A missing primary may activate the documented read fallback, accompanied by
-  degraded status and provenance.
-- If neither climate source can provide a required state, the unified climate
-  becomes unavailable rather than inventing state.
-
-Source availability and observation age are independent. HomeKit is a local
-push/event source without a heartbeat contract, so a quiet but available state
-remains healthy regardless of `last_reported` age; its age is diagnostic and
-command-observation evidence only. Ecobee cloud sources have a cadence contract,
-so their freshness uses `last_reported` and lifecycle-owned timers reevaluate
-their stale boundaries even when no new state-change event arrives. The
-calibrated default is 30 minutes: above the observed cloud-reporting tail while
-remaining a bounded silent-wedge guard. Event handlers use the event-owned
-stable timestamp rather than Core's intentionally
-mutable `State.last_reported` field. A filtered report listener rebuilds a
-mapping only while its cadence-backed source is stale or while that exact
-source owns pending command confirmation; ordinary healthy unchanged reports
-do not dispatch snapshot updates or create Recorder churn. Age never makes a
-source look more precise or changes deterministic ownership by itself.
-
-Unconfigured optional sources are omitted from source-health diagnostics.
-Configured references that are currently absent remain present with `missing`
-health. Proven cross-backend identity mismatch is distinguished from temporarily
-unproven identity so diagnostics describe the actionable fault. A source whose
-entity exists but reports `unknown` retains distinct `unknown` health and
-degradation rather than being mislabeled `unavailable`; it remains unusable for
-reads, while a separately proven writer can stay available when its contract
-allows an unreadable current value.
-
-The mapping problem entity distinguishes intervention-worthy degradation from
-bounded advisory evidence. Climate attributes, downloadable diagnostics, and
-the problem entity expose the same `problem_reasons` and `advisories` split;
-the complete normalized `degradation`/`reasons` union remains stable for older
-consumers. The two classification lists added to climate state are unrecorded,
-leaving the problem entity's native state as the history owner. An `unknown`
-HomeKit Current Mode value is advisory
-only while the same-device select remains available for writes and exposes a
-non-empty bounded option set. The normalized snapshot and diagnostics continue
-to report `homekit_preset_unknown`, but that advisory alone does not activate a
-Home Assistant `problem` device class whose `on` state means intervention is
-required. Missing options, writer loss, source unavailability, association
-drift, or any other actionable degradation still activates the problem entity.
-
-## Command Policy
-
-Exactly one backend writes each operation:
-
-| Operation | Writer | Policy |
+| Source integration | Required | Optional |
 |---|---|---|
-| Set HVAC mode | HomeKit climate | No automatic fallback. |
-| Turn on/off | HomeKit climate | Preserve the mapped writer's native on/off semantics; no automatic fallback. |
-| Set temperature/range | HomeKit climate | No automatic fallback. |
-| Set target humidity | HomeKit climate | Advertised writer bounds and local report confirmation; no automatic fallback. |
-| Set fan mode | HomeKit climate | No automatic fallback. |
-| Set preset/current mode | Explicit HomeKit select | Capability-advertised options only; no fallback. An unreadable current option does not disable an otherwise available same-device writer. |
-| Resume/clear hold | Explicit HomeKit clear-hold button | Local action exactly once; a successful button call is reported as submitted because no source state can prove the hold cleared. It does not require the independent current-mode select. |
-| Set minimum fan runtime | Ecobee action through unified number | Vendor-specific action exactly once. |
-| Send thermostat-display notification | Explicit Ecobee notification entity | One message exactly once; unsupported title is ignored and no fallback is attempted. |
-| Vacation and occupancy/sensor policy | Ecobee actions | Vendor-specific and opt-in. |
+| HomeKit Device (`homekit_controller`) | Thermostat climate | Temperature sensor, Current Mode select, Clear Hold button |
+| Ecobee (`ecobee`) | Thermostat climate | AQI, CO2, VOC sensors and thermostat notification entity |
 
-Serialize effect dispatch per mapping within one running manager so a slower
-earlier writer call cannot finish after and overwrite a later command admitted
-by that manager. Track each semantic operation independently of its backend
-service name, with a monotonically increasing revision. Before awaiting its sole
-writer, register the operation-owned observer: the HomeKit select for presets,
-HomeKit climate for humidity, and the documented Ecobee source for other
-confirmable operations. Keep the revision pending during dispatch. A matching
-report, including unchanged state and attributes, may be retained in flight,
-but only writer success permits confirmation; writer failure leaves it failed.
-Late observations, writer results, and timeouts cannot mutate a newer revision.
-Start the confirmation timeout after writer success; expiration reports an
-unconfirmed command and never sends a second write. The
-default confirmation window is 30 minutes, calibrated above the observed
-cloud-reporting tail and still subject to command-specific shadow validation.
-Temperature observations use a writer-step-aware tolerance capped at half of
-the mapped HomeKit target step so ordinary HomeKit/Ecobee quantization can
-confirm without accepting a different target. Non-temperature confirmation
-retains its strict fixed tolerance. Clear Hold is submitted, not state-confirmed.
-Normal source processing continues while confirmation is pending. Every facade
-injects its resolved mapped entity after validating caller data, so caller-
-provided service data cannot redirect a command to another entity.
+The config flow validates entity domain and source integration, rejects reused
+climates or optional sources, and requires distinct mapping names after
+trimming and case normalization. Optional sources must belong to the selected
+climate's device. Registry IDs are stored so entity renames do not require
+remapping; the integration does not search by display name for replacements.
 
-Stopping a manager permanently closes command admission before subscriptions
-and deadlines are removed. Commands waiting for its per-mapping lock are
-rejected without dispatch. Pending tracked commands become unconfirmed, and
-dispatched source calls may finish only without reviving the stopped manager's
-state, listeners or timers. Unload does not wait indefinitely, retry, or claim
-to undo a physical effect already dispatched. Caller cancellation also leaves
-the tracked outcome unconfirmed when cancellation interrupts the dispatched
-source call. Cancellation after acceptance preserves the established tracking
-result; a cancelled queued command owns no tracked revision. Notifications
-preserve their one-way source service semantics and use the same admission
-fence without inventing delivery confirmation.
+The physical HomeKit device's serial number must equal the Ecobee device's
+single `ecobee` identifier after trimming and case normalization. A new or
+changed pair with missing evidence is rejected, as is a known mismatch. An
+unchanged saved pair may remain configured while its identity is temporarily
+unproven. At runtime, unproven or mismatched identity disables Ecobee-derived
+reads, vendor writes, notifications, and metadata fusion while preserving
+eligible local HomeKit behavior.
 
-## Entity Surface
+Reconfigure stages add, edit, and remove operations and saves the mapping
+collection together. Changing a writer or removing a mapping requires the
+flow's confirmation. Finish compares the complete entry data with the snapshot
+taken when editing began; concurrent changes abort the save. Timing options use
+the same comparison against their original options. Unrecognized additive data
+is preserved. Successful changes reload this integration; source restoration
+and entity renames are handled through events.
 
-Source candidate per thermostat:
+## Device and entity presentation
 
-1. One unified climate with optional HomeKit preset support.
-2. One enabled Source degraded problem binary sensor for actionable mapping
-   faults, with bounded advisories available separately.
-3. An optional Unified resume-program button backed by one explicitly mapped
-   HomeKit Clear Hold writer.
-4. One Ecobee minimum-fan-runtime number.
-5. One bounded equipment-stage sensor.
-6. Optional AQI, CO2, and VOC sensors only when explicitly mapped.
-7. An optional thermostat-display notification entity backed by one explicitly
-   mapped Ecobee writer.
+Unified entities use the supported helper-device link to the HomeKit device.
+They do not publish foreign hardware identifiers or claim ownership of that
+device. Entity and device registry events update only Unified's own entity
+records when the source moves, detaches, disappears, or returns. Stable unique
+IDs remain intact. Reconfigure removes only this entry's orphaned Unified
+entities when a mapping or optional projection is removed.
 
-Existing Beestat schedule/filter/alert entities link independently to the same
-device; there is no re-export or Recorder ownership transfer.
+| Entity | Created when | Unique ID |
+|---|---|---|
+| Climate | Every mapping | `mapping_id` |
+| Source degraded problem binary sensor | Every mapping | `mapping_id_source_degraded` |
+| Minimum fan runtime number | Every mapping | `mapping_id_minimum_fan_runtime` |
+| Equipment stage sensor | Every mapping | `mapping_id_equipment_stage` |
+| Resume program button | Clear Hold is mapped | `mapping_id_resume_program` |
+| Notification entity | Ecobee notification is mapped | `mapping_id_notification` |
+| AQI, CO2, VOC sensors | Corresponding sensor is mapped | `mapping_id_air_quality_index`, `mapping_id_co2`, `mapping_id_voc` |
 
-Unified climate actions also expose bounded vacation creation/deletion,
-Smart Home/Away and Follow Me policy, and comfort-sensor participation. They
-always inject the mapping's Ecobee climate target and issue one Ecobee service
-call. Sensor participation translates Home Assistant's native lowercase
-built-in preset values to the Ecobee action's exact comfort-profile names; an
-omitted value uses the bounded current Ecobee climate-mode projection rather
-than forwarding the source integration's normalized preset string. Vacation
-temperatures use that mapped writer's current unit and advertised
-bounds. Because public source state cannot prove the complete resulting vacation
-or policy definition, a successful action is reported as `submitted`,
-not falsely `confirmed`; service errors remain `failed`. Microphone and
-daylight-saving administration remain outside the routine thermostat surface.
+Home Assistant assigns editable entity IDs independently of these stable unique
+IDs. Unified does not reclaim existing climate entity IDs or automatically
+redirect dashboards and automations. Existing room, occupancy, battery,
+equipment-configuration, and Beestat entities retain their own owners.
 
-Keep climate attributes bounded: selected sources, source status,
-active climate mode/sensors and command confirmation. Both the legacy
-`active_comfort_sensors` and clearer `configured_comfort_sensors` names expose
-the configured Ecobee profile members. Schedule/transition, equipment stage,
-and minimum fan runtime have first-class owners. Do not record large raw
-payloads, long lists, historical samples, or continuously advancing ages as
-attributes. Active-sensor detail and command-confirmation operation/status
-remain live but unrecorded; bounded redacted diagnostics calculate exact source
-and command ages at request time while retaining the snapshot's selected-source
-and command semantics. Other diagnostics project the same immutable snapshot;
-mapping names, entity/device/config-entry IDs, and source values are omitted.
-Keeping advancing ages out of climate attributes avoids the Core comparison that
-otherwise creates Recorder rows before unrecorded attributes are stripped from
-storage.
+## Read ownership
 
-## Capability Boundaries
+Selection is per semantic field. A later event cannot replace the documented
+owner merely because it is newer. Values are not averaged or smoothed.
 
-The native Ecobee minimum-fan number already exists. Unified's facade supplies
-canonical-device placement, identity validation and command tracking. Native
-humidifier, ventilator and heat-pump configuration entities remain with their
-equipment owner when advertised. Display units, Identify, microphone and DST
-administration do not need duplicate Unified controls.
+| Field or context | Preferred source | Allowed fallback |
+|---|---|---|
+| HVAC mode/action, target temperature/range, current humidity, fan mode | HomeKit climate | Usable, identity-verified Ecobee climate |
+| Current temperature | Explicit HomeKit temperature sensor passing the checks below | HomeKit climate, then usable identity-verified Ecobee climate |
+| Target humidity and bounds | Capability-advertised HomeKit climate | None |
+| Current preset and available preset options | Explicit HomeKit Current Mode select | None |
+| Ecobee preset/climate context and comfort-sensor names | Ecobee climate attributes | None |
+| Equipment stage | Bounded interpretation of Ecobee `equipment_running` | None |
+| Minimum fan runtime | Ecobee `fan_min_on_time` | None |
+| AQI, CO2, VOC | Explicit same-device Ecobee sensor for that quantity | None |
 
-The local preset select exposes its advertised Home/Sleep/Away options; custom
-cloud comfort profiles and indefinite away are separate native Ecobee
-capabilities. Do not silently route additional presets through a cloud writer.
+Controls, modes, units, and safety bounds come from the designated writer. Read
+fallback does not enable a cloud writer for a standard climate action. Climate
+attributes use Home Assistant's configured Celsius or Fahrenheit unit; the
+manager converts a separately mapped temperature sensor into that unit.
 
-Schedules, filter/alert/history, advanced settings and configured-profile room
-spread belong to Beestat siblings. A future Unified metric requires a distinct
-semantic, availability rule, Recorder value and demonstrated consumer; this is
-not a backlog to duplicate those owners or infer an active hold from delayed
-schedule context.
+There is one metadata exception: when HomeKit has no non-null target step,
+Unified can use the same device's Ecobee step under its verified HomeKit writer
+granularity contract. The step must be positive, finite, use the same unit, and
+fit the HomeKit temperature span. A present invalid HomeKit step is reported
+and cannot use this exception. Eligible stale Ecobee capability metadata may
+supply the step; stale Ecobee measurements remain unusable. The exception does
+not replace local units, bounds, or feature flags.
+
+Ecobee fallback preserves the source integration's `current_temperature`
+semantic. It is not a separate measurement acquired by Unified or a guarantee
+of independent dry-bulb accuracy; Unified does not fetch `rawTemperature` or
+open another API client.
+
+The equipment sensor maps known tokens to a bounded enum, treats an empty
+report as idle, and uses `multiple` or `unknown` when it cannot identify a single
+known stage. AQI requires the AQI device class and no unit; CO2 requires its
+device class and ppm; VOC requires its device class and micrograms per cubic
+meter. These are source-provided contextual measurements, not life-safety
+detection.
+
+## Temperature quality and recovery
+
+A mapped precise-temperature sensor must retain the HomeKit device association,
+temperature device class, a convertible temperature unit, and a finite valid
+value. Explicit live class/unit attributes take precedence over registry
+defaults, including invalid empty or null attributes. Registry metadata fills
+only absent attributes.
+
+Precision is selected only while the sensor agrees with a usable HomeKit
+climate temperature within its serialization envelope: approximately 0.05 °C
+or 0.5 °F, with a small floating-point allowance. Failure selects the climate
+fallback and reports invalid, unavailable, unknown, divergent, or unverifiable
+temperature evidence. A selected precise sensor or Ecobee fallback advertises
+tenths precision; the HomeKit climate projection uses native climate precision.
+
+HomeKit may publish the climate and precise sensor values sequentially.
+Routine healthy paired events use a per-mapping 250 ms trailing-edge window
+before snapshot publication. Eligible events are a precise-sensor update or a
+climate update whose current temperature changed. Command-confirmation events,
+availability transitions, source removal, registry changes, and other source
+events bypass this delay. Persistent disagreement still rejects the sensor.
+
+A confirmed rejection creates in-memory recovery evidence tied to the climate
+and sensor registry identities and their device binding. Confirmation comes
+from the settled pair or a separate 250 ms callback that rereads the same
+candidate value. Immediate refreshes cannot make a transient pair a lasting
+rejection. After rejection, precise selection requires a different finite
+physical value that agrees with the climate. The following do not establish
+recovery by themselves:
+
+- A climate value moving toward the unchanged rejected sensor value.
+- A new timestamp, repeated report, formatting or display-unit change.
+- An unavailable/available cycle or temporary loss of the same source.
+
+While evidence remains, `homekit_temperature_recovery_pending` accompanies the
+documented fallback. Values are compared in Celsius so changing display units
+cannot manufacture progress. Renames retain evidence; a validated different
+source or device binding starts new observations. Evidence is bounded to the
+configured mappings and discarded on unload. It cannot detect two agreeing
+wrong sources, prove physical accuracy, or remember a rejection after reload.
+
+## Health, degradation, and updates
+
+The manager subscribes to source state and registry events, builds one immutable
+normalized snapshot per mapping, and publishes it to the entities. Entity
+properties perform no I/O. The climate is available only when it has both a
+valid HVAC mode and current temperature; other projections evaluate their own
+capabilities or values.
+
+| Condition | Runtime behavior and recovery |
+|---|---|
+| Quiet HomeKit source | Report age remains diagnostic; elapsed time alone never makes it stale. |
+| Ecobee climate or mapped air-quality source exceeds its stale threshold | Its live values become unusable. A timer evaluates the boundary without new events; the next report can recover it even when state and attributes are unchanged. |
+| Missing, disabled, unavailable, or unknown source | Preserve the mapping, remove affected values/control, and use only a documented fallback. Supported state or registry recovery reevaluates it. `unknown` remains distinct from `unavailable`. |
+| Identity or optional-device association fails | Block affected projections/writers until supported registry evidence is valid again. Do not choose a substitute source. |
+| Present malformed numeric field | Reject that field with bounded reasons while retaining transport health. Optional absence is not itself a numeric fault. |
+| Invalid writer metadata | Remove the affected capability or metadata; no alternate writer is enabled. |
+| Unknown Current Mode with a usable writer | Keep the current preset unknown and retain bounded options; classify this alone as advisory. |
+
+The default Ecobee stale threshold and command-confirmation window are each
+1,800 seconds. They are local options, not promises about cloud delivery time.
+Only stale-source recovery and the current command observer trigger processing
+of otherwise unchanged reports. Healthy unchanged reports do not continually
+republish snapshots. Event-owned report timestamps avoid reading a later mutable
+timestamp as evidence for an earlier event.
+
+Numeric normalization rejects overflow, non-finite values, humidity outside
+0–100 percent, negative air-quality values, and temperatures proven below
+absolute zero after accounting for source serialization. It does not impose
+household comfort bands on measurements, clip readings, or create substitutes.
+Eligibility failures such as invalid source metadata are separate from these
+field-level numeric checks.
+
+The Source degraded binary sensor is on when normalized `problem_reasons` is
+nonempty. Climate attributes and diagnostics share the same classification.
+The complete `degradation`/`reasons` union remains available for compatibility;
+`advisories` currently contains only an unknown but otherwise writable Current
+Mode. Clear Hold and notification availability are separate writer capabilities
+and are not included as source-health rows or temperature-style degradation
+reasons. Their entity availability and diagnostics expose capability loss.
+
+Repairs report configured registry, device, identity, or semantic mapping faults.
+They are nonpersistent issues evaluated on refresh, with no elapsed-duration
+threshold, and disappear when their conditions recover. Ordinary source
+staleness and command timeout do not themselves create those mapping Repairs.
+
+## Commands and their evidence
+
+Every accepted request dispatches through one mapped source-service target.
+Unified adds no retry or alternate writer. This limits Unified's calls; it does
+not promise exactly-once physical execution inside another integration or the
+thermostat. Caller-provided data cannot override the resolved mapped target.
+
+| Operation | Sole writer | Observation used by command tracking |
+|---|---|---|
+| HVAC mode, on/off, temperature/range, fan mode | HomeKit climate service | Ecobee climate report |
+| Target humidity | HomeKit climate service | HomeKit climate report |
+| Preset | Mapped HomeKit Current Mode select | That select's report |
+| Resume program/Clear Hold | Mapped HomeKit button | None; successful call is `submitted` |
+| Minimum fan runtime | Ecobee `set_fan_min_on_time` | Ecobee climate report |
+| Create/delete vacation, occupancy modes, comfort-sensor participation | Corresponding Ecobee service | None; successful call is `submitted` |
+| Thermostat notification | Mapped Ecobee notify entity | Native call result only; not included in command tracking |
+
+Current Mode options must be a nonempty subset of Home, Sleep, and Away, with
+compatible public entity metadata. A writable select may have an `unknown`
+current value. Clear Hold needs only its own eligible same-device button; its
+public registry metadata can rule out incompatible buttons but cannot prove
+the selected button's meaning. That selection remains explicit user intent.
+
+Minimum fan runtime accepts 0–60 minutes in five-minute steps. Vacation actions
+use the Ecobee writer's unit and bounds and validate their period and options.
+Comfort-sensor participation accepts explicit Ecobee devices from the mapped
+source config entry, translates built-in preset names for the vendor action,
+and uses current Ecobee climate context when a preset is omitted. Notifications
+forward a nonempty message; the unsupported title is ignored. Field details
+belong to the [action help](../custom_components/ecobee_unified/services.yaml).
+
+One lock serializes service dispatch per mapping within a running manager,
+including notifications. It is held until the source call finishes, not until
+cloud confirmation arrives. Tracked commands keep only the latest command per
+mapping, with an increasing revision and operation name. A later tracked
+command replaces the previous tracking record.
+
+The current operation's observer is installed before dispatch. A matching
+in-flight report, including an unchanged report, can be retained, but
+`confirmed` requires the writer call to succeed. A source error marks the
+tracked request `failed`; it does not prove that no physical effect occurred.
+The timeout starts after writer success. Expiration marks it `unconfirmed`
+without another write. Temperature confirmation uses half the available target
+step plus a floating-point allowance; without a step it uses the fixed numeric
+tolerance of 0.11. Other numeric confirmation retains that fixed tolerance.
+
+Revisions prevent late observations, results, or deadlines from overwriting a
+newer tracked command. Stopping the manager closes admission, rejects queued
+dispatches, marks pending tracked work unconfirmed, and removes subscriptions
+and timers. An already dispatched source call may still finish. Neither unload
+nor caller cancellation can undo its physical effect; late completion cannot
+restart the stopped manager or cause replay.
+
+## Privacy, Recorder, and ownership outside Unified
+
+Downloadable diagnostics are built from an allowlist. They include anonymous
+mapping positions, capability flags, source health and ages, selected-source
+roles, degradation, and recent command metadata. They omit mapping names,
+entity/device/config-entry IDs, raw measurements, sensor names, command payloads,
+credentials, and raw backend responses. Wrapped source errors use bounded
+translated messages without retaining arbitrary backend exception text.
+
+Local climate attributes retain bounded vendor context and comfort-sensor names.
+`active_comfort_sensors` and the compatibility alias
+`configured_comfort_sensors` contain the same Ecobee source list; the latter is
+not an independently acquired schedule roster. These lists, command status,
+and the problem/advisory classification are excluded from climate Recorder
+attributes. Problem-entity detail attributes are also unrecorded. Exact source
+and command ages are calculated only when diagnostics are requested, so quiet
+intervals do not generate age-only entity updates. The equipment sensor records
+its bounded enum rather than raw equipment text. Ordinary entity state and
+other attributes remain subject to Home Assistant's Recorder configuration.
+
+Unified owns mapping, normalization, source-derived controls, and their runtime
+status. Beestat owns its own cloud history and derived context; Unified neither
+consumes its entities nor duplicates its historical series, schedule, alerts,
+or filters. Beestat device linkage depends on Beestat's configuration and is
+not performed by Unified.
+
+Household schedules, occupancy decisions, notification policy, cross-service
+automations, dashboards, and private operational evidence belong to the local
+Home Assistant configuration. Reusable vendor action facades can remain in
+Unified without deciding when a household should invoke them. No additional integration,
+credential owner, or history store is required by this boundary.
+
+## Source map
+
+| Responsibility | Implementation |
+|---|---|
+| Mapping and options flow | [config_flow.py](../custom_components/ecobee_unified/config_flow.py) |
+| Public registry and source-role checks | [source_contracts.py](../custom_components/ecobee_unified/source_contracts.py) |
+| Events, lifecycle, dispatch, Repairs, device links | [manager.py](../custom_components/ecobee_unified/manager.py) |
+| Field normalization and shared degradation | [models.py](../custom_components/ecobee_unified/models.py) |
+| Rejected-temperature evidence | [temperature_quality.py](../custom_components/ecobee_unified/temperature_quality.py) |
+| Latest-command revisions and statuses | [commands.py](../custom_components/ecobee_unified/commands.py) |
+| Entity identity and no-I/O base | [entity.py](../custom_components/ecobee_unified/entity.py) |
+| Diagnostic allowlist | [diagnostics.py](../custom_components/ecobee_unified/diagnostics.py) |

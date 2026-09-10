@@ -1,6 +1,6 @@
 resume_program:
-  name: Resume thermostat schedule
-  description: Clear the selected thermostat's hold through its explicitly mapped local HomeKit button.
+  name: Resume program
+  description: Press the mapped HomeKit Clear Hold button once. A successful call is recorded as submitted; Ecobee Unified cannot confirm schedule resumption from source state.
   target:
     entity:
       integration: ecobee_unified
@@ -8,7 +8,7 @@ resume_program:
 
 create_vacation:
   name: Create Ecobee vacation
-  description: Submit one vacation to the explicitly mapped Ecobee thermostat. The action is reported as submitted because source state cannot confirm the complete vacation definition.
+  description: Send a vacation definition to the mapped Ecobee climate. A successful call is recorded as submitted, without confirming the saved definition. Omitted date/time pairs are left for the Ecobee integration to interpret.
   target:
     entity:
       integration: ecobee_unified
@@ -16,13 +16,13 @@ create_vacation:
   fields:
     vacation_name:
       name: Vacation name
-      description: Use a unique Ecobee vacation name containing 1 to 12 characters.
+      description: Name of 1 to 12 characters after trimming surrounding spaces. Ecobee Unified does not check for an existing vacation with this name.
       required: true
       selector:
         text:
     cool_temp:
       name: Cooling temperature
-      description: Cooling target in the mapped Ecobee climate's current unit and advertised bounds.
+      description: Cooling target within the mapped Ecobee climate's reported bounds, in that climate's temperature unit. It must be at or above the heating target.
       required: true
       selector:
         number:
@@ -30,7 +30,7 @@ create_vacation:
           unit_of_measurement: "°"
     heat_temp:
       name: Heating temperature
-      description: Heating target in the mapped Ecobee climate's current unit and advertised bounds.
+      description: Heating target within the mapped Ecobee climate's reported bounds, in that climate's temperature unit. It must be at or below the cooling target.
       required: true
       selector:
         number:
@@ -38,27 +38,27 @@ create_vacation:
           unit_of_measurement: "°"
     start_date:
       name: Start date
-      description: Optional local start date; provide it together with Start time.
+      description: Optional start date in YYYY-MM-DD format. Supply Start time with it; the pair is forwarded to Ecobee without timezone conversion.
       selector:
         date:
     start_time:
       name: Start time
-      description: Optional local start time; provide it together with Start date.
+      description: Optional start time in HH:MM:SS format. Supply Start date with it; omit both to leave the start unspecified.
       selector:
         time:
     end_date:
       name: End date
-      description: Optional local end date; provide it together with End time and after the start.
+      description: Optional end date in YYYY-MM-DD format. Supply End time with it; when both start and end are supplied, the end must be later.
       selector:
         date:
     end_time:
       name: End time
-      description: Optional local end time; provide it together with End date and after the start.
+      description: Optional end time in HH:MM:SS format. Supply End date with it; omit both to leave the end unspecified.
       selector:
         time:
     fan_mode:
       name: Fan mode
-      description: Run the fan automatically or continuously during this vacation.
+      description: Ecobee vacation fan setting. Use auto for automatic operation or on for continuous operation; the default is auto.
       default: auto
       selector:
         select:
@@ -67,7 +67,7 @@ create_vacation:
             - "on"
     fan_min_on_time:
       name: Minimum fan runtime
-      description: Minimum fan minutes per hour during this vacation.
+      description: Vacation minimum fan minutes per hour, from 0 to 60 in whole minutes; the default is 0. This action field has a one-minute step.
       default: 0
       selector:
         number:
@@ -78,7 +78,7 @@ create_vacation:
 
 delete_vacation:
   name: Delete Ecobee vacation
-  description: Delete one named vacation from the explicitly mapped Ecobee thermostat.
+  description: Send a request to delete the named vacation from the mapped Ecobee climate. A successful call is recorded as submitted; removal is not confirmed from source state.
   target:
     entity:
       integration: ecobee_unified
@@ -86,14 +86,14 @@ delete_vacation:
   fields:
     vacation_name:
       name: Vacation name
-      description: Exact name of the Ecobee vacation to delete.
+      description: Existing vacation name to send to Ecobee, containing 1 to 12 characters after trimming surrounding spaces.
       required: true
       selector:
         text:
 
 set_occupancy_modes:
   name: Set Ecobee occupancy policy
-  description: Submit Smart Home/Away and Follow Me policy changes to the explicitly mapped Ecobee thermostat. At least one field is required.
+  description: Send Smart Home/Away, Follow Me, or both settings to the mapped Ecobee climate. Supply at least one field. A successful call is recorded as submitted; the policy change is not confirmed from source state.
   target:
     entity:
       integration: ecobee_unified
@@ -101,18 +101,18 @@ set_occupancy_modes:
   fields:
     auto_away:
       name: Smart Home/Away
-      description: Enable or disable Ecobee Smart Home/Away for this thermostat.
+      description: Set Ecobee Smart Home/Away to enabled or disabled. Omit this field to leave its setting out of the request.
       selector:
         boolean:
     follow_me:
       name: Follow Me
-      description: Enable or disable Ecobee Follow Me sensor participation for this thermostat.
+      description: Set Ecobee Follow Me to enabled or disabled. Omit this field to leave its setting out of the request.
       selector:
         boolean:
 
 set_sensors_used_in_climate:
   name: Set Ecobee comfort sensors
-  description: Set the Ecobee sensors participating in one comfort profile on the explicitly mapped thermostat.
+  description: Send sensor participation for a comfort profile to the mapped Ecobee climate. Device validation checks the Ecobee integration entry, not attachment to this thermostat. A successful call is recorded as submitted; the resulting participation is not confirmed from source state.
   target:
     entity:
       integration: ecobee_unified
@@ -120,12 +120,12 @@ set_sensors_used_in_climate:
   fields:
     preset_mode:
       name: Comfort profile
-      description: Leave empty to use the Ecobee thermostat's currently active profile.
+      description: Ecobee comfort profile name, from 1 to 64 characters. Omit this field to use the current profile reported by Ecobee; if that profile is unavailable, provide a name.
       selector:
         text:
     device_ids:
       name: Ecobee sensor devices
-      description: Select one or more Ecobee sensor devices on the mapped thermostat to participate in the comfort profile.
+      description: Select 1 to 32 distinct Ecobee devices from the same integration entry as the mapped climate. Choose the thermostat or sensor devices intended for this comfort profile.
       required: true
       selector:
         device:

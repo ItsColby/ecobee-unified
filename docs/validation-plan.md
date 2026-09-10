@@ -1,279 +1,189 @@
-# Validation Plan
+# Validation
 
-## Automated Matrix
+This document defines acceptance for Ecobee Unified changes. It is a coverage
+map, not a record of passing runs. [Development](development.md) provides the
+commands and exact support lanes; [architecture](architecture.md) defines the
+runtime behavior those checks protect.
 
-### Configuration and Lifecycle
+## Choose the checks
 
-- create, abort, duplicate source/name, edit, remove, reload, unload;
-- hub manifest classification keeps entry management on the Integrations
-  dashboard, and every reconfigure menu option has a nonblank runtime English
-  translation;
-- multiple mappings in one entry;
-- invalid domain/integration and circular mapping rejection;
-- entity rename, device rename, source removal/re-add, and registry disable;
-- source device move, detach, removal, and restoration with helper relinking
-  for climate/number/sensor records without config-entry reload or stable-entity recreation;
-- unrelated entity/device registry events do not refresh mappings, while owned
-  helper registry reconciliation remains bounded and self-correcting;
-- removing a mapping or optional projection deletes only that config entry's
-  orphaned Unified entities and preserves retained stable IDs;
-- startup before each source integration and later source setup/reload;
-- setup cancellation after manager startup or during platform forwarding stops
-  the manager, releases native setup ownership, cancels subscriptions/deadlines,
-  and prevents late callbacks from restoring runtime state;
-- config-entry version migration and rollback fixtures.
-- options/mapping changes that preserve temporarily missing entity selections;
-- a missing parent device permits preserving or removing saved optional
-  references, but cannot establish a newly selected source association;
-- explicit confirmation for physical-device or command-writer changes.
-- concurrent reconfigure sessions and external config-entry updates fail closed
-  at completion, preserve the winning mapping collection, and do not schedule a
-  reload from the stale flow;
-- successful reconfigure replaces mappings within the accepted complete entry
-  data while preserving additive or unrecognized fields;
-- matched, mismatched, and missing HomeKit-serial/Ecobee-identifier proof at
-  create and reconfigure time, plus runtime identity drift/recovery without
-  recreating the config entry;
+| Change | Required evidence |
+|---|---|
+| Documentation or help text | Compare claims with source, check links and examples, and run affected public-content and translation checks. A documentation change does not require thermostat control or a Home Assistant restart. |
+| Source selection, entities, configuration, or commands | Add or update regression coverage for the changed contract, run the affected tests during development, then run both supported Home Assistant lanes and the repository checks. |
+| Core or harness support | Verify the upstream contract, align HACS and requirement owners, and pass dependency closure, strict typing, and the complete test suite separately in each lane. |
+| Validation scripts or workflows | Exercise orchestration regressions and the affected execution path, including failures and cleanup; run actionlint, ShellCheck, and workflow security checks. |
+| Release candidate | Validate the exact published content and applicable hosted checks, then keep installation and live acceptance separate from source results. |
 
-### Field Selection
+Never count a skipped or uncollected test as coverage. Record the candidate
+revision, any working-tree changes, Python/Core/harness versions, commands,
+results, and material omissions with the run evidence. Do not replace previous
+results when later runs use different source or environments.
 
-For every standard and vendor field, test:
+## Automated coverage
 
-- primary and fallback both available;
-- primary unavailable, fallback valid;
-- primary unknown/unavailable with stale fallback;
-- source field absent or malformed;
-- huge numeric integers, conversion overflow, booleans and non-finite values
-  fail without snapshot exceptions; temperatures below absolute zero beyond
-  source serialization uncertainty are invalid in each supported unit, while
-  rounding at absolute zero and physically possible extremes are not clipped;
-- present-invalid optional fields produce bounded degradation reasons; absent
-  optional fields and source transport health preserve their distinct semantics;
-- both unavailable;
-- unequal values that prove no averaging/freshest-wins behavior;
-- honest primary precision, writer-owned temperature units/bounds, explicit
-  same-device step fusion, Celsius/Fahrenheit climate-unit enforcement, and
-  rejection when proof/unit reconciliation is absent;
-- explicit same-device HomeKit temperature selection, unit conversion,
-  malformed/non-finite rejection, Fahrenheit/Celsius serialization-envelope
-  agreement and stable boundaries, explicit divergence/unverifiable
-  degradation, climate fallback, cloud fallback, quiet-source health,
-  native mapping-health problem state and bounded attributes,
-  source-dependent climate-state precision/rounding, rename, move/detach,
-  disappearance, and recovery;
-- per-mapping trailing-edge coalescing of sequential healthy HomeKit climate
-  and precise-temperature events, including no transient divergence snapshot,
-  persistent mismatch after the settle window, timer reset/isolation/cleanup,
-  and immediate command-confirmation, unavailable, removal, and recovery paths;
-- confirmed precise-temperature rejection followed by climate convergence with
-  the same sensor value, changed-and-consistent recovery, a second confirmed
-  divergent value, unchanged reports/formatting/attributes, availability cycles,
-  equivalent Celsius/Fahrenheit values, rename and association continuity,
-  valid source replacement, mapping isolation, callback cancellation, and
-  explicit observation reset on manager recreation; unrelated immediate updates
-  during paired-source settling must not latch a transient mismatch;
-- target humidity capability, bounds, exactly one HomeKit write, HomeKit report
-  confirmation, invalid input, source loss, recovery, and no fabricated
-  presentation step when the supported writer contract exposes none.
-- AQI, CO2, and VOC device-class/unit contracts, non-finite/negative state,
-  within-mapping source reuse, semantic drift, Repair creation, and recovery;
-- live sensor unit/class precedence over registry defaults, including native
-  user-unit conversion and rejection without relabeling; temperature mapping,
-  source selection and Repairs agree through invalid metadata and recovery;
-- present-invalid HomeKit temperature steps, including a step larger than the
-  writer span, cannot inflate confirmation tolerance or borrow cloud metadata.
+The complete `pytest tests -q` suite includes all `test_*.py` modules below.
+The files, fixtures, and assertions are the detailed executable coverage owner;
+these groups explain the acceptance questions they answer.
 
-Include fixtures where climate `current_temperature` intentionally differs from
-an explicitly mapped same-device HomeKit temperature sensor and an unmapped raw
-sensor. The unified climate uses only the explicit, capability-valid mapping
-while it agrees with the local climate's unit-specific serialization envelope;
-it never guesses a source or substitutes a value merely because it has more
-decimal places or a newer timestamp.
+### Configuration, identity, and lifecycle
 
-### Commands
+Sources: [native integration tests](../tests/test_integration_ha.py),
+[Core API tests](../tests/test_runtime_core_api.py),
+[source contracts](../tests/test_configuration_source_contracts.py),
+[device identity](../tests/test_source_device_identity.py), and
+[setup lifecycle](../tests/test_setup_lifecycle.py).
 
-- each standard climate method makes exactly one HomeKit service call;
-- action-role validation rejects Display Units, Identify, administrative and
-  diagnostic sources at configuration, recovery, and dispatch; valid unknown
-  Current Mode values retain bounded Home/Sleep/Away writer options;
-- preset and both Unified clear-hold entry points each make exactly one mapped
-  HomeKit service call; Clear Hold works without the preset source, becomes
-  submitted rather than confirmed, and the native button exists only for an
-  explicit usable mapping;
-- an `unknown` HomeKit Current Mode value leaves the Unified current preset
-  unreadable while retaining bounded advertised options and exactly-one preset
-  dispatch, reports `unknown` source health/degradation rather than
-  `unavailable`, remains advisory without activating the native problem entity,
-  projects the same bounded advisory/actionable split through climate
-  attributes and downloadable diagnostics while retaining the legacy union,
-  does not suppress a simultaneous actionable source or routing fault,
-  and remains distinct from actual unavailable, missing, disabled, or
-  misassociated writers that remove the capability and activate actionable
-  problem semantics before I/O;
-- minimum fan runtime declares duration semantics in minutes, accepts only 0-60
-  in exact five-minute increments, rejects boolean/non-finite/off-step/
-  out-of-range values before I/O, and makes one Ecobee call;
-- thermostat-display notification makes exactly one mapped Ecobee notification
-  call, rejects empty/unavailable/misassociated writers before any effect, and
-  never retries or fails over;
-- vacation create/delete, occupancy policy, and sensor participation each
-  inject the mapped Ecobee climate and make exactly one action call;
-- sensor participation translates native lowercase Home/Away/Sleep presets to
-  the writer's exact comfort-profile names and resolves an omitted preset from
-  the bounded current Ecobee climate-mode projection;
-- caller-supplied service data cannot override any mapped HomeKit or Ecobee
-  writer target;
-- unprojectable vendor effects become `submitted`, never `confirmed`, and a
-  late completion cannot mutate a newer command revision;
-- vacation names, writer-unit temperature bounds in Celsius and Fahrenheit,
-  date-time pairs, occupancy policy, source service availability, and Ecobee
-  sensor device selections fail before any effect when invalid or owned by
-  another Ecobee config entry;
-- writer unavailable fails clearly without fallback;
-- confirmation observes the operation-owned source without issuing another
-  call: Ecobee for cloud-observed standard operations, HomeKit for target
-  humidity, and the HomeKit select for preset; Clear Hold has no supported
-  confirmation source and remains submitted;
-- temperature confirmation accepts only half of the writer's target step for
-  quantization while other numeric fields retain the stricter default tolerance;
-- confirmation success, mismatch, timeout, reload, and source loss;
-- matching report during an awaited writer followed by success or failure,
-  proving that only success permits confirmation and starts timeout ownership;
-- real preset dispatch retains semantic operation identity and confirms from the
-  local select without a cloud report; unchanged preset/humidity reports during
-  awaited success or failure follow the same observer and acceptance boundary;
-- confirmation from a fresh matching report whose state and attributes are
-  unchanged;
-- rapid repeated commands, per-mapping writer dispatch order, and superseded
-  pending state, including a delayed first call that cannot finish after and
-  overwrite the second;
-- late observations for an older revision cannot mutate the current command;
-- native config-entry unload while a source write awaits rejects queued/new
-  commands without dispatch and prevents listener, timer or snapshot resurrection
-  after writer success, failure or cancellation; cover standard, submitted-only
-  vendor and notification paths plus a replacement manager;
-- service error propagation and diagnostics redaction.
+- One config entry can manage multiple explicit mappings. Create, reconfigure,
+  options, removal, reload, and unload preserve their distinct responsibilities.
+  Duplicate names/sources, incorrect integrations/domains, circular sources,
+  and unproven cross-backend identity are rejected.
+- HomeKit serial and Ecobee thermostat identity must establish the same physical
+  thermostat. A child device is not a substitute for that proof. Optional
+  selections must have the expected source owner, device relationship, and
+  sensor/action semantics.
+- Reconfiguration confirms physical-device or command-writer changes, preserves
+  accepted additive entry data, and rejects stale concurrent flows. Saved
+  missing sources can be retained or removed; a missing parent cannot establish
+  a new source association. Timing options validate exact whole-second steps
+  and serialize through Home Assistant's frontend contract.
+- Supported schema migration normalizes stored data; future schemas fail
+  without rewriting them. Source renames, device moves, detachments, removals,
+  disables, and restoration reconcile helper links without changing stable
+  Unified identities. Cleanup removes only the entry's orphaned entities.
+- Sources may appear after Unified starts. Unrelated registry events do not
+  rebuild mappings. Failed or cancelled setup, platform forwarding, unload,
+  and removal release listeners, timers, manager state, and setup ownership;
+  late callbacks cannot revive the stopped manager.
 
-### Home Assistant Contracts
+### Field selection and temperature quality
 
-- no I/O in properties;
-- device linking and no foreign identifiers/connections;
-- stable unique IDs and entity categories;
-- translated sibling names compose with the HomeKit-owned device without
-  repeating the user mapping name;
-- capability-aware creation/projection of equipment stage, optional AQI/CO2/VOC,
-  optional precise current temperature, and optional notification, with no
-  duplicate temperature/humidity/occupancy/weather entities;
-- disabled-by-default policy for optional diagnostic/noisy entities, with the
-  per-mapping Source degraded problem binary sensor enabled by default;
-- the sole custom-integration runtime English owner at `translations/en.json`,
-  including entity and config-flow strings, with no Core-only `strings.json`
-  mirror;
-- diagnostics redaction;
-- bounded diagnostics and no raw backend response/exception leakage;
-- quiet HomeKit push/event sources remain healthy across elapsed-age and cloud
-  stale-boundary reevaluations, while actual unavailable state degrades and
-  recovery restores ownership without oscillation;
-- `last_reported` freshness across unchanged cadence-backed reports, including
-  healthy state through the 30-minute default boundary and stale transition
-  immediately after it without another source-change event, recovery on the
-  next unchanged report, suppression of healthy-report refresh churn, and
-  listener cleanup on unload; every timer callback retains Core callback-job
-  classification and stays on the event loop;
-- the 30-minute default confirmation window and persisted option overrides;
-- options accept only whole seconds aligned to their advertised selector step,
-  including direct or restored flow input that does not come from the rendered
-  selector UI, while the complete options form remains serializable through
-  Home Assistant's config-entry REST/frontend contract;
-- unconfigured optional sources are absent from health/age diagnostics while a
-  configured but unresolved source reports `missing`;
-- exact source and command ages advance across repeated diagnostics requests
-  without a source event, remain absent from climate state attributes, and an
-  age-only snapshot refresh produces no climate `state_changed` event or
-  Recorder row;
-- active-sensor detail and command-confirmation operation/status remain live
-  but excluded from recorded attributes;
-- schedule/transition and vendor control/detail are not duplicated in climate
-  attributes when first-class Beestat/number/sensor entities own them;
-- Repairs only for persistent actionable faults, including user-disabled or
-  detached required/optional sources, with recovery deletion;
-- exact Home Assistant Core 2026.8.0 minimum and 2026.9.1 maintained-current
-  support/test lanes with matching published harnesses; this intentionally
-  broader contract spans stable monthly releases without a dependency exception;
-- explicit pytest asyncio ownership so every top-level HA integration test is
-  collected and executed rather than silently skipped;
-- matching harness/Core requirement installation and final dependency closure
-  in each lane, with Linux/hosted execution for HA-specific tests when native
-  Windows cannot import Core;
-- Ruff format/lint, proportionate strict mypy, pytest and Home Assistant tests,
-  compile/JSON/translation/public-payload checks, Hassfest, HACS Action, actionlint
-  with ShellCheck, explicit job timeouts/concurrency, side-effect-free checkout
-  without persisted credentials, and a terminal release gate.
+Sources: [normalized models](../tests/test_models.py),
+[numeric validity](../tests/test_numeric_validity.py),
+[temperature recovery](../tests/test_temperature_quality.py),
+[source contracts](../tests/test_configuration_source_contracts.py), and
+[Core API tests](../tests/test_runtime_core_api.py).
 
-Immutable action pins are part of the implemented public-source baseline.
-CodeQL default setup is active as a required repository check. Zizmor auditor
-mode validates workflow structure, and Dependabot checks GitHub Actions weekly
-after a seven-day stability and supply-chain cooldown. Python/Core pins remain
-product-owned support-lane contracts. Additional generic dependency/security
-scanners remain deferred until a concrete defect class, repository risk, or
-publication requirement makes them worthwhile.
+- Every field has a deterministic owner. Exercise primary success, valid
+  read fallback, absent/malformed values, stale fallback, total loss, and
+  disagreement. Newer timestamps or additional decimal places never select a
+  source by themselves. Command metadata remains writer-owned.
+- Reject boolean, non-finite, overflowing, and physically impossible numeric
+  input without a snapshot failure. Preserve valid extremes and distinguish
+  absent optional fields, present-invalid fields, and source transport health.
+  Invalid steps cannot widen confirmation tolerance or borrow fallback metadata.
+- Precise temperature requires an explicit same-device source, correct live
+  class/unit metadata, conversion to the climate unit, and agreement with the
+  local climate's serialization envelope. Cover Celsius, Fahrenheit, Kelvin
+  sensor conversion, absolute-zero rounding, and the guarded step exception.
+- Paired HomeKit updates settle per mapping without publishing transient
+  disagreement. Persistent mismatch, timer reset/cancellation, and immediate
+  command, availability, and recovery paths retain their own semantics.
+- After confirmed disagreement, climate convergence alone cannot rehabilitate
+  an unchanged rejected precise reading. Cover changed-and-agreeing recovery,
+  another rejected reading, equivalent converted values, formatting-only
+  reports, rename and association continuity, source replacement, mapping
+  isolation, and the observation reset on manager recreation.
+- AQI, CO2, and VOC validate source ownership, device class, units, and bounded
+  values. Live metadata takes precedence over registry defaults. Configuration,
+  runtime selection, degradation, and Repairs agree during drift and recovery.
 
-## Public Payload Gate
+### Commands and effects
 
-Scan the entire committed tree, Git history, test output, workflow logs, release
-text, and packaged archive for:
+Sources: [command tracker](../tests/test_commands.py),
+[command lifecycle](../tests/test_command_lifecycle.py),
+[HomeKit action roles](../tests/test_homekit_action_roles.py),
+[Core API tests](../tests/test_runtime_core_api.py), and
+[native integration tests](../tests/test_integration_ha.py).
 
-- addresses, IPs, coordinates, hostnames, account/email data;
-- real entity/device/config-entry IDs and household names;
-- credentials, tokens, cookies, capability URLs, and raw diagnostics;
-- local filesystem paths and non-public repository URLs;
-- raw backend responses and unreviewed binary content.
+- Each accepted operation dispatches once to its designated mapped writer.
+  Validate capability, source availability/association, action role, registered
+  service, and input before I/O. Caller data cannot replace that writer target.
+  Failure never triggers automatic retry or write failover.
+- Standard climate control and target humidity use HomeKit; preset uses the
+  mapped Current Mode select; both Resume program entry points use the mapped
+  Clear Hold button. Administrative/diagnostic selects and buttons are invalid.
+  An unknown current preset can retain valid bounded writer options; unavailable
+  or misassociated writers cannot.
+- Minimum fan runtime accepts 0-60 minutes in exact five-minute increments.
+  Vendor vacation, occupancy, sensor-participation, and notification operations
+  use the mapped Ecobee source. Cover temperature units/bounds, date/time pairs,
+  names, comfort-profile translation, same-entry sensor devices, empty messages,
+  and invalid or unavailable services. Notifications preserve the native call
+  result without adding a tracked command status or delivery confirmation.
+- Writer return and observed effect are separate. Confirmation uses only the
+  operation's designated observer, including unchanged fresh reports, and only
+  after successful writer completion. Submitted-only effects cannot become
+  confirmed. Temperature tolerance uses half the accepted writer step; other
+  numeric confirmation retains the stricter tolerance.
+- Preserve dispatch order and revision ownership across overlapping commands,
+  early observations, timeout, failure, cancellation, and supersession. Unload
+  rejects queued/new writes and fences late results, without pretending that an
+  already dispatched source operation has been undone.
 
-Fixtures use names such as `zone_a`, `room_sensor_a`, and synthetic IDs only.
-History scanning covers commit metadata, every historical filename, and every
-reachable bounded blob so removed private text or binary content cannot evade a
-patch-only scan.
-Hosted validation fetches complete history. The local container runner exports
-the source repository's available refs and detached HEAD into a read-only mirror,
-separate from the exact candidate payload and its synthetic archive index.
-Unavailable or shallow history fails validation. Orchestration regressions cover
-removed private content, commit metadata, linked worktrees, detached HEAD, dirty
-payloads, and shallow sources.
+### Presentation, health, and privacy
 
-## Local Shadow Acceptance
+Sources: [equipment stage](../tests/test_sensor.py),
+[normalized models](../tests/test_models.py),
+[Core API tests](../tests/test_runtime_core_api.py),
+[native integration tests](../tests/test_integration_ha.py), and
+[public-content checks](../tests/test_public_safety.py).
 
-Local deployment evidence has no mandatory elapsed-time minimum. It should
-cover the currently observable and safely exercisable cases below, with any
-unobserved command/event path retained as an explicit limitation rather than a
-reason to delay unrelated consumer migration:
+- Entity properties project snapshots without I/O. Helper entities link to the
+  HomeKit device without copying foreign device identifiers. Stable unique IDs,
+  translated sibling names, entity categories, optional capability projection,
+  and the default-enabled Source degraded problem sensor remain consistent.
+- Quiet HomeKit push sources do not expire solely because time passes. Ecobee
+  cadence uses report freshness, including unchanged reports and expiry without
+  another state change. Recovery clears relevant faults and Repairs.
+- Keep unconfigured, unknown, missing, disabled, detached, stale, and invalid
+  states distinct. Unknown preset state with a usable writer is advisory; a
+  simultaneous actionable fault still activates problem semantics.
+- Exact source and command ages advance in diagnostics, without age-only climate
+  state changes. Active-sensor detail and command status remain excluded from
+  recorded attributes. Do not duplicate history or vendor entities in climate
+  attributes. Equipment idle and unknown equipment values retain bounded enums.
+- Diagnostics and errors use allow-listed, bounded fields without names,
+  identifiers, source values, raw backend bodies, or raw exceptions. Translated
+  configuration, entity, and action help lives in `translations/en.json`;
+  forms, actions, and enum values have usable descriptions and translations.
 
-- source availability/age through normal cloud and local update cycles;
-- scheduled transitions, temporary/permanent holds, mode changes, fan activity,
-  heating/cooling/idle states, and equipment detail;
-- current temperature/humidity selection with source provenance;
-- at least one standard control command and confirmation per thermostat, if
-  control testing is explicitly authorized;
-- source reload/unavailability and recovery;
-- Recorder/logbook attribute volume and state churn;
-- diagnostic usefulness and absence of credential, account, or household-data
-  leakage;
-- comparison against the raw entities without averaging them.
+### Repository and runner integrity
 
-Acceptance requires no unexplained semantic swaps, no duplicate writes, no
-consumer regressions, no persistent source disagreement left unclassified, and
-a proven rollback to the untouched source climates.
+Sources: [public-content checks](../tests/test_public_safety.py) and
+[parallel runner tests](../tests/test_parallel_validation.py).
 
-## Migration Verification
+Cover exact support pins, real async pytest collection, runtime translations,
+public payload discovery, staged archive bytes, removed historical content,
+commit metadata, reference/path names, binary review, linked worktrees, detached
+HEAD, dirty candidates, and unavailable/shallow history. Runner tests require
+both container support lanes to finish before cleanup, propagate either lane's
+failure, and prevent later phases after a failed prerequisite.
 
-Before each consumer batch:
+The automated privacy guard has a defined pattern set; it is not a general
+secret detector. Release review must also inspect newly published prose,
+fixtures, logs, diagnostics, and assets for household/account details or secrets
+that do not match those patterns.
 
-1. Perform an exhaustive current reference search.
-2. Capture source and unified state/attributes.
-3. Change only the selected consumers.
-4. Trigger or observe each consumer's meaningful path.
-5. Confirm no stale reference remains in that batch.
-6. Keep the old entity enabled through complete migration validation.
+## Live acceptance and consumer changes
 
-Final deduplication requires a zero-consumer proof for every entity proposed for
-disablement and a dashboard/exposure readback showing one routine thermostat
-surface.
+Automated tests use synthetic sources and services. They establish product
+behavior against Core APIs, not thermostat firmware behavior, cloud delivery,
+physical HVAC response, or installation health.
+
+For an installation being evaluated, compare Unified with its mapped sources
+through normal local/cloud update cycles. Check current temperature/humidity,
+scheduled or held modes, equipment state, availability/recovery, source
+provenance, diagnostic usefulness, and Recorder/logbook churn. Control testing
+should cover the authorized operations and their actual confirmation outcomes;
+record unobserved paths as limitations. There is no fixed observation-duration
+requirement in this plan.
+
+Move consumers in bounded batches: inventory existing references, capture the
+before state, update selected consumers, observe each meaningful path, and
+verify the batch has no unintended stale references. Keep the source climates
+and every other mapped source enabled: disabling one removes a Unified input or
+writer. Hide sources from routine views or exposure only after checking affected
+consumers and the resulting presentation. Disabling a genuinely unused entity
+requires checking both ordinary consumers and Unified mappings. Installation
+policy, consumer selection, and live evidence belong to the installation owner.

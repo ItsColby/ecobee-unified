@@ -1,31 +1,31 @@
 {
   "config": {
     "abort": {
-      "configuration_changed": "The thermostat mappings changed in another configuration session. Start reconfiguration again.",
-      "one_mapping_required": "At least one thermostat mapping must remain."
+      "configuration_changed": "Another session saved configuration changes. Open Reconfigure again to work from the saved mappings.",
+      "one_mapping_required": "Keep at least one thermostat mapping in this integration entry."
     },
     "error": {
-      "confirmation_required": "Confirm this physical thermostat or command-writer change.",
-      "duplicate_ecobee_source": "This Ecobee climate is already mapped.",
-      "duplicate_mapping_name": "Use a unique thermostat mapping name.",
-      "duplicate_optional_source": "Each optional source entity can be mapped only once.",
-      "duplicate_homekit_source": "This HomeKit climate is already mapped.",
-      "homekit_device_required": "Select a HomeKit climate linked to a thermostat device.",
-      "invalid_ecobee_aqi_source": "Select an Ecobee air quality index sensor on the mapped Ecobee device.",
-      "invalid_ecobee_co2_source": "Select an Ecobee carbon dioxide sensor measured in ppm on the mapped Ecobee device.",
-      "invalid_ecobee_source": "Select an entity supplied by Ecobee on the mapped Ecobee device.",
-      "invalid_ecobee_voc_source": "Select an Ecobee volatile organic compounds sensor measured in micrograms per cubic meter on the mapped Ecobee device.",
-      "invalid_homekit_controller_source": "Select an entity supplied by HomeKit Controller on the mapped thermostat device.",
-      "invalid_homekit_preset_source": "Select the HomeKit Current Mode control on this thermostat with supported Home, Sleep, or Away options.",
-      "invalid_homekit_clear_hold_source": "Select the HomeKit Clear Hold button on this thermostat. Administrative and diagnostic buttons cannot resume its program.",
-      "invalid_homekit_temperature_source": "Select a numeric HomeKit temperature sensor on the mapped thermostat device with a supported temperature unit.",
-      "invalid_name": "Enter a name of 1 to 64 characters.",
-      "physical_device_identity_unproven": "Select HomeKit and Ecobee climates whose supported device identities prove they represent the same thermostat.",
-      "physical_device_mismatch": "The selected HomeKit and Ecobee climates represent different thermostats."
+      "confirmation_required": "Select the confirmation checkbox to apply this source change or mapping removal.",
+      "duplicate_ecobee_source": "This Ecobee climate belongs to another mapping. Select a different thermostat.",
+      "duplicate_mapping_name": "Choose a different mapping name. Names must be unique, ignoring capitalization.",
+      "duplicate_optional_source": "An optional entity is selected more than once. Use each entity in only one field and one mapping.",
+      "duplicate_homekit_source": "This HomeKit climate belongs to another mapping. Select a different thermostat.",
+      "homekit_device_required": "Choose a HomeKit climate that has a device in the Home Assistant device registry.",
+      "invalid_ecobee_aqi_source": "Choose an air quality index sensor from the mapped Ecobee device. It must have the AQI device class, no unit, and a nonnegative value when available.",
+      "invalid_ecobee_co2_source": "Choose a carbon dioxide sensor from the mapped Ecobee device. It must report the CO2 device class, ppm, and a nonnegative value when available.",
+      "invalid_ecobee_source": "Choose the required entity type from the Ecobee integration. Optional entities must belong to the selected Ecobee thermostat device.",
+      "invalid_ecobee_voc_source": "Choose a volatile organic compounds sensor from the mapped Ecobee device. It must use the VOC device class, micrograms per cubic meter, and a nonnegative value when available.",
+      "invalid_homekit_controller_source": "Choose the required entity type from the HomeKit Device integration. Optional entities must belong to the selected HomeKit thermostat device.",
+      "invalid_homekit_preset_source": "Choose this thermostat's HomeKit Current Mode select. Its options must be supported Home, Sleep, or Away values; configuration and diagnostic controls are not accepted.",
+      "invalid_homekit_clear_hold_source": "Choose this thermostat's HomeKit Clear Hold button. Configuration, diagnostic, and other known incompatible buttons are not accepted; verify the button's purpose in HomeKit Device.",
+      "invalid_homekit_temperature_source": "Choose a HomeKit temperature sensor on the selected thermostat device with a temperature device class, a supported temperature unit, and a numeric value when available.",
+      "invalid_name": "Enter 1 to 64 characters after trimming surrounding spaces.",
+      "physical_device_identity_unproven": "Home Assistant cannot verify this thermostat pairing. The HomeKit device serial number must match the Ecobee device identifier; matching names are not sufficient.",
+      "physical_device_mismatch": "The HomeKit device serial number and Ecobee device identifier do not match. Select the two climates for the same physical thermostat."
     },
     "step": {
       "user": {
-        "description": "Map at least one physical thermostat to create the unified surface."
+        "description": "Select the existing HomeKit Device and Ecobee entities for each thermostat you want to use through Ecobee Unified."
       },
       "mapping": {
         "data": {
@@ -42,23 +42,23 @@
           "name": "Mapping name"
         },
         "data_description": {
-          "add_another": "Save this mapping and open another mapping form before creating the entry.",
-          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
-          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
-          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
-          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
-          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
-          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
-          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
-          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
-          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
-          "name": "User-facing name for this physical thermostat mapping."
+          "add_another": "Keep this mapping and enter another thermostat before saving the integration entry.",
+          "ecobee_aqi_entity": "Air quality index from this Ecobee thermostat device. Ecobee Unified displays the source value without calculating its own index.",
+          "ecobee_co2_entity": "Carbon dioxide value in ppm from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "ecobee_entity": "Required Ecobee climate for vendor details, vendor actions, and supported read fallback. Its device identity must match the HomeKit thermostat.",
+          "ecobee_notify_entity": "Notification entity on this Ecobee thermostat device. Enables forwarding a message to its display; delivery is not confirmed by thermostat state.",
+          "ecobee_voc_entity": "Volatile organic compounds value in micrograms per cubic meter from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "homekit_clear_hold_entity": "Select the actual Clear Hold button on this HomeKit thermostat device to enable Resume program. Verify its purpose yourself; registry checks only reject known incompatible buttons.",
+          "homekit_entity": "Required climate from HomeKit Device. Provides the primary live readings, standard thermostat controls, and device association for unified entities.",
+          "homekit_preset_entity": "Current Mode select on this HomeKit thermostat device. Enables preset control for its supported Home, Sleep, or Away options.",
+          "homekit_temperature_entity": "Temperature sensor on this HomeKit thermostat device. Its reading is preferred only while comparison with the HomeKit climate and recovery checks pass.",
+          "name": "A name of 1 to 64 characters for this mapping. It must be unique within the integration, ignoring capitalization."
         },
-        "description": "Build one thermostat device surface. HomeKit owns local climate, preset, and clear-hold control; Ecobee owns vendor-only detail and actions.",
+        "description": "Pair HomeKit Device and Ecobee climates for the same physical thermostat. Optional entities add only their described readings or actions; leave them empty when not needed. Commands always use their assigned source.",
         "title": "Thermostat mapping"
       },
       "reconfigure": {
-        "description": "Add, edit, or remove thermostat mappings, then save the complete mapping set.",
+        "description": "Stage additions, edits, and removals, then choose Save mapping changes to apply them together and reload this integration entry.",
         "menu_options": {
           "reconfigure_add": "Add thermostat mapping",
           "reconfigure_edit": "Edit thermostat mapping",
@@ -81,27 +81,31 @@
           "name": "Mapping name"
         },
         "data_description": {
-          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
-          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
-          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
-          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
-          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
-          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
-          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
-          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
-          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
-          "name": "User-facing name for this physical thermostat mapping."
+          "ecobee_aqi_entity": "Air quality index from this Ecobee thermostat device. Ecobee Unified displays the source value without calculating its own index.",
+          "ecobee_co2_entity": "Carbon dioxide value in ppm from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "ecobee_entity": "Required Ecobee climate for vendor details, vendor actions, and supported read fallback. Its device identity must match the HomeKit thermostat.",
+          "ecobee_notify_entity": "Notification entity on this Ecobee thermostat device. Enables forwarding a message to its display; delivery is not confirmed by thermostat state.",
+          "ecobee_voc_entity": "Volatile organic compounds value in micrograms per cubic meter from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "homekit_clear_hold_entity": "Select the actual Clear Hold button on this HomeKit thermostat device to enable Resume program. Verify its purpose yourself; registry checks only reject known incompatible buttons.",
+          "homekit_entity": "Required climate from HomeKit Device. Provides the primary live readings, standard thermostat controls, and device association for unified entities.",
+          "homekit_preset_entity": "Current Mode select on this HomeKit thermostat device. Enables preset control for its supported Home, Sleep, or Away options.",
+          "homekit_temperature_entity": "Temperature sensor on this HomeKit thermostat device. Its reading is preferred only while comparison with the HomeKit climate and recovery checks pass.",
+          "name": "A name of 1 to 64 characters for this mapping. It must be unique within the integration, ignoring capitalization."
         },
-        "title": "Add mapping"
+        "title": "Add thermostat mapping"
       },
       "reconfigure_edit": {
-        "data": {"mapping_id": "Mapping"},
-        "data_description": {"mapping_id": "Select the existing thermostat mapping to edit."},
-        "title": "Edit mapping"
+        "data": {
+          "mapping_id": "Mapping"
+        },
+        "data_description": {
+          "mapping_id": "Choose the saved mapping whose name or source entities you want to change."
+        },
+        "title": "Choose mapping to edit"
       },
       "reconfigure_edit_confirm": {
         "data": {
-          "confirm_change": "Confirm a command-writer source change",
+          "confirm_change": "Confirm thermostat or command source change",
           "ecobee_aqi_entity": "Ecobee air quality index (optional)",
           "ecobee_co2_entity": "Ecobee carbon dioxide (optional)",
           "ecobee_entity": "Ecobee climate",
@@ -114,41 +118,73 @@
           "name": "Mapping name"
         },
         "data_description": {
-          "confirm_change": "Confirm that this mapping should use the newly selected physical thermostat or command writer.",
-          "ecobee_aqi_entity": "Optional Ecobee AQI estimate on the same Ecobee thermostat device.",
-          "ecobee_co2_entity": "Optional Ecobee carbon dioxide estimate in ppm on the same Ecobee thermostat device.",
-          "ecobee_entity": "Ecobee climate for vendor-only context and actions; physical identity must match HomeKit.",
-          "ecobee_notify_entity": "Optional Ecobee notification writer on the same Ecobee thermostat device.",
-          "ecobee_voc_entity": "Optional Ecobee volatile organic compounds estimate on the same Ecobee thermostat device.",
-          "homekit_clear_hold_entity": "Optional HomeKit button that is the sole Resume program writer.",
-          "homekit_entity": "HomeKit climate that owns local state and standard thermostat control.",
-          "homekit_preset_entity": "Optional HomeKit current-mode select that owns preset control.",
-          "homekit_temperature_entity": "Optional precise HomeKit temperature sensor on the same thermostat device.",
-          "name": "User-facing name for this physical thermostat mapping."
+          "confirm_change": "Required when changing either climate, the Current Mode select, the Clear Hold button, or the notification entity. Review where future commands will be sent before confirming.",
+          "ecobee_aqi_entity": "Air quality index from this Ecobee thermostat device. Ecobee Unified displays the source value without calculating its own index.",
+          "ecobee_co2_entity": "Carbon dioxide value in ppm from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "ecobee_entity": "Required Ecobee climate for vendor details, vendor actions, and supported read fallback. Its device identity must match the HomeKit thermostat.",
+          "ecobee_notify_entity": "Notification entity on this Ecobee thermostat device. Enables forwarding a message to its display; delivery is not confirmed by thermostat state.",
+          "ecobee_voc_entity": "Volatile organic compounds value in micrograms per cubic meter from this Ecobee thermostat device. The value retains the source sensor's measurement or estimate semantics.",
+          "homekit_clear_hold_entity": "Select the actual Clear Hold button on this HomeKit thermostat device to enable Resume program. Verify its purpose yourself; registry checks only reject known incompatible buttons.",
+          "homekit_entity": "Required climate from HomeKit Device. Provides the primary live readings, standard thermostat controls, and device association for unified entities.",
+          "homekit_preset_entity": "Current Mode select on this HomeKit thermostat device. Enables preset control for its supported Home, Sleep, or Away options.",
+          "homekit_temperature_entity": "Temperature sensor on this HomeKit thermostat device. Its reading is preferred only while comparison with the HomeKit climate and recovery checks pass.",
+          "name": "A name of 1 to 64 characters for this mapping. It must be unique within the integration, ignoring capitalization."
         },
-        "title": "Confirm mapping change"
+        "title": "Edit thermostat mapping"
       },
       "reconfigure_remove": {
-        "data": {"mapping_id": "Mapping"},
-        "data_description": {"mapping_id": "Select the existing thermostat mapping to remove."},
-        "title": "Remove mapping"
+        "data": {
+          "mapping_id": "Mapping"
+        },
+        "data_description": {
+          "mapping_id": "Choose the mapping to remove from Ecobee Unified. At least one mapping must remain."
+        },
+        "title": "Choose mapping to remove"
       },
       "reconfigure_remove_confirm": {
-        "data": {"confirm_change": "Remove {name}"},
-        "data_description": {"confirm_change": "Confirm removal of this mapping while leaving its source integrations and devices enabled."},
-        "title": "Confirm mapping removal"
+        "data": {
+          "confirm_change": "Remove {name}"
+        },
+        "data_description": {
+          "confirm_change": "Stage removal of this mapping. Choose Save mapping changes afterward to apply it. The HomeKit Device and Ecobee source integrations remain configured."
+        },
+        "title": "Remove thermostat mapping"
       }
     }
   },
   "entity": {
-    "binary_sensor": {"source_degraded": {"name": "Source degraded"}},
-    "climate": {"thermostat": {"name": "Unified climate"}},
-    "button": {"resume_program": {"name": "Resume program"}},
-    "notify": {"notification": {"name": "Thermostat notification"}},
-    "number": {"minimum_fan_runtime": {"name": "Minimum fan runtime"}},
+    "binary_sensor": {
+      "source_degraded": {
+        "name": "Source degraded"
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "name": "Unified climate"
+      }
+    },
+    "button": {
+      "resume_program": {
+        "name": "Resume program"
+      }
+    },
+    "notify": {
+      "notification": {
+        "name": "Thermostat notification"
+      }
+    },
+    "number": {
+      "minimum_fan_runtime": {
+        "name": "Minimum fan runtime"
+      }
+    },
     "sensor": {
-      "air_quality_index": {"name": "Air quality index"},
-      "co2": {"name": "Carbon dioxide"},
+      "air_quality_index": {
+        "name": "Air quality index"
+      },
+      "co2": {
+        "name": "Carbon dioxide"
+      },
       "equipment_stage": {
         "name": "Equipment stage",
         "state": {
@@ -169,43 +205,91 @@
           "unknown": "Unknown"
         }
       },
-      "voc": {"name": "Volatile organic compounds"}
+      "voc": {
+        "name": "Volatile organic compounds"
+      }
     }
   },
   "exceptions": {
-    "command_unavailable": {"message": "The integration is unloading or unavailable; no command was sent."},
-    "ecobee_command_failed": {"message": "The Ecobee action failed."},
-    "ecobee_notification_failed": {"message": "The Ecobee thermostat notification failed."},
-    "ecobee_notification_unavailable": {"message": "The mapped Ecobee thermostat notification writer is unavailable, or the message is empty."},
-    "ecobee_writer_unavailable": {"message": "The mapped Ecobee writer is unavailable."},
-    "homekit_command_failed": {"message": "The HomeKit command failed."},
-    "homekit_writer_unavailable": {"message": "The mapped HomeKit writer is unavailable; no fallback write was attempted."},
-    "invalid_fan_runtime": {"message": "Minimum fan runtime must be between 0 and 60 minutes in five-minute increments."},
-    "invalid_humidity": {"message": "The requested humidity is outside the mapped HomeKit climate's supported bounds."},
-    "invalid_occupancy_modes": {"message": "Select at least one valid Ecobee occupancy policy."},
-    "invalid_sensor_selection": {"message": "Select one or more distinct Ecobee sensor devices for this thermostat."},
-    "invalid_temperature": {"message": "The requested temperature is outside the mapped HomeKit climate's supported bounds."},
-    "invalid_temperature_range": {"message": "The requested low temperature must not exceed the high temperature."},
-    "invalid_vacation_name": {"message": "Vacation names must contain 1 to 12 characters."},
-    "invalid_vacation_options": {"message": "The vacation fan mode or minimum fan runtime is invalid."},
-    "invalid_vacation_period": {"message": "Vacation dates and times must form complete pairs, and the end must follow the start."},
-    "invalid_vacation_temperature": {"message": "Vacation temperatures must be finite numbers."},
-    "invalid_vacation_temperature_bounds": {"message": "Vacation temperatures must be between {minimum} and {maximum} {unit}, as advertised by the mapped Ecobee climate."},
-    "invalid_vacation_temperature_range": {"message": "The vacation heating temperature must not exceed the cooling temperature."},
-    "unsupported_command": {"message": "The mapped HomeKit climate does not support this command."},
-    "unsupported_fan_mode": {"message": "The mapped HomeKit climate does not support this fan mode."},
-    "unsupported_hvac_mode": {"message": "The mapped HomeKit climate does not support this HVAC mode."},
-    "unsupported_preset_mode": {"message": "The mapped HomeKit current mode select does not support this preset."}
+    "command_unavailable": {
+      "message": "Ecobee Unified is unloading or has stopped. This command was rejected before dispatch."
+    },
+    "ecobee_command_failed": {
+      "message": "The Ecobee action call returned an error. Check the thermostat's current state before deciding whether to send it again."
+    },
+    "ecobee_notification_failed": {
+      "message": "The Ecobee notification call returned an error. Message delivery could not be established."
+    },
+    "ecobee_notification_unavailable": {
+      "message": "Enter a nonblank message and check that the mapped Ecobee notification entity and notification action are available."
+    },
+    "ecobee_writer_unavailable": {
+      "message": "The Ecobee source is not usable for this action. Check its availability, freshness, thermostat identity, required metadata, and action support."
+    },
+    "homekit_command_failed": {
+      "message": "The HomeKit action call returned an error. Check the thermostat's current state before deciding whether to send it again."
+    },
+    "homekit_writer_unavailable": {
+      "message": "The mapped HomeKit control is unavailable or no longer valid for this action. Ecobee Unified does not send the command through another source."
+    },
+    "invalid_fan_runtime": {
+      "message": "Enter a whole number from 0 to 60 minutes in steps of 5 for minimum fan runtime."
+    },
+    "invalid_humidity": {
+      "message": "Enter a whole-number humidity within the bounds reported by the HomeKit climate. The source must provide both bounds."
+    },
+    "invalid_occupancy_modes": {
+      "message": "Provide a true or false value for Smart Home/Away, Follow Me, or both."
+    },
+    "invalid_sensor_selection": {
+      "message": "Select 1 to 32 distinct Ecobee devices from the mapped thermostat's Ecobee integration entry. Provide a comfort profile of 1 to 64 characters, or omit it when the current profile is available."
+    },
+    "invalid_temperature": {
+      "message": "Enter a finite numeric temperature within the bounds reported by the HomeKit climate."
+    },
+    "invalid_temperature_range": {
+      "message": "Set the low target temperature at or below the high target temperature."
+    },
+    "invalid_vacation_name": {
+      "message": "Enter a vacation name of 1 to 12 characters after trimming surrounding spaces."
+    },
+    "invalid_vacation_options": {
+      "message": "Use fan mode auto or on, with a whole-number minimum fan runtime from 0 to 60 minutes per hour."
+    },
+    "invalid_vacation_period": {
+      "message": "Provide each date together with its time, using YYYY-MM-DD and HH:MM:SS. When both start and end are supplied, the end must be later than the start."
+    },
+    "invalid_vacation_temperature": {
+      "message": "Enter finite numeric heating and cooling temperatures for the vacation."
+    },
+    "invalid_vacation_temperature_bounds": {
+      "message": "Use vacation temperatures from {minimum} to {maximum} {unit}, matching the Ecobee climate's reported limits."
+    },
+    "invalid_vacation_temperature_range": {
+      "message": "Set the vacation heating target at or below the cooling target."
+    },
+    "unsupported_command": {
+      "message": "This command is not enabled by the mapped HomeKit climate's current capabilities and required metadata."
+    },
+    "unsupported_fan_mode": {
+      "message": "Choose a fan mode currently offered by the mapped HomeKit climate."
+    },
+    "unsupported_hvac_mode": {
+      "message": "Choose an HVAC mode currently offered by the mapped HomeKit climate."
+    },
+    "unsupported_preset_mode": {
+      "message": "Choose an option currently offered by the mapped HomeKit Current Mode select, and check that the select is available."
+    }
   },
   "issues": {
     "mapping_source_missing": {
-      "description": "The explicitly mapped {source} source, semantic contract, physical identity, or required device link is invalid or missing. Reconfigure this thermostat mapping; Ecobee Unified will not guess a replacement.",
-      "title": "A thermostat mapping needs attention"
+      "description": "Check these mapped sources: {source}. An entity, device association, thermostat identity, or supported entity type is missing or invalid. Restore the intended source or use Reconfigure to select a replacement. Ecobee Unified keeps the saved selection and does not choose replacements automatically.",
+      "title": "Check this thermostat mapping"
     }
   },
   "options": {
     "error": {
-      "invalid_timing": "Use a whole number of seconds aligned to the displayed step and range."
+      "invalid_timing": "Enter whole seconds within the displayed limits and step sizes: 300–7200 in steps of 60 for Ecobee freshness, and 300–1800 in steps of 30 for confirmation."
     },
     "step": {
       "init": {
@@ -214,12 +298,15 @@
           "ecobee_stale_seconds": "Ecobee stale after (seconds)"
         },
         "data_description": {
-          "confirmation_seconds": "Maximum time to observe a matching source report after one accepted command; no retry or fallback write occurs.",
-          "ecobee_stale_seconds": "Maximum silence allowed by the Ecobee cloud cadence before vendor reads and actions degrade; HomeKit push age is unaffected."
+          "confirmation_seconds": "Wait this long for a matching report after a confirmable action is accepted. Default 1800 seconds; range 300–1800 in steps of 30. Expiry records unconfirmed and does not resend the command.",
+          "ecobee_stale_seconds": "Treat Ecobee climate and mapped air-quality data as stale after this report age. Default 1800 seconds; range 300–7200 in steps of 60. Stale data cannot supply reads or climate-based vendor actions."
         },
-        "description": "Freshness affects health, read fallback, and whether a cadence-backed Ecobee writer is safely usable. It never changes the selected writer or causes write failover.",
-        "title": "Source timing"
+        "description": "Set local freshness and command-observation limits for this integration entry. These settings do not change source polling, expire HomeKit readings by age, select another command source, or retry writes.",
+        "title": "Freshness and command confirmation"
       }
+    },
+    "abort": {
+      "configuration_changed": "Another session saved timing changes. Open Configure again to work from the saved settings."
     }
   }
 }

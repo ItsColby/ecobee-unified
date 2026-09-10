@@ -41,7 +41,9 @@ if [[ "$backend" == container ]]; then
   git -C "$repo_root" init -q
   git -C "$repo_root" config user.name local-validation
   git -C "$repo_root" config user.email local-validation@invalid
-  git -C "$repo_root" add -A
+  # Discovery already excluded ignored untracked files; retain tracked files
+  # even when the candidate adds an ignore rule that now matches them.
+  git -C "$repo_root" add --force -A
   git -C "$repo_root" commit -qm snapshot
 elif [[ "$backend" != native ]]; then
   echo "Unknown backend: $backend" >&2

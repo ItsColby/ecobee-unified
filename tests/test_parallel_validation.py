@@ -15,6 +15,7 @@ BASH = shutil.which("bash")
 GIT = shutil.which("git")
 PODMAN_STAND_IN = r"""
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -41,6 +42,18 @@ assert args[:2] == ["run", "--rm"]
 (events / (lane + ".started")).touch()
 if lane == "unit":
     assert (events / "actionlint.done").exists()
+    if failure == "ignored_tracked":
+        assert not (Path(source) / "local-only.txt").exists()
+        history = next(args[index + 1].split(":")[0]
+                       for index, arg in enumerate(args[:-1])
+                       if arg == "-v" and ":/source-history:" in args[index + 1])
+        result = subprocess.run(
+            [sys.executable, "-B", str(Path(source) / "scripts/check_public_safety.py"),
+             "--history-repository", history],
+            cwd=source,
+            check=False,
+        )
+        sys.exit(result.returncode)
 else:
     assert (events / "unit.done").exists()
     peer = "minimum" if lane == "current" else "current"
@@ -74,6 +87,12 @@ class ParallelValidationTests(unittest.TestCase):
             (source / "scripts").mkdir(parents=True)
             runner = source / "scripts" / "verify-release-local.sh"
             shutil.copyfile(ROOT / "scripts/verify-release-local.sh", runner)
+            if failure == "ignored_tracked":
+                shutil.copyfile(
+                    ROOT / "scripts/check_public_safety.py",
+                    source / "scripts/check_public_safety.py",
+                )
+                (source / "README.md").write_text("public-safe", encoding="utf-8")
             events = root / "events"
             events.mkdir()
             binary = root / "bin"
@@ -104,6 +123,13 @@ class ParallelValidationTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
+            if failure == "ignored_tracked":
+                (source / ".gitignore").write_text(
+                    "README.md\nlocal-only.txt\n", encoding="utf-8"
+                )
+                private_content = "private address " + "192" + ".168.1.2"
+                for filename in ("README.md", "local-only.txt"):
+                    (source / filename).write_text(private_content, encoding="utf-8")
             result = subprocess.run(
                 [str(BASH), str(runner), "all", "container"],
                 cwd=root,
@@ -136,6 +162,17 @@ class ParallelValidationTests(unittest.TestCase):
     def test_unit_failure_does_not_start_support_lanes(self) -> None:
         result, events, remaining_payload = self.run_matrix("unit")
         self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("minimum.started", events)
+        self.assertNotIn("current.started", events)
+        self.assertNotIn("release.done", events)
+        self.assertFalse(remaining_payload)
+
+    def test_snapshot_scans_tracked_files_despite_new_ignore_rules(self) -> None:
+        result, events, remaining_payload = self.run_matrix("ignored_tracked")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("README.md: private IPv4 address", output)
+        self.assertIn("Source archive README.md: private IPv4 address", output)
         self.assertNotIn("minimum.started", events)
         self.assertNotIn("current.started", events)
         self.assertNotIn("release.done", events)

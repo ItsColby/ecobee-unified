@@ -1,68 +1,51 @@
 # Ecobee Unified
 
-Ecobee Unified gives each mapped thermostat one Home Assistant climate entity
-on its existing HomeKit device. It combines local HomeKit state and standard
-controls with selected Ecobee details and vendor actions. Your existing source
-integrations continue to own their connections and credentials.
+Use a single thermostat control in Home Assistant while keeping HomeKit's local
+connection and Ecobee's vendor features. Ecobee Unified connects existing source
+entities to a shared thermostat view; it does not establish either connection.
 
-## What you need
+A mapping creates a Unified climate on the HomeKit thermostat device. It also
+provides equipment stage, minimum fan runtime, and source-health information.
+You can opt into Current Mode presets, Clear Hold, a finer temperature source,
+air-quality readings, and display messages when the source entities exist.
 
-- Home Assistant Core **2026.8.0 or later**. The repository maintains exact test
-  lanes for Core 2026.8.0 and 2026.9.1; this does not claim every intervening or
-  future version has been tested.
-- Working climate entities from **HomeKit Device** (`homekit_controller`) and
-  **ecobee** (`ecobee`) for the same physical thermostat. Setup verifies their
-  device identity; matching names alone are insufficient.
-- Optional same-device sources for precise temperature, Current Mode, Clear
-  Hold, air-quality estimates, and thermostat-display messages.
+## Is it suitable for my installation?
 
-Beestat is optional. Its history and derived context remain independently owned
-sibling entities; Unified neither acquires Beestat data nor imports history.
+You need Home Assistant Core **2026.8.0 or later**, plus a working HomeKit Device
+climate and Ecobee climate for each thermostat. Their registry identities must
+match the same physical thermostat. Unified accepts no account credentials and
+cannot replace an unavailable source integration.
 
-## Get started
+HomeKit is the writer for standard controls. Ecobee is the writer for the
+supported vendor settings and actions. Read fallback can keep information
+visible, but it never changes that assignment. A successful service call is not
+always enough to confirm its effect.
 
-Follow [installation and setup](docs/setup.md) to install the integration and
-select your existing sources. One Ecobee Unified entry contains all thermostat
-mappings under **Settings > Devices & services**.
+Beestat is optional and independent: its cloud history and derived context stay
+with that integration. Unified has no Beestat input, history importer, or second
+cloud client. Household schedules and cross-service automations stay in your
+Home Assistant configuration.
 
-Use the entry's **Reconfigure** action to add, edit, or remove thermostat
-mappings. Use **Configure** to change the Ecobee source-staleness and command-
-confirmation timing thresholds. Both settings are local to Unified and default
-to 30 minutes; they do not change thermostat settings or upstream polling.
+## Start here
 
-## Daily use
+The [operating guide](docs/user-guide.md) takes you through installation, source
+selection, everyday controls, action results, and problem diagnosis. It also
+explains which settings affect Unified itself and which actions affect a
+thermostat.
 
-Use the Unified climate for supported HVAC mode, temperature, humidity, fan, and
-preset controls. Additional entities provide minimum fan runtime, equipment
-stage, source health, and the optional actions and sensors you map. See
-[entities and actions](docs/usage.md) for the complete surface and examples.
+For implementation and maintenance:
 
-Standard commands always go through HomeKit. Vendor commands always go through
-the mapped Ecobee writer. A read fallback never selects a different writer, and
-Unified never retries a write automatically. A command can be submitted without
-its effect being observable or confirmed.
+- [Runtime contract](docs/architecture.md): how inputs become entities and how
+  commands, faults, recovery, and privacy work.
+- [Contributor guide](docs/development.md): supported test environments,
+  executable checks, and the limits of their evidence.
+- [Upstream reference](docs/upstream-contracts.md): external APIs and source
+  behavior on which this implementation relies.
 
-Keep the source integrations and entities enabled. Unified does not migrate
-dashboards, automations, voice exposure, or Recorder data. Choose those changes
-in your own Home Assistant configuration after checking their consumers.
+Downloads and original release notes are available on
+[GitHub Releases](https://github.com/ItsColby/ecobee-unified/releases).
+Report a reproducible problem through the
+[issue tracker](https://github.com/ItsColby/ecobee-unified/issues), following the
+[diagnostic-sharing guidance](docs/user-guide.md#collect-a-useful-problem-report).
 
-## Documentation
-
-| Read | For |
-|---|---|
-| [Setup](docs/setup.md) | Installation, source selection, mappings, and local options |
-| [Entities and actions](docs/usage.md) | Controls, vendor actions, examples, and command results |
-| [Troubleshooting](docs/troubleshooting.md) | Mapping failures, unavailable controls, temperature recovery, and diagnostics |
-| [Architecture](docs/architecture.md) | Field ownership, runtime lifecycle, privacy, and failure boundaries |
-| [Requirements](docs/requirements.md) | Product invariants and acceptance criteria |
-| [Design decisions](docs/decisions.md) | Reasons for the product's boundaries and tradeoffs |
-| [Development](docs/development.md) | Contributor setup and validation commands |
-| [Validation](docs/validation-plan.md) | Automated coverage and manual acceptance limits |
-| [Upstream contracts](docs/upstream-contracts.md) | Versioned source references and compatibility assumptions |
-
-Report reproducible problems through the
-[issue tracker](https://github.com/ItsColby/ecobee-unified/issues), using the
-privacy guidance in the troubleshooting guide. Released versions and original
-release notes are on [GitHub Releases](https://github.com/ItsColby/ecobee-unified/releases).
-
-Licensed under the [MIT License](LICENSE).
+The project uses the [MIT License](LICENSE).

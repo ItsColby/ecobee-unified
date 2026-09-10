@@ -2869,7 +2869,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         self.assertIsNotNone(issue)
         assert issue is not None
-        self.assertEqual({"source": "homekit disabled"}, issue.translation_placeholders)
+        self.assertEqual(
+            {"mapping": self.mapping.name, "source": "homekit disabled"},
+            issue.translation_placeholders,
+        )
 
         registry.async_update_entity(self.homekit.entity_id, disabled_by=None)
         await self.hass.async_block_till_done()
@@ -2886,7 +2889,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         self.assertIsNotNone(issue)
         assert issue is not None
-        self.assertEqual({"source": "ecobee disabled"}, issue.translation_placeholders)
+        self.assertEqual(
+            {"mapping": self.mapping.name, "source": "ecobee disabled"},
+            issue.translation_placeholders,
+        )
         registry.async_update_entity(self.ecobee.entity_id, disabled_by=None)
         await self.hass.async_block_till_done()
 
@@ -2899,7 +2905,8 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
-            {"source": "HomeKit preset disabled"}, issue.translation_placeholders
+            {"mapping": self.mapping.name, "source": "HomeKit preset disabled"},
+            issue.translation_placeholders,
         )
         registry.async_update_entity(self.homekit_preset.entity_id, disabled_by=None)
         await self.hass.async_block_till_done()
@@ -2938,7 +2945,8 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.assertIsNotNone(issue)
             assert issue is not None
             self.assertEqual(
-                {"source": "ecobee device"}, issue.translation_placeholders
+                {"mapping": mapping.name, "source": "ecobee device"},
+                issue.translation_placeholders,
             )
 
             registry.async_update_entity(
@@ -3203,7 +3211,12 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         await self.manager.async_vendor_action(
             "mapping_a",
             "create_vacation",
-            {"entity_id": "climate.foreign", "vacation_name": "Trip"},
+            {
+                "entity_id": "climate.foreign",
+                "vacation_name": "Trip",
+                "cool_temp": 25.0,
+                "heat_temp": 18.0,
+            },
             None,
         )
 
@@ -3522,7 +3535,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.hass.services.async_register("ecobee", "create_vacation", fail)
         with self.assertRaises(HomeAssistantError) as raised:
             await self.manager.async_vendor_action(
-                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
+                "mapping_a",
+                "create_vacation",
+                {"vacation_name": "Trip", "cool_temp": 25.0, "heat_temp": 18.0},
+                None,
             )
 
         self.assertEqual(1, calls)
@@ -4481,7 +4497,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         self.assertIsNotNone(issue)
         assert issue is not None
-        self.assertEqual({"source": "homekit device"}, issue.translation_placeholders)
+        self.assertEqual(
+            {"mapping": self.mapping.name, "source": "homekit device"},
+            issue.translation_placeholders,
+        )
 
     async def test_source_device_transitions_relink_without_recreating_entry(
         self,
@@ -4603,7 +4622,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         self.assertIsNotNone(issue)
         assert issue is not None
-        self.assertEqual({"source": "ecobee"}, issue.translation_placeholders)
+        self.assertEqual(
+            {"mapping": self.mapping.name, "source": "ecobee"},
+            issue.translation_placeholders,
+        )
 
 
 if __name__ == "__main__":

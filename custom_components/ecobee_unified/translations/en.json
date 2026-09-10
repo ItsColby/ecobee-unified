@@ -283,7 +283,7 @@
   },
   "issues": {
     "mapping_source_missing": {
-      "description": "Review the mapped sources listed here: {source}. A source may be missing, disabled, associated with the wrong device, or incompatible with its assigned role. Open Ecobee Unified → Reconfigure to correct the mapping, or restore the native source. Missing sources are not replaced by matching names. For a retained missing optional source, clear its field to stop using it; otherwise restore the original registry entry. Device association alone does not prove that a generic button is Clear Hold.",
+      "description": "For {mapping}, review these mapped sources: {source}. A source may be missing, disabled, associated with the wrong device, or incompatible with its assigned role. Open Ecobee Unified → Reconfigure to correct the mapping, or restore the native source. Missing sources are not replaced by matching names. For a retained missing optional source, clear its field to stop using it; otherwise restore the original registry entry. Device association alone does not prove that a generic button is Clear Hold.",
       "title": "Check this thermostat mapping"
     }
   },

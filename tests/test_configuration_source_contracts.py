@@ -11,6 +11,7 @@ import voluptuous as vol
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import UnitOfDensity, UnitOfRatio
+from homeassistant.core import ServiceCall
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -52,6 +53,183 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         self.registry = er.async_get(self.hass)
+
+    async def test_native_action_names_are_trimmed_before_length_validation(
+        self,
+    ) -> None:
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        assert self.ecobee.device_id is not None
+        cases = (
+            (
+                "create_vacation",
+                "vacation_name",
+                12,
+                {"cool_temp": 28, "heat_temp": 15},
+            ),
+            ("delete_vacation", "vacation_name", 12, {}),
+            (
+                "set_sensors_used_in_climate",
+                "preset_mode",
+                64,
+                {"device_ids": [self.ecobee.device_id]},
+            ),
+        )
+        for service, _field, _limit, _data in cases:
+            self.hass.services.async_register("ecobee", service, capture)
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        try:
+            unified_id = self.registry.async_get_entity_id(
+                "climate", DOMAIN, self.mapping.mapping_id
+            )
+            assert unified_id is not None
+            for service, field, limit, data in cases:
+                with self.subTest(service=service):
+                    name = "A" + "b" * (limit - 1)
+                    calls.clear()
+                    await self.hass.services.async_call(
+                        DOMAIN,
+                        service,
+                        {"entity_id": unified_id, field: f"  {name}  ", **data},
+                        blocking=True,
+                    )
+                    self.assertEqual(1, len(calls))
+                    self.assertEqual(service, calls[0].service)
+                    self.assertEqual(self.ecobee.entity_id, calls[0].data["entity_id"])
+                    self.assertEqual(name, calls[0].data[field])
+
+                    for invalid_name in ("   ", f"  {name}x  "):
+                        calls.clear()
+                        with self.assertRaises(vol.Invalid):
+                            await self.hass.services.async_call(
+                                DOMAIN,
+                                service,
+                                {"entity_id": unified_id, field: invalid_name, **data},
+                                blocking=True,
+                            )
+                        self.assertFalse(calls)
+
+            state = self.hass.states.get(self.ecobee.entity_id)
+            assert state is not None
+            self.hass.states.async_set(
+                self.ecobee.entity_id,
+                state.state,
+                dict(state.attributes) | {"climate_mode": "Away"},
+            )
+            await self.hass.async_block_till_done()
+            calls.clear()
+            await self.hass.services.async_call(
+                DOMAIN,
+                "set_sensors_used_in_climate",
+                {"entity_id": unified_id, "device_ids": [self.ecobee.device_id]},
+                blocking=True,
+            )
+            self.assertEqual(1, len(calls))
+            self.assertEqual("Away", calls[0].data["preset_mode"])
+        finally:
+            self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+
+    async def test_repairs_identify_mappings_after_rename_and_recover_independently(
+        self,
+    ) -> None:
+        await self.manager.async_stop()
+        homekit_b = self._source(
+            "homekit_controller",
+            "hk_repair_b",
+            device=True,
+            physical_identity="thermostat_repair_b",
+        )
+        ecobee_b = self._source(
+            "ecobee",
+            "ec_repair_b",
+            device=True,
+            physical_identity="thermostat_repair_b",
+        )
+        mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        try:
+            for source in (self.ecobee, ecobee_b):
+                self.registry.async_update_entity(
+                    source.entity_id, disabled_by=er.RegistryEntryDisabler.USER
+                )
+            await self.hass.async_block_till_done()
+            issues = ir.async_get(self.hass)
+            for mapping in (self.mapping, mapping_b):
+                issue = issues.async_get_issue(DOMAIN, f"mapping_{mapping.mapping_id}")
+                assert issue is not None
+                self.assertEqual(
+                    {"mapping": mapping.name, "source": "ecobee disabled"},
+                    issue.translation_placeholders,
+                )
+
+            result = await self.hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "reconfigure", "entry_id": entry.entry_id},
+            )
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_edit"}
+            )
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {CONF_MAPPING_ID: self.mapping.mapping_id}
+            )
+            form_values = {
+                key: value
+                for key, value in _mapping_form_defaults(
+                    self.hass, self.mapping.as_dict()
+                ).items()
+                if value is not None
+            }
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], form_values | {CONF_NAME: "Renamed Zone A"}
+            )
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+            self.assertEqual("reconfigure_successful", result["reason"])
+            await self.hass.async_block_till_done()
+            issue_a = issues.async_get_issue(DOMAIN, "mapping_mapping_a")
+            assert issue_a is not None
+            self.assertEqual(
+                {"mapping": "Renamed Zone A", "source": "ecobee disabled"},
+                issue_a.translation_placeholders,
+            )
+            issue_b = issues.async_get_issue(DOMAIN, "mapping_mapping_b")
+            assert issue_b is not None
+            self.assertEqual(
+                {"mapping": "Zone B", "source": "ecobee disabled"},
+                issue_b.translation_placeholders,
+            )
+
+            self.registry.async_update_entity(self.ecobee.entity_id, disabled_by=None)
+            await self.hass.async_block_till_done()
+            self.assertIsNone(issues.async_get_issue(DOMAIN, "mapping_mapping_a"))
+            self.assertIsNotNone(issues.async_get_issue(DOMAIN, "mapping_mapping_b"))
+            self.registry.async_update_entity(ecobee_b.entity_id, disabled_by=None)
+            await self.hass.async_block_till_done()
+            self.assertIsNone(issues.async_get_issue(DOMAIN, "mapping_mapping_b"))
+        finally:
+            self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
 
     async def test_mapping_error_preserves_add_another_choice(self) -> None:
         result = await self.hass.config_entries.flow.async_init(
@@ -414,7 +592,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                     )
                     assert issue is not None
                     self.assertEqual(
-                        {"source": "HomeKit temperature"},
+                        {"mapping": mapping.name, "source": "HomeKit temperature"},
                         issue.translation_placeholders,
                     )
 

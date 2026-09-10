@@ -34,7 +34,9 @@ Mapped HA state changes, selected state reports, registry events, deadlines
                  |
        climate / sensor / number / button / notify / problem entity
 
-Entity action -> validate -> mapping command lock -> one mapped HA service call
+Entity action -> validate -> mapping command lock -> revalidate current contract
+                                                   |
+                                      one mapped HA service call
                                                    |
                            operation-owned report -> command revision state
 ```

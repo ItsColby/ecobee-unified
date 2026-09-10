@@ -1605,7 +1605,10 @@ class MappingManager:
                 is_persistent=False,
                 severity=ir.IssueSeverity.ERROR,
                 translation_key="mapping_source_missing",
-                translation_placeholders={"source": ", ".join(invalid)},
+                translation_placeholders={
+                    "mapping": mapping.name,
+                    "source": ", ".join(invalid),
+                },
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)

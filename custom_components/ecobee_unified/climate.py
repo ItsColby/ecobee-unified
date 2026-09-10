@@ -90,7 +90,9 @@ def _time_string(value: Any) -> str:
 
 
 CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Required(ATTR_VACATION_NAME): vol.All(cv.string, vol.Length(min=1, max=12)),
+    vol.Required(ATTR_VACATION_NAME): vol.All(
+        cv.string, str.strip, vol.Length(min=1, max=12)
+    ),
     vol.Required(ATTR_COOL_TEMP): vol.Coerce(float),
     vol.Required(ATTR_HEAT_TEMP): vol.Coerce(float),
     vol.Inclusive(ATTR_START_DATE, "start"): _date_string,
@@ -103,14 +105,18 @@ CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
     ),
 }
 DELETE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Required(ATTR_VACATION_NAME): vol.All(cv.string, vol.Length(min=1, max=12))
+    vol.Required(ATTR_VACATION_NAME): vol.All(
+        cv.string, str.strip, vol.Length(min=1, max=12)
+    )
 }
 SET_OCCUPANCY_MODES_SCHEMA: dict[str | vol.Marker, Any] = {
     vol.Optional(ATTR_AUTO_AWAY): cv.boolean,
     vol.Optional(ATTR_FOLLOW_ME): cv.boolean,
 }
 SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Optional(ATTR_PRESET_MODE): vol.All(cv.string, vol.Length(min=1, max=64)),
+    vol.Optional(ATTR_PRESET_MODE): vol.All(
+        cv.string, str.strip, vol.Length(min=1, max=64)
+    ),
     vol.Required(ATTR_DEVICE_IDS): vol.All(
         cv.ensure_list,
         [cv.string],

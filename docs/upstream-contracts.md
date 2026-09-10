@@ -1,105 +1,128 @@
-# Upstream Contract Refresh
+# Upstream contracts
 
-The original Core 2026.8.1 contract review is retained below; compatibility,
-source semantics and command lifecycle were refreshed against Core 2026.9.1 on
-2026-09-08. These are implementation inputs, not proof of live deployment.
-[Architecture](architecture.md) owns Unified's behavior and failure policy;
-this document retains the upstream facts and their sources.
+Ecobee Unified consumes Home Assistant entities and actions. The source
+integrations own pairing, authentication, transport, and backend behavior.
+This reference records versioned upstream contracts that affect Unified's
+design; [architecture](architecture.md) owns Unified's selection, validation,
+command, and recovery rules.
 
-## Resolved implementation checks
+The repository maintains Core 2026.8.0 and 2026.9.1 test lanes. The source links
+below use Core 2026.9.1 unless stated otherwise; they describe that version,
+not a promise about later releases or every accessory. See
+[development](development.md#compatibility-owners) before changing support.
 
-1. **Helper-device linking:** Core 2026.8 requires a helper entity to set its
-   `device_entry` to the selected source device. Adding the helper config entry
-   to a foreign device stopped working in this release. Unified uses
-   `async_entity_id_to_device` without foreign identifiers or connections.
-2. **Optional integration behavior:** Core processes manifest dependency and
-   `after_dependency` requirement closures while loading a helper flow. Unified
-   declares neither for source integrations: registry/state observation avoids
-   making their independent packages setup prerequisites.
-3. **Preset/resume semantics:** Core 2026.8 HomeKit Controller exposes Ecobee
-   Current Mode as a supported `select` and Clear Hold as a supported `button`.
-   They are independent local actions.
-4. **Fan minimum semantics:** The Core Ecobee integration exposes
-   `set_fan_min_on_time` with a 0-to-60-minute bound.
-5. **Compatibility lanes:** Core 2026.8.0 uses harness 0.13.354 for the
-   distribution-minimum lane; maintained Core 2026.9.1 uses matching harness
-   0.13.364. The [validation runner](../scripts/verify-release-local.sh) owns
-   installation order, dependency closure, and the complete HA test execution.
-6. **Source-device lifecycle:** Core 2026.8's helper lifecycle updates helper
-   registry links when the source entity's device association changes. Public
-   entity/device registry listeners support in-place reconciliation across
-   moves, detachments, removals, and restorations.
-7. **Unchanged source reports:** Core advances mutable `State.last_reported` and
-   emits `EVENT_STATE_REPORTED` for unchanged state/attributes. Handlers use the
-   event-owned stable timestamp. This supports cadence-backed stale recovery
-   and operation-owned confirmation without treating HomeKit push silence as
-   a missing heartbeat or rebuilding every healthy mapping.
-8. **HomeKit humidity and temperature metadata:** Core 2026.8 exposes target
-   humidity and writer-owned bounds. Its HomeKit Heater/Cooler entity exposes
-   `target_temperature_step`; the thermostat-service `HomeKitClimateEntity`
-   used by the mapped Ecobee accessories does not, so those live climate states
-   omit `target_temp_step`. Native metadata remains primary; the guarded
-   same-device presentation exception is defined in architecture.
-   Core serializes climate temperatures in Home Assistant's configured unit
-   without a public `unit_of_measurement` attribute. Unified attaches that unit
-   before validating metadata or temperatures. Climate writers support Celsius
-   or Fahrenheit; a mapped Kelvin sensor requires conversion into that unit.
-9. **Mapped vendor actions:** Core 2026.8.1 retains public Ecobee vacation
-   create/delete, Smart Home/Away, Follow Me, and comfort-sensor actions. It
-   introduced no relevant Ecobee or HomeKit contract change from the validated
-   2026.8.0 baseline. Unified's bounded action schemas and submitted outcomes
-   follow the [command policy](architecture.md#command-policy).
-10. **Precise local temperature:** Climate state may expose fewer decimals than
-    a same-accessory HomeKit temperature sensor. This alone is not proof of a
-    better reading; explicit mapping, semantic agreement, and recovery are
-    governed by [source selection](architecture.md#deterministic-field-ownership)
-    and [observation policy](architecture.md#updates-and-availability).
-11. **Vacation temperature units:** Core 2026.8.1 converts vacation inputs from
-    Home Assistant's configured unit to the backend's Fahrenheit contract.
-    Unified validates against the mapped writer's unit/bounds, without a fixed
-    cross-unit range.
-12. **Notification entity contract:** Core 2026.8's `NotifyEntity` exposes
-    `async_send_message(message, title=None)`. Ecobee delegates to its backend
-    and ignores titles; Core owns standard notification entity state semantics.
-13. **Cross-backend identity:** Installed Core 2026.8.1 stores the HomeKit serial
-    in `DeviceEntry.serial_number` and the Ecobee thermostat identifier in the
-    device's `(ecobee, identifier)` pair. These public fields permit identity
-    comparison; selection alone is not proof.
-14. **Equipment idle semantics:** Ecobee exposes an empty `equipment_running`
-    string when no equipment is active. It is a healthy idle report, distinct
-    from absent or unusable state.
-15. **Current source and lifecycle limits:** Core 2026.9.1's Ecobee climate
-    consumes `actualTemperature`, the thermostat-displayed quantity, which may
-    be feels-like under humidex. It is not independent dry-bulb corroboration.
-    HomeKit's duplicate sensor caches its characteristic object while the
-    climate reads the current service; Unified's recovery guard does not fix
-    acquisition. Core entity-platform removal does not drain arbitrary custom
-    manager service calls. A single Clear Hold dispatch may perform multiple
-    source-owned protocol writes.
+## Devices and source identity
 
-[Upstream opportunities](upstream-opportunities.md) remain separate, optional,
-and unselected for upstream work.
+Since Core 2026.8, a helper must link its entities to a source device rather
+than attach its config entry to a device owned by another integration. The
+documented pattern assigns `device_entry` using `async_entity_id_to_device`;
+copying the foreign device's identifiers/connections is not equivalent.
+Unified follows this model and owns reconciliation of its helper links.
+[Core device-ownership change](https://developers.home-assistant.io/blog/2026/07/21/device-registry-single-config-entry/),
+[helper linking guidance](https://developers.home-assistant.io/blog/2025/07/18/updated-pattern-for-helpers-linking-to-devices/).
 
-## Primary sources
+HomeKit publishes an accessory serial number in device information. Ecobee
+publishes a thermostat identifier in its device identifier pair. Those fields
+provide the inputs for Unified's same-thermostat comparison; similar names or
+membership in one account are not identity proof.
+[HomeKit device information](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/connection.py),
+[Ecobee climate device information](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py).
 
-- [Core 2026.9.1 entity-platform lifecycle](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/helpers/entity_platform.py)
-- [Core 2026.9.1 Ecobee climate source](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py)
-- [Ecobee Runtime temperature semantics](https://www.ecobee.com/home/developer/api/documentation/v1/objects/Runtime.shtml)
-- [Core 2026.9.1 HomeKit sensor source](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/sensor.py)
-- [Core 2026.9.1 HomeKit entity lifecycle](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/entity.py)
-- [Core 2026.9.1 HomeKit Clear Hold](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/button.py)
+Unified's manifest does not declare the source integrations as dependencies or
+after-dependencies, and it imports no source integration client. Source setup
+and recovery remain independent; configured registry references, states, and
+registered services determine what Unified can use.
+[Unified manifest](../custom_components/ecobee_unified/manifest.json),
+[source contracts](../custom_components/ecobee_unified/source_contracts.py).
 
-- [Core 2026.8 device ownership and helper-linking change](https://developers.home-assistant.io/blog/2026/07/21/device-registry-single-config-entry/)
-- [Helper integrations linking to source devices](https://developers.home-assistant.io/blog/2025/07/18/updated-pattern-for-helpers-linking-to-devices/)
-- [Core 2026.8.1 Ecobee climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/climate.py)
-- [Core 2026.8.1 Ecobee action schema](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/services.yaml)
-- [Core 2026.8.1 HomeKit Controller climate source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/homekit_controller/climate.py)
-- [Core 2026.8.1 HomeKit Controller device identity source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/homekit_controller/connection.py)
-- [Core 2026.8.1 notify entity source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/notify/__init__.py)
-- [Core 2026.8.1 Ecobee notify source](https://github.com/home-assistant/core/blob/2026.8.1/homeassistant/components/ecobee/notify.py)
-- [Home Assistant notify entity developer contract](https://developers.home-assistant.io/docs/core/entity/notify/)
-- [Home Assistant config flows and migrations](https://developers.home-assistant.io/docs/core/integration/config_flow/)
-- [Home Assistant diagnostics](https://developers.home-assistant.io/docs/core/integration/diagnostics/)
-- [Home Assistant Repairs](https://developers.home-assistant.io/docs/core/platform/repairs/)
-- [Home Assistant integration quality rules](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/)
-- [HACS integration repository requirements](https://hacs.xyz/docs/publish/integration/)
+## Temperature and humidity
+
+Core serializes climate temperatures into Home Assistant's configured
+temperature unit and applies climate display precision. A climate state does
+not expose the sensor-style `unit_of_measurement` attribute. Unified therefore
+interprets climate values using the configured unit, while validating and
+converting explicitly selected sensor units separately.
+[Core climate serialization](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/climate/__init__.py).
+
+The HomeKit thermostat entity reads current temperature from its current
+service. A secondary characteristic sensor retains a characteristic object and
+reads its value. The projections need not have equal display precision or an
+identical update path. These implementation details do not prove which reported
+value is correct; Unified's agreement and recovery checks do not repair source
+acquisition.
+[HomeKit climate](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/climate.py),
+[HomeKit secondary sensors](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/sensor.py),
+[characteristic entity lifecycle](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/entity.py).
+
+The HomeKit Heater/Cooler entity exposes a target-temperature step; the separate
+thermostat-service `HomeKitClimateEntity` does not implement that property.
+The latter exposes target humidity and characteristic-derived bounds when
+supported, but no target-humidity step. Unified retains native writer metadata,
+allows only its documented same-device temperature-step exception, and leaves
+unsupported humidity granularity unset.
+[HomeKit climate implementations](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/climate.py),
+[Unified model rules](../custom_components/ecobee_unified/models.py).
+
+Ecobee climate reads `runtime.actualTemperature`. Ecobee defines this as the
+thermostat's displayed temperature; `rawTemperature` is the dry-bulb value, and
+humidex mode can make `actualTemperature` a feels-like reading. An Ecobee climate
+fallback therefore does not independently corroborate dry-bulb temperature.
+Unified does not substitute a similarly named raw source.
+[Ecobee climate](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py),
+[Ecobee Runtime semantics](https://www.ecobee.com/home/developer/api/documentation/v1/objects/Runtime.shtml).
+
+## Actions and observed outcomes
+
+HomeKit exposes Ecobee Current Mode through a select with Home/Sleep/Away
+semantics, and Clear Hold through a separate button. Clear Hold's Core handler
+writes false and then true to its characteristic. Unified's single-dispatch
+contract counts its call to the mapped Home Assistant writer; it does not
+promise a single backend packet or protocol write.
+[Current Mode select](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/select.py),
+[Clear Hold button](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/homekit_controller/button.py).
+
+Core Ecobee provides vendor actions for minimum fan runtime, vacations,
+occupancy modes, and comfort-profile sensor participation. Vacation temperatures
+are converted from Home Assistant's configured unit to Fahrenheit before the
+backend call. Unified's public schemas and source validation constrain those
+actions further; source API availability alone does not enable every action.
+[Ecobee climate actions](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py),
+[Unified actions](../custom_components/ecobee_unified/services.yaml).
+
+The Ecobee notification entity sends the message to the backend and ignores
+the optional title. That return does not verify thermostat display delivery.
+Unified's notification adapter preserves the native service success/failure
+result. Notifications are outside Unified command tracking and have no
+`submitted` or `confirmed` status.
+[Ecobee notification entity](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/notify.py),
+[Unified notification adapter](../custom_components/ecobee_unified/notify.py).
+
+Writer completion is not physical-effect proof. Unified defines its own
+operation-specific observers and leaves unobservable effects submitted.
+Likewise, stopping Unified cannot retract work already accepted by a source.
+Its command lifecycle prevents queued writes and late results from reviving
+the stopped manager; it does not claim source-side cancellation.
+[Command lifecycle tests](../tests/test_command_lifecycle.py).
+
+## Reports, freshness, and historical context
+
+Core updates `State.last_reported` and emits `state_reported` when a state write
+leaves state and attributes unchanged. The event carries a stable report time,
+while the state object itself can be updated by later reports. Unified uses
+that event time for relevant freshness and command observations; HomeKit push
+silence is not treated as a missing periodic heartbeat.
+[Core state reporting](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/core.py),
+[Unified report handling](../custom_components/ecobee_unified/manager.py).
+
+Ecobee climate exposes `equipment_running` from `equipmentStatus`, alongside
+vendor settings and sensor participation. Unified interprets these fields in a
+bounded local projection; it does not acquire a second history stream.
+[Ecobee climate attributes](https://github.com/home-assistant/core/blob/2026.9.1/homeassistant/components/ecobee/climate.py).
+
+Beestat, when installed, remains an independent owner of cloud history and
+derived context. Unified has no Beestat client, credentials, polling loop,
+Recorder import, or command fallback. Sharing a device presentation does not
+transfer those responsibilities. This is Unified's product boundary, not a
+statement about another integration's availability or accuracy.
+[Unified runtime](../custom_components/ecobee_unified/runtime.py),
+[architecture](architecture.md).

@@ -161,7 +161,11 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         return self.async_show_menu(
             step_id="reconfigure",
-            menu_options=RECONFIGURE_MENU_OPTIONS,
+            menu_options=[
+                option
+                for option in RECONFIGURE_MENU_OPTIONS
+                if option != "reconfigure_remove" or len(self._pending_mappings) > 1
+            ],
         )
 
     async def async_step_reconfigure_add(
@@ -256,7 +260,8 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure_edit_confirm",
             data_schema=_mapping_schema(
-                {**defaults, **(user_input or {})}, include_confirmation=True
+                defaults if user_input is None else user_input,
+                include_confirmation=True,
             ),
             errors=errors,
         )
@@ -267,7 +272,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Select a mapping to remove."""
 
         if len(self._pending_mappings) <= 1:
-            return self.async_abort(reason="one_mapping_required")
+            return await self.async_step_reconfigure()
         if user_input is not None:
             self._selected_mapping_id = str(user_input[CONF_MAPPING_ID])
             return await self.async_step_reconfigure_remove_confirm()
@@ -372,6 +377,8 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
                 CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS
             ),
         }
+        if user_input is not None:
+            defaults.update(user_input)
         return self.async_show_form(
             step_id="init", data_schema=_options_schema(defaults), errors=errors
         )
@@ -429,7 +436,11 @@ def _mapping_schema(
             )
         ] = ECOBEE_SENSOR_SELECTOR
     if include_add:
-        schema[vol.Required(CONF_ADD_ANOTHER, default=False)] = BOOLEAN_SELECTOR
+        schema[
+            vol.Required(
+                CONF_ADD_ANOTHER, default=defaults.get(CONF_ADD_ANOTHER, False)
+            )
+        ] = BOOLEAN_SELECTOR
     if include_confirmation:
         schema[vol.Required(CONF_CONFIRM_CHANGE, default=False)] = BOOLEAN_SELECTOR
     return vol.Schema(schema)

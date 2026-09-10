@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from unittest.mock import patch
 
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
@@ -95,6 +100,217 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                 await self._command(kind)
         self.assertFalse(calls)
         self._assert_stopped()
+
+    @asynccontextmanager
+    async def _queued_command(self, command: Awaitable[None]):
+        """Queue a real command behind a writer without changing tracked state."""
+
+        started, release = asyncio.Event(), asyncio.Event()
+        calls: list[ServiceCall] = []
+
+        async def blocker(call: ServiceCall) -> None:
+            started.set()
+            await release.wait()
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        self.hass.services.async_register("notify", "send_message", blocker)
+        for domain, services in (
+            (
+                "climate",
+                (
+                    "set_temperature",
+                    "set_humidity",
+                    "set_fan_mode",
+                    "set_hvac_mode",
+                    "turn_on",
+                    "turn_off",
+                ),
+            ),
+            ("ecobee", ("create_vacation", "set_sensors_used_in_climate")),
+        ):
+            for service in services:
+                self.hass.services.async_register(domain, service, capture)
+        active = asyncio.create_task(
+            self.manager.async_send_notification("mapping_a", "Test message", None)
+        )
+        await started.wait()
+        queued = asyncio.create_task(command)
+        await asyncio.sleep(0)
+        try:
+            self.assertFalse(queued.done())
+            yield queued, calls, release
+        finally:
+            release.set()
+            await active
+            if not queued.done():
+                queued.cancel()
+            await asyncio.gather(queued, return_exceptions=True)
+
+    async def test_queued_standard_commands_revalidate_current_writer_contracts(
+        self,
+    ) -> None:
+        attributes = self._attributes(20.0) | {
+            "supported_features": int(
+                ClimateEntityFeature.TARGET_TEMPERATURE
+                | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+                | ClimateEntityFeature.TARGET_HUMIDITY
+                | ClimateEntityFeature.FAN_MODE
+                | ClimateEntityFeature.TURN_ON
+                | ClimateEntityFeature.TURN_OFF
+            )
+        }
+        cases = (
+            (
+                "set_temperature",
+                {"temperature": 30.0},
+                {"max_temp": 25.0},
+                "invalid_temperature",
+            ),
+            (
+                "set_temperature",
+                {"temperature": 22.0},
+                {"supported_features": 0},
+                "unsupported_command",
+            ),
+            (
+                "set_temperature",
+                {"target_temp_low": 20.0, "target_temp_high": 23.0},
+                {"supported_features": 1},
+                "unsupported_command",
+            ),
+            (
+                "set_humidity",
+                {"humidity": 45},
+                {"max_humidity": 40},
+                "invalid_humidity",
+            ),
+            (
+                "set_humidity",
+                {"humidity": 40},
+                {"supported_features": 0},
+                "unsupported_command",
+            ),
+            (
+                "set_fan_mode",
+                {"fan_mode": "on"},
+                {"fan_modes": ["auto"]},
+                "unsupported_fan_mode",
+            ),
+            (
+                "set_hvac_mode",
+                {"hvac_mode": HVACMode.COOL},
+                {"hvac_modes": ["off", "heat"]},
+                "unsupported_hvac_mode",
+            ),
+            ("turn_on", {}, {"supported_features": 0}, "unsupported_command"),
+            ("turn_off", {}, {"supported_features": 0}, "unsupported_command"),
+        )
+        for service, payload, changed, error in cases:
+            with self.subTest(service=service, changed=changed):
+                self.hass.states.async_set(self.homekit.entity_id, "heat", attributes)
+                self.manager.refresh_mapping("mapping_a")
+                climate = EcobeeUnifiedClimate(self.manager, self.mapping)
+                climate.hass = self.hass
+                command = getattr(climate, f"async_{service}")(**payload)
+                async with self._queued_command(command) as (queued, calls, release):
+                    previous = self.manager.snapshot("mapping_a").command
+                    # Keep the cached snapshot old: dispatch must read current
+                    # source state even before its normal callback runs.
+                    assert self.manager._unsub_state is not None
+                    self.manager._unsub_state()
+                    self.manager._unsub_state = None
+                    self.hass.states.async_set(
+                        self.homekit.entity_id, "heat", attributes | changed
+                    )
+                    release.set()
+                    with self.assertRaises(ServiceValidationError) as raised:
+                        await queued
+                    self.assertEqual(error, raised.exception.translation_key)
+                    self.assertFalse(calls)
+                    self.assertEqual(
+                        previous, self.manager.snapshot("mapping_a").command
+                    )
+                    self.assertFalse(self.manager._command_locks["mapping_a"].locked())
+                self.manager._subscribe_states()
+
+    async def test_queued_vendor_actions_revalidate_bounds_and_device_ownership(
+        self,
+    ) -> None:
+        registry = dr.async_get(self.hass)
+        owned = registry.async_get_or_create(
+            config_entry_id=self.ecobee.config_entry_id,
+            identifiers={("ecobee", "selected_sensor")},
+        )
+        climate = EcobeeUnifiedClimate(self.manager, self.mapping)
+        climate.hass = self.hass
+        mutations: tuple[
+            tuple[Callable[[], Awaitable[None]], Callable[[], object]], ...
+        ] = (
+            (
+                lambda: climate.async_create_vacation("Trip", 30.0, 20.0),
+                lambda: self.hass.states.async_set(
+                    self.ecobee.entity_id,
+                    "heat",
+                    self._attributes(20.0) | {"max_temp": 25.0},
+                ),
+            ),
+            (
+                lambda: climate.async_set_sensors_used_in_climate([owned.id], "Home"),
+                lambda: registry.async_update_device(
+                    owned.id, new_config_entry_id=self.homekit.config_entry_id
+                ),
+            ),
+        )
+        for command, mutate in mutations:
+            async with self._queued_command(command()) as (queued, calls, release):
+                previous = self.manager.snapshot("mapping_a").command
+                mutate()
+                release.set()
+                with self.assertRaises(ServiceValidationError):
+                    await queued
+                self.assertFalse(calls)
+                self.assertEqual(previous, self.manager.snapshot("mapping_a").command)
+        registry.async_update_device(
+            owned.id, new_config_entry_id=self.ecobee.config_entry_id
+        )
+        async with self._queued_command(
+            climate.async_set_sensors_used_in_climate([owned.id], "Home")
+        ) as (queued, calls, release):
+            release.set()
+            await queued
+            self.assertEqual(1, len(calls))
+            self.assertEqual([owned.id], calls[0].data["device_ids"])
+            self.assertEqual(self.ecobee.entity_id, calls[0].data["entity_id"])
+            self.assertIs(
+                CommandStatus.SUBMITTED,
+                self.manager.snapshot("mapping_a").command.status,
+            )
+
+    async def test_oversized_command_numbers_fail_validation_before_tracking(
+        self,
+    ) -> None:
+        self.hass.states.async_set(
+            self.homekit.entity_id,
+            "heat",
+            self._attributes(20.0) | {"supported_features": 389},
+        )
+        self.manager.refresh_mapping("mapping_a")
+        climate = EcobeeUnifiedClimate(self.manager, self.mapping)
+        climate.hass = self.hass
+        huge = 10**1000
+        for command in (
+            lambda: climate.async_set_temperature(temperature=huge),
+            lambda: climate.async_set_humidity(huge),
+            lambda: climate.async_create_vacation("Trip", huge, 20),
+            lambda: self.manager.async_set_minimum_fan_runtime("mapping_a", huge, None),
+        ):
+            with self.assertRaises(ServiceValidationError):
+                await command()
+            self.assertIs(
+                CommandStatus.NONE, self.manager.snapshot("mapping_a").command.status
+            )
 
     async def test_stop_rejects_queue_and_fences_late_writer_results(self) -> None:
         for kind in ("standard", "action", "notification"):
@@ -314,7 +530,8 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                         attributes = (
                             {"options": ["Home", "Away"]}
                             if is_preset
-                            else self._attributes(20.0) | {"humidity": 40}
+                            else self._attributes(20.0)
+                            | {"humidity": 40, "supported_features": 389}
                         )
                         initial_attributes = (
                             attributes if is_preset else attributes | {"humidity": 36}

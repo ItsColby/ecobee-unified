@@ -2279,12 +2279,17 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_CONFIRM_CHANGE: True}
         )
+        self.assertNotIn("reconfigure_remove", result["menu_options"])
+        self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
         result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_remove"}
+            result["flow_id"], {"next_step_id": "reconfigure_finish"}
         )
         self.assertIs(FlowResultType.ABORT, result["type"])
-        self.assertEqual("one_mapping_required", result["reason"])
-        self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
+        self.assertEqual("reconfigure_successful", result["reason"])
+        self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
+        self.assertEqual(
+            self.mapping.mapping_id, entry.data[CONF_MAPPINGS][0][CONF_MAPPING_ID]
+        )
 
     async def test_reconfigure_requires_confirmation_only_for_writer_change(
         self,

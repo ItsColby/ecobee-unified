@@ -61,7 +61,7 @@ the ID shown in your registry. Raw source entities must remain enabled because
 Unified consumes them. Review dashboard, script, automation, and voice references
 before changing which entities are visible to their users.
 
-Use the contributor guide's [installation acceptance checks](development.md#verify-an-installation-before-moving-its-consumers)
+Use the [installation acceptance checks](#verify-an-installation-before-moving-its-consumers)
 when evaluating a new installation or moving existing consumers. They cover
 source comparison, meaningful control paths, history, and recovery.
 
@@ -206,6 +206,29 @@ saved state. Accepted changes reload this entry without a Home Assistant restart
 These options do not set polling cadence, refresh a source, change a hold's
 duration, or schedule another write. Choose them from observed reporting
 behavior. HomeKit event silence is not a staleness timeout.
+
+## Verify an installation before moving its consumers
+
+For an installation being evaluated, compare Unified with the mapped sources
+through their normal update cycles. Check temperature and humidity, held and
+scheduled modes, equipment state, provenance, loss/recovery, and unexpected
+Recorder or logbook churn. Exercise only the intended, authorized controls and
+record what the source or thermostat actually did, including submission,
+confirmation, and uncertainty. State which paths were not observed. There is no
+fixed waiting period that substitutes for this coverage.
+
+Move dashboard, automation, script, and voice consumers in bounded batches.
+Inventory the references and preserve their previous configuration, update a
+selected batch, then read back its references and observe each meaningful path.
+Keep mapped sources enabled and available for recovery. Change routine exposure
+only after consumer checks; removal or rollback must have a known consumer
+target. Reusing an existing climate entity ID is a separate decision because it
+can join histories with different semantics and affect rollback. Do not rewrite
+Recorder history as a side effect of adopting the Unified surface.
+
+Installation choices and live evidence belong to the installation owner. Keep
+that evidence with its version and configuration; do not turn it into a general
+promise about every installation or insert private details into product docs.
 
 ## Locate a problem before changing anything
 

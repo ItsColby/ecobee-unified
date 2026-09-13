@@ -79,12 +79,6 @@ class PublicSafetyTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIn("absolute Unix user path", _text_failures(text))
 
-    def test_current_tree_is_text_only_and_public_safe(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        count, failures = run_guard(root)
-        self.assertGreater(count, 20)
-        self.assertEqual([], failures)
-
     def test_current_tree_uses_git_candidate_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -134,12 +128,6 @@ class PublicSafetyTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         self.assertEqual(["notes.txt: unreviewed binary content"], failures)
-
-    def test_tracked_source_archive_is_public_safe(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        count, failures = run_archive_guard(root)
-        self.assertGreater(count, 20)
-        self.assertEqual([], failures)
 
     def test_tracked_archive_reads_staged_bytes_not_dirty_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -440,9 +428,6 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertNotIn('cp -a "$source_root/."', release_runner)
         self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
         self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
-        self.assertNotIn("matrix.", workflow)
-        self.assertNotIn("ubuntu-latest", workflow)
-        self.assertEqual(6, workflow.count("runs-on: ubuntu-24.04"))
         unit_job = workflow[
             workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
         ]

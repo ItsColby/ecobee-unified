@@ -74,17 +74,17 @@ run_python() {
   fi
 }
 
-run_actionlint() {
+run_actionlint() (
   if [[ "$backend" == native ]]; then
     local bin
     bin="$(mktemp -d)"
+    trap 'rm -rf "$bin"' EXIT
     GOBIN="$bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
     "$bin/actionlint"
-    rm -rf "$bin"
   else
     podman run --rm -v "$repo_root:/repo:ro" -w /repo "$actionlint_image"
   fi
-}
+)
 
 run_unit() {
   run_actionlint

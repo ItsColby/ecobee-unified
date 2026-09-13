@@ -1,4 +1,4 @@
-"""Verify parallel container lanes preserve ordering, failure, and cleanup."""
+"""Verify validation lanes preserve ordering, failure, and cleanup."""
 
 from __future__ import annotations
 
@@ -72,6 +72,87 @@ else:
 (events / (lane + ".done")).touch()
 sys.exit(23 if failure == lane else 0)
 """
+GO_STAND_IN = r"""
+import os
+import sys
+from pathlib import Path
+
+events = Path(os.environ["ACTIONLINT_EVENTS"])
+binary = Path(os.environ["GOBIN"])
+(events / "binary.path").write_text(str(binary))
+if os.environ.get("ACTIONLINT_FAIL") == "install":
+    sys.exit(37)
+actionlint = binary / "actionlint"
+actionlint.write_text(
+    '#!/bin/sh\n'
+    'touch "$ACTIONLINT_EVENTS/actionlint.ran"\n'
+    'exit "${ACTIONLINT_STATUS:-0}"\n'
+)
+actionlint.chmod(0o755)
+"""
+
+
+@unittest.skipUnless(os.name == "posix" and BASH, "requires Linux Bash")
+class NativeActionlintValidationTests(unittest.TestCase):
+    """Exercise the native runner without installing or invoking real tools."""
+
+    def test_native_actionlint_cleans_temporary_binary_on_every_exit(self) -> None:
+        for failure, expected_status in (("install", 37), ("lint", 41), ("", 0)):
+            with (
+                self.subTest(failure=failure),
+                tempfile.TemporaryDirectory(prefix="native validation ") as temporary,
+            ):
+                root = Path(temporary)
+                events = root / "events"
+                events.mkdir()
+                binary = root / "bin"
+                binary.mkdir()
+                scratch = root / "scratch"
+                scratch.mkdir()
+                go = binary / "go"
+                go.write_text(f"#!{sys.executable}\n{GO_STAND_IN}", encoding="utf-8")
+                go.chmod(0o755)
+                # The real outer Bash runs the script; only its login-shell
+                # Python lane is replaced, so the test cannot install packages.
+                login_shell = binary / "bash"
+                login_shell.write_text(
+                    '#!/bin/sh\n[ "$1" = "-lc" ] || exit 99\n'
+                    'touch "$ACTIONLINT_EVENTS/python.started"\n',
+                    encoding="utf-8",
+                )
+                login_shell.chmod(0o755)
+                result = subprocess.run(
+                    [
+                        str(BASH),
+                        str(ROOT / "scripts/verify-release-local.sh"),
+                        "unit",
+                        "native",
+                    ],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "PATH": f"{binary}{os.pathsep}{os.environ['PATH']}",
+                        "TMPDIR": str(scratch),
+                        "ACTIONLINT_EVENTS": str(events),
+                        "ACTIONLINT_FAIL": failure,
+                        "ACTIONLINT_STATUS": "41" if failure == "lint" else "0",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(
+                    result.returncode, expected_status, result.stdout + result.stderr
+                )
+                temporary_binary = Path((events / "binary.path").read_text())
+                self.assertEqual(temporary_binary.parent, scratch)
+                self.assertEqual(
+                    (events / "actionlint.ran").exists(), failure != "install"
+                )
+                self.assertEqual((events / "python.started").exists(), not failure)
+                self.assertFalse(temporary_binary.exists())
+                self.assertEqual(list(scratch.iterdir()), [])
 
 
 @unittest.skipUnless(os.name == "posix" and BASH and GIT, "requires Linux Bash/Git")

@@ -3421,42 +3421,87 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         assert foreign_sensor.device_id is not None
 
         invalid_calls = (
-            entity.async_create_vacation("", 82.0, 58.0),
-            entity.async_create_vacation("Trip", float("nan"), 58.0),
-            entity.async_create_vacation("Trip", 58.0, 82.0),
-            entity.async_create_vacation(
-                "Trip",
-                82.0,
-                58.0,
-                "2026-09-05",
-                "18:00:00",
-                "2026-09-01",
-                "08:00:00",
+            (entity.async_create_vacation("", 28.0, 15.0), "invalid_vacation_name"),
+            (
+                entity.async_create_vacation("Trip", float("nan"), 15.0),
+                "invalid_vacation_temperature",
             ),
-            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-02-30", "08:00:00"),
-            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-9-01", "08:00:00"),
-            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", "08:00"),
-            entity.async_create_vacation("Trip", 82.0, 58.0, "2026-09-01", None),
-            entity.async_create_vacation("Trip", 82.0, 58.0, fan_min_on_time=True),
-            entity.async_create_vacation(
-                "Trip",
-                82.0,
-                58.0,
-                fan_min_on_time=2.5,  # type: ignore[arg-type]
+            (
+                entity.async_create_vacation("Trip", 15.0, 28.0),
+                "invalid_vacation_temperature_range",
             ),
-            entity.async_set_occupancy_modes(),
-            entity.async_set_sensors_used_in_climate(["unknown_device"]),
-            entity.async_set_sensors_used_in_climate(
-                [self.ecobee.device_id, self.ecobee.device_id]
+            (
+                entity.async_create_vacation(
+                    "Trip",
+                    28.0,
+                    15.0,
+                    "2026-09-05",
+                    "18:00:00",
+                    "2026-09-01",
+                    "08:00:00",
+                ),
+                "invalid_vacation_period",
             ),
-            entity.async_set_sensors_used_in_climate(
-                [self.ecobee.device_id], preset_mode=" "
+            (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-02-30", "08:00:00"
+                ),
+                "invalid_vacation_period",
             ),
-            entity.async_set_sensors_used_in_climate([foreign_sensor.device_id]),
+            (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-9-01", "08:00:00"
+                ),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation("Trip", 28.0, 15.0, "2026-09-01", "08:00"),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation("Trip", 28.0, 15.0, "2026-09-01", None),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation("Trip", 28.0, 15.0, fan_min_on_time=True),
+                "invalid_vacation_options",
+            ),
+            (
+                entity.async_create_vacation(
+                    "Trip",
+                    28.0,
+                    15.0,
+                    fan_min_on_time=2.5,  # type: ignore[arg-type]
+                ),
+                "invalid_vacation_options",
+            ),
+            (entity.async_set_occupancy_modes(), "invalid_occupancy_modes"),
+            (
+                entity.async_set_sensors_used_in_climate(["unknown_device"]),
+                "invalid_sensor_selection",
+            ),
+            (
+                entity.async_set_sensors_used_in_climate(
+                    [self.ecobee.device_id, self.ecobee.device_id]
+                ),
+                "invalid_sensor_selection",
+            ),
+            (
+                entity.async_set_sensors_used_in_climate(
+                    [self.ecobee.device_id], preset_mode=" "
+                ),
+                "invalid_sensor_selection",
+            ),
+            (
+                entity.async_set_sensors_used_in_climate([foreign_sensor.device_id]),
+                "invalid_sensor_selection",
+            ),
         )
-        for call in invalid_calls:
-            with self.assertRaises(ServiceValidationError):
-                await call
+        for call, error in invalid_calls:
+            with self.subTest(error=error):
+                with self.assertRaises(ServiceValidationError) as raised:
+                    await call
+                self.assertEqual(error, raised.exception.translation_key)
         self.assertEqual([], calls)
 
     def test_vacation_service_schema_rejects_fractional_fan_runtime(self) -> None:

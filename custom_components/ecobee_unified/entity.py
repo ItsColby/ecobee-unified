@@ -15,6 +15,7 @@ class EcobeeUnifiedEntity(Entity):
     """Base entity linked to the mapped HomeKit-owned thermostat device."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
 
     def __init__(
         self,

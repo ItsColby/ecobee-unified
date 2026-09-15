@@ -34,10 +34,13 @@ Use a mode for a narrower check:
 | Mode | What it runs |
 | --- | --- |
 | `unit` | Actionlint, Zizmor, ShellCheck, Ruff formatting and lint, public-safety and runner-orchestration unit tests, Python compilation, and the public-safety guard. |
-| `minimum` | The minimum Core/harness pair, dependency consistency, strict mypy, and all tests through pytest. |
-| `current` | The current Core/harness pair, dependency consistency, strict mypy, and all tests through pytest. |
+| `minimum` | The minimum Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
+| `current` | The current Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
 | `release` | Hassfest only. |
 | `all` | `unit`, both Home Assistant lanes, then `release`. |
+
+Public-safety and runner-orchestration tests execute once in `unit`; they do not
+depend on Core and are excluded from the two Home Assistant lanes.
 
 For example, replace `all` with `current` in the Bash command or use
 `-Mode current` in PowerShell. The `native` Bash backend is used by CI; it

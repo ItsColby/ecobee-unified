@@ -223,6 +223,14 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                     self.assertTrue(manager._homekit_settle_report_times)
                     self.assertTrue(manager._unsub_homekit_settles)
                 else:
+                    # Arm a fresh mismatch immediately before cancellation: startup
+                    # and command awaits may consume the prior 0.25-second deadline.
+                    source = self.hass.states.get(self.homekit_temperature.entity_id)
+                    self.assertIsNotNone(source)
+                    self.hass.states.async_set(
+                        source.entity_id, "20.1", source.attributes
+                    )
+                    manager.refresh_mapping(mapping.mapping_id)
                     self.assertTrue(manager._temperature_mismatch_candidates)
                     self.assertTrue(manager._unsub_temperature_mismatches)
                 self.assertTrue(manager._temperature_recovery)

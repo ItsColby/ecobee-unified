@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from asyncio import CancelledError
 from copy import deepcopy
 from typing import Any
@@ -29,6 +30,8 @@ from .manager import MappingManager
 from .models import MappingConfig, merge_mapping_data
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 
+_LOGGER = logging.getLogger(__name__)
+
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
@@ -54,7 +57,12 @@ async def async_setup_entry(
         await manager.async_start()
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
     except Exception, CancelledError:
-        await manager.async_stop()
+        try:
+            await hass.config_entries.async_unload_platforms(entry, platforms)
+        except Exception, CancelledError:
+            _LOGGER.exception("Error unloading platforms after setup failure")
+        finally:
+            await manager.async_stop()
         raise
     return True
 

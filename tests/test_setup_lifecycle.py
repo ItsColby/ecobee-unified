@@ -8,10 +8,12 @@ from unittest.mock import Mock, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ecobee_unified import async_setup_entry
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
@@ -35,6 +37,115 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
 
     async def test_cancel_during_forward_with_settle_deadline(self) -> None:
         await self._cancel_setup("forward", "settle")
+
+    async def test_cancel_after_platform_load_then_retry(self) -> None:
+        """Release real entity platforms acquired before another setup is cancelled."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        pending = asyncio.Event()
+        release = asyncio.Event()
+        native_forward = self.hass.config_entries.async_forward_entry_setups
+
+        async def forward(config_entry, platforms) -> None:
+            await native_forward(config_entry, ["climate"])
+            await native_forward(
+                config_entry,
+                [platform for platform in platforms if platform != "climate"],
+            )
+
+        sensor_task = None
+
+        async def sensor_setup(*_args) -> None:
+            nonlocal sensor_task
+            sensor_task = asyncio.current_task()
+            pending.set()
+            await release.wait()
+
+        with (
+            patch.object(
+                self.hass.config_entries, "async_forward_entry_setups", forward
+            ),
+            patch("homeassistant.components.sensor.async_setup_entry", sensor_setup),
+        ):
+            setup = asyncio.create_task(
+                self.hass.config_entries.async_setup(entry.entry_id)
+            )
+            try:
+                await asyncio.wait_for(pending.wait(), 10)
+                old_manager = entry.runtime_data.manager
+                self.manager = old_manager
+                component = self.hass.data["entity_components"]["climate"]
+                old_platform = component._platforms[entry.entry_id]
+                old_entities = dict(old_platform.entities)
+                self.assertTrue(old_entities)
+                self.assertTrue(all(self.hass.states.get(key) for key in old_entities))
+                setup.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await setup
+                self.assertEqual(ConfigEntryState.SETUP_ERROR, entry.state)
+                self.assertTrue(old_manager._stopped.is_set())
+                self._assert_stopped(old_manager)
+                self.assertIsNotNone(sensor_task)
+                self.assertTrue(sensor_task.cancelled())
+                for entity_component in self.hass.data["entity_components"].values():
+                    self.assertNotIn(entry.entry_id, entity_component._platforms)
+                self.assertFalse(old_platform.entities)
+                for entity_id in old_entities:
+                    self.assertIsNone(component.get_entity(entity_id))
+            finally:
+                setup.cancel()
+                await asyncio.gather(setup, return_exceptions=True)
+                release.set()
+
+        self.assertTrue(await self.hass.config_entries.async_reload(entry.entry_id))
+        self.assertEqual(ConfigEntryState.LOADED, entry.state)
+        new_manager = entry.runtime_data.manager
+        self.manager = new_manager
+        self.assertIsNot(new_manager, old_manager)
+        self.assertFalse(new_manager._stopped.is_set())
+        for entity_id, old_entity in old_entities.items():
+            entity = component.get_entity(entity_id)
+            self.assertIsNotNone(entity)
+            self.assertIsNot(entity, old_entity)
+            self.assertIs(entity._manager, new_manager)
+            self.assertIsNotNone(self.hass.states.get(entity_id))
+        registry = er.async_get(self.hass)
+        self.assertTrue(all(registry.async_get(key) for key in old_entities))
+        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+
+    async def test_rollback_error_preserves_setup_error_and_stops_manager(self) -> None:
+        """Failed platform rollback cannot hide the setup result or retain the manager."""
+        for error in (RuntimeError("forwarding failed"), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                entry = MockConfigEntry(
+                    domain=DOMAIN,
+                    data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+                )
+                entry.add_to_hass(self.hass)
+                with (
+                    patch.object(
+                        self.hass.config_entries,
+                        "async_forward_entry_setups",
+                        side_effect=error,
+                    ),
+                    patch.object(
+                        self.hass.config_entries,
+                        "async_unload_platforms",
+                        side_effect=RuntimeError("rollback failed"),
+                    ),
+                    self.assertRaises(type(error)) as raised,
+                ):
+                    await async_setup_entry(self.hass, entry)
+                self.assertIs(raised.exception, error)
+                self.assertTrue(entry.runtime_data.manager._stopped.is_set())
+                self._assert_stopped(entry.runtime_data.manager)
 
     async def _cancel_setup(self, phase: str, deadline: str) -> None:
         mapping = replace(

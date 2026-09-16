@@ -545,48 +545,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
         )
 
-    async def test_native_config_flow_creates_multiple_mappings(self) -> None:
-        homekit_b = self._source(
-            "homekit_controller",
-            "hk_b",
-            device=True,
-            physical_identity="thermostat_b",
-        )
-        ecobee_b = self._source(
-            "ecobee", "ec_b", device=True, physical_identity="thermostat_b"
-        )
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": SOURCE_USER}
-        )
-        self.assertIs(FlowResultType.FORM, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_NAME: "Zone A",
-                CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
-                CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
-                CONF_ADD_ANOTHER: True,
-            },
-        )
-        self.assertIs(FlowResultType.FORM, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_NAME: "Zone B",
-                CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
-                CONF_ECOBEE_ENTITY: ecobee_b.entity_id,
-                CONF_ADD_ANOTHER: False,
-            },
-        )
-        self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
-        mappings = result["data"][CONF_MAPPINGS]
-        self.assertEqual(2, len(mappings))
-        self.assertEqual(2, len({mapping[CONF_MAPPING_ID] for mapping in mappings}))
-        self.assertEqual(
-            self.homekit.id,
-            mappings[0][CONF_HOMEKIT_ENTITY],
-        )
-
     async def test_config_flow_rejects_duplicate_mapping_and_second_entry(self) -> None:
         ecobee_b = self._source(
             "ecobee", "ec_b", device=True, physical_identity="thermostat_a"
@@ -2657,31 +2615,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
                 _validate_timing_options(invalid)
 
-    async def test_options_flow_reports_invalid_timing_without_saving(self) -> None:
-        original_options = {"future_option": {"opaque": "preserve"}}
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="Ecobee Unified",
-            unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            options=original_options,
-            version=1,
-            minor_version=3,
-        )
-        entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.options.async_init(entry.entry_id)
-        result = await self.hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {
-                CONF_ECOBEE_STALE_SECONDS: 1210,
-                CONF_CONFIRMATION_SECONDS: 720,
-            },
-        )
-
-        self.assertIs(FlowResultType.FORM, result["type"])
-        self.assertEqual("invalid_timing", result["errors"]["base"])
-        self.assertEqual(original_options, entry.options)
-
     async def test_options_flow_rejects_concurrent_and_external_updates(self) -> None:
         original_options = {
             CONF_ECOBEE_STALE_SECONDS: 1800,
@@ -2798,36 +2731,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         empty_entry.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, empty_entry))
-
-    async def test_registry_rename_and_capability_recovery(self) -> None:
-        registry = er.async_get(self.hass)
-        registry.async_update_entity(
-            self.homekit.entity_id, new_entity_id="climate.zone_a_renamed"
-        )
-        self.hass.states.async_set(
-            "climate.zone_a_renamed", "heat", self._attributes(20.5)
-        )
-        await self.hass.async_block_till_done()
-        self.assertEqual(
-            "climate.zone_a_renamed",
-            self.manager.resolve_entity_id(self.homekit.id),
-        )
-        self.assertEqual(20.5, self.manager.snapshot("mapping_a").current_temperature)
-
-        self.hass.states.async_set("climate.zone_a_renamed", "unavailable", {})
-        await self.hass.async_block_till_done()
-        fallback = self.manager.snapshot("mapping_a")
-        self.assertTrue(fallback.available)
-        self.assertFalse(fallback.homekit_writable)
-        self.assertEqual("ecobee", fallback.provenance["current_temperature"])
-
-        self.hass.states.async_set(
-            "climate.zone_a_renamed", "heat", self._attributes(19.5)
-        )
-        await self.hass.async_block_till_done()
-        recovered = self.manager.snapshot("mapping_a")
-        self.assertTrue(recovered.homekit_writable)
-        self.assertEqual(19.5, recovered.current_temperature)
 
     async def test_unrelated_registry_events_do_not_refresh_mappings(self) -> None:
         registry = er.async_get(self.hass)

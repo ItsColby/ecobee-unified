@@ -29,7 +29,8 @@ minimum and current Home Assistant lanes run concurrently in separate containers
 after the static checks pass; both finish before Hassfest or temporary-file
 cleanup. On interruption, the runner waits for active lanes before removing
 that payload and returns the interrupt status; this wait has no shutdown deadline.
-The named pip cache volume is retained for later runs.
+The named pip cache volume is retained for later runs. Only the unit container
+provisions Git; the Home Assistant lanes do not run the Git-dependent checks.
 
 Use a mode for a narrower check:
 

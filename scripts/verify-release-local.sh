@@ -58,6 +58,7 @@ actionlint_image="docker.io/rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47
 hassfest_image="ghcr.io/home-assistant/hassfest@sha256:8cd7bdb8f82430c2c13703290b1fc38dcc99957dd76ad3f230035ecee70b672d"
 
 run_python() {
+  local needs_git="${2:-true}"
   if [[ "$backend" == native ]]; then
     (cd "$repo_root" && PUBLIC_SAFETY_HISTORY_REPOSITORY="$repo_root" bash -lc "$1")
   else
@@ -73,8 +74,12 @@ run_python() {
       -v "$repo_root:/workspace:ro" -w /workspace \
       --mount type=volume,source=ecobee-unified-validation-pip,target=/pip-cache \
       "$python_image" bash -lc \
-      'apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null && eval "$1"' \
-      local-validation "$1"
+      'if [[ "$1" == true ]]; then
+         apt-get update -qq || exit "$?"
+         apt-get install -y -qq --no-install-recommends git >/dev/null || exit "$?"
+       fi
+       eval "$2"' \
+      local-validation "$needs_git" "$1"
   fi
 }
 
@@ -114,7 +119,7 @@ run_minimum() {
     python -m pip check &&
     python -m mypy --strict custom_components/ecobee_unified &&
     pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py
-  '
+  ' false
 }
 
 run_current() {
@@ -125,7 +130,7 @@ run_current() {
     python -m pip check &&
     python -m mypy --strict custom_components/ecobee_unified &&
     pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py
-  '
+  ' false
 }
 
 run_ha_matrix() {

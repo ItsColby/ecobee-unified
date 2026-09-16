@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 PODMAN_STAND_IN = r"""
+import json
 import os
 import subprocess
 import sys
@@ -35,6 +37,7 @@ if any("hassfest@" in arg for arg in args):
     sys.exit(0)
 lane = ("current" if "requirements-ha-current.txt" in args[-1] else
         "minimum" if "requirements-ha-test.txt" in args[-1] else "unit")
+(events / (lane + ".command")).write_text(json.dumps(args))
 mount = next(args[index + 1] for index, arg in enumerate(args[:-1])
              if arg == "-v" and ":/workspace:" in args[index + 1])
 source, target, access = mount.split(":")
@@ -169,7 +172,11 @@ class ParallelValidationTests(unittest.TestCase):
     """Use real shell jobs and snapshots with isolated external-tool stand-ins."""
 
     def run_matrix(
-        self, failure: str = "", *, interrupt: signal.Signals | None = None
+        self,
+        failure: str = "",
+        *,
+        interrupt: signal.Signals | None = None,
+        commands: dict[str, list[str]] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
         with tempfile.TemporaryDirectory(prefix="parallel validation ") as temporary:
             root = Path(temporary)
@@ -255,7 +262,57 @@ class ParallelValidationTests(unittest.TestCase):
             remaining_payload = any(
                 Path(path.read_text()).exists() for path in events.glob("*.mount")
             )
+            if commands is not None:
+                commands.update(
+                    (path.stem, json.loads(path.read_text()))
+                    for path in events.glob("*.command")
+                )
             return result, {path.name for path in events.iterdir()}, remaining_payload
+
+    def test_container_provisioning_and_payload_failures(self) -> None:
+        commands: dict[str, list[str]] = {}
+        result, _, remaining_payload = self.run_matrix(commands=commands)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(remaining_payload)
+        apt_calls = ["apt update -qq", "apt install -y -qq --no-install-recommends git"]
+        for lane, failure, payload_status, expected_status, expected_calls in (
+            ("unit", "", 0, 0, [*apt_calls, "payload"]),
+            ("minimum", "", 0, 0, ["payload"]),
+            ("current", "", 0, 0, ["payload"]),
+            ("unit", "update", 0, 37, apt_calls[:1]),
+            ("unit", "install", 0, 41, apt_calls),
+            ("minimum", "", 43, 43, ["payload"]),
+        ):
+            with self.subTest(
+                lane=lane, failure=failure, payload_status=payload_status
+            ):
+                args = commands[lane]
+                command = args[args.index("bash") :]
+                command[0] = str(BASH)
+                # A function remains effective even if the login shell resets PATH.
+                command[2] = r"""
+apt-get() {
+  printf 'apt %s\n' "$*" >&2
+  if [[ "$PROVISION_FAIL" == update && "$1" == update ]]; then return 37; fi
+  if [[ "$PROVISION_FAIL" == install && "$1" == install ]]; then return 41; fi
+  return 0
+}
+""" + command[2]
+                command[-1] = 'printf "payload\\n" >&2; exit "$PAYLOAD_STATUS"'
+                probe = subprocess.run(
+                    command,
+                    env={
+                        **os.environ,
+                        "PROVISION_FAIL": failure,
+                        "PAYLOAD_STATUS": str(payload_status),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(probe.returncode, expected_status, probe.stderr)
+                self.assertEqual(probe.stderr.splitlines(), expected_calls)
 
     def test_support_lanes_overlap_between_unit_and_release(self) -> None:
         result, events, remaining_payload = self.run_matrix()

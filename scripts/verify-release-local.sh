@@ -8,7 +8,11 @@ source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$source_root"
 if [[ "$backend" == container ]]; then
   temporary_root="$(mktemp -d)"
-  trap 'rm -rf "$temporary_root"' EXIT
+  # An interrupted wait can leave lanes using the snapshot. Drain this
+  # runner's jobs before deleting it, and retain the interrupt exit status.
+  trap 'trap "" INT TERM; wait; rm -rf "$temporary_root"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   repo_root="$temporary_root/payload"
   history_root="$temporary_root/history.git"
   mkdir "$repo_root"

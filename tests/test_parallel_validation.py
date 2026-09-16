@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -62,6 +64,13 @@ else:
         if time.monotonic() > deadline:
             raise SystemExit("The two HA lanes did not overlap")
         time.sleep(0.01)
+    if os.environ.get("MATRIX_INTERRUPT"):
+        while not (events / "interrupt.sent").exists():
+            if time.monotonic() > deadline:
+                raise SystemExit("The runner was not interrupted")
+            time.sleep(0.01)
+        time.sleep(0.1)
+        assert Path(source).is_dir(), "Payload removed while interrupted lanes were active"
     if failure == peer:
         while not (events / (peer + ".done")).exists():
             if time.monotonic() > deadline:
@@ -160,7 +169,7 @@ class ParallelValidationTests(unittest.TestCase):
     """Use real shell jobs and snapshots with isolated external-tool stand-ins."""
 
     def run_matrix(
-        self, failure: str = ""
+        self, failure: str = "", *, interrupt: signal.Signals | None = None
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
         with tempfile.TemporaryDirectory(prefix="parallel validation ") as temporary:
             root = Path(temporary)
@@ -190,6 +199,7 @@ class ParallelValidationTests(unittest.TestCase):
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "MATRIX_EVENTS": str(events),
                 "MATRIX_FAIL": failure,
+                "MATRIX_INTERRUPT": "1" if interrupt else "",
             }
             for arguments in (
                 ("init", "-q"),
@@ -211,14 +221,36 @@ class ParallelValidationTests(unittest.TestCase):
                 private_content = "private address " + "192" + ".168.1.2"
                 for filename in ("README.md", "local-only.txt"):
                     (source / filename).write_text(private_content, encoding="utf-8")
-            result = subprocess.run(
+            with subprocess.Popen(
                 [str(BASH), str(runner), "all", "container"],
                 cwd=root,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,
-                timeout=30,
+            ) as process:
+                try:
+                    if interrupt:
+                        deadline = time.monotonic() + 10
+                        while not all(
+                            (events / f"{lane}.started").exists()
+                            for lane in ("minimum", "current")
+                        ):
+                            if (
+                                process.poll() is not None
+                                or time.monotonic() > deadline
+                            ):
+                                self.fail("The two HA lanes did not start")
+                            time.sleep(0.01)
+                        process.send_signal(interrupt)
+                        (events / "interrupt.sent").touch()
+                    stdout, stderr = process.communicate(timeout=30)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate(timeout=10)
+            result = subprocess.CompletedProcess(
+                process.args, process.returncode, stdout, stderr
             )
             remaining_payload = any(
                 Path(path.read_text()).exists() for path in events.glob("*.mount")
@@ -239,6 +271,21 @@ class ParallelValidationTests(unittest.TestCase):
                 self.assertTrue({"minimum.done", "current.done"} <= events)
                 self.assertNotIn("release.done", events)
                 self.assertFalse(remaining_payload)
+
+    def test_interrupt_preserves_status_and_waits_before_cleanup(self) -> None:
+        for interrupt in (signal.SIGINT, signal.SIGTERM):
+            for failure in ("", "minimum"):
+                with self.subTest(interrupt=interrupt, failure=failure):
+                    result, events, remaining_payload = self.run_matrix(
+                        failure, interrupt=interrupt
+                    )
+                    self.assertTrue(
+                        {"minimum.done", "current.done"} <= events,
+                        result.stdout + result.stderr,
+                    )
+                    self.assertNotIn("release.done", events)
+                    self.assertFalse(remaining_payload)
+                    self.assertEqual(result.returncode, 128 + interrupt)
 
     def test_unit_failure_does_not_start_support_lanes(self) -> None:
         result, events, remaining_payload = self.run_matrix("unit")

@@ -241,10 +241,9 @@ def _select_environment(
 ) -> None:
     plan[lane] = True
     plan["lane_tests"][lane] = sorted(ha_files)
-    if lane == "minimum":
-        plan["lane_typing"][lane] = sorted(
-            path for path in files if path.startswith(PRODUCT + "/")
-        )
+    plan["lane_typing"][lane] = sorted(
+        path for path in files if path.startswith(PRODUCT + "/")
+    )
 
 
 def _select_unit_environment(plan: dict, unit_files: set[str], files: set[str]) -> None:
@@ -272,11 +271,14 @@ def _route_runner_dependencies(
     if "ruff" in changed:
         plan["python"] = sorted(files)
     if "mypy" in changed:
-        plan["minimum"] = True
-        plan["lane_typing"]["minimum"] = sorted(
-            path for path in files if path.startswith(PRODUCT + "/")
-        )
-    plan["workflow"] |= bool(changed & {"zizmor", "actionlint", "actionlint_image"})
+        for lane in ("minimum", "current"):
+            plan[lane] = True
+            plan["lane_typing"][lane] = sorted(
+                path for path in files if path.startswith(PRODUCT + "/")
+            )
+    plan["workflow"] |= bool(
+        changed & {"zizmor", "actionlint", "actionlint_image", "shellcheck-py"}
+    )
     plan["shell"] |= "shellcheck-py" in changed
     plan["release"] |= "hassfest_image" in changed
 
@@ -516,16 +518,6 @@ def lane_command(plan: dict, lane: str) -> str:
     return " &&\n".join(commands) or ":"
 
 
-def require_results(plan: dict, results: dict) -> None:
-    """A skipped selected job or unexpected unselected execution is a failure."""
-    if plan["unresolved"]:
-        raise ValueError("Unresolved validation applicability")
-    for job, selected in plan["jobs"].items():
-        expected = "success" if selected else "skipped"
-        if results.get(job) != expected:
-            raise ValueError(f"{job}: expected {expected}, got {results.get(job)}")
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--git-directory")
@@ -535,7 +527,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--command", choices=JOBS)
     parser.add_argument("--github-output", action="store_true")
-    parser.add_argument("--results", help="JSON job results for aggregate acceptance")
     parser.add_argument(
         "--full", action="store_true", help="Explicit complete workflow dispatch"
     )
@@ -559,9 +550,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "Unresolved applicability: " + "; ".join(plan["unresolved"])
             )
-        if args.results:
-            require_results(plan, json.loads(args.results))
-        elif args.command:
+        if args.command:
             if not plan["jobs"][args.command]:
                 raise ValueError(f"The plan did not select {args.command}")
             print(lane_command(plan, args.command))

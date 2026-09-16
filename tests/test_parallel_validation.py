@@ -164,6 +164,7 @@ class NativeValidationTests(unittest.TestCase):
                     "TMPDIR": str(scratch),
                     "NATIVE_EVENTS": str(events),
                     "NATIVE_FAIL": failure,
+                    "PUBLIC_SAFETY_HISTORY_REPOSITORY": "/synthetic-ambient-history",
                 },
                 capture_output=True,
                 text=True,
@@ -212,7 +213,9 @@ class NativeValidationTests(unittest.TestCase):
         lane_pips = [
             event
             for event in events
-            if event["kind"] == "pip" and event["history"] is not None
+            if event["kind"] == "pip"
+            and Path(str(event["path"])).parent
+            in {Path(environment) / "bin" for environment in environments[1:]}
         ]
         self.assertTrue(lane_pips)
         self.assertTrue(all(event["history"] == str(ROOT) for event in lane_pips))

@@ -3,6 +3,50 @@
 Use the checked-in validation runner to check a candidate, and a separate Python
 environment for focused development. Run commands below from the repository root.
 
+## Select validation for the change
+
+The default runner mode is `affected`. Preview an exact candidate comparison
+before running it:
+
+```powershell
+.\scripts\verify-release-local.ps1 -Base <base-commit> -Head HEAD -PlanOnly
+.\scripts\verify-release-local.ps1 -Base <base-commit> -Head HEAD
+```
+
+For a working edit, use `-ChangedPath scripts/verify-release-local.sh` instead of
+refs. On Linux, use `bash scripts/verify-release-local.sh affected container ""`
+with `--base <base-commit> --head HEAD`, or repeated `--path <relative-path>`;
+add `--plan-only` to inspect the JSON plan without snapshots or installations.
+Planning uses an existing host Python 3.14 (`python3.14`, an installed uv runtime,
+or `VALIDATION_PYTHON`) to parse source without importing the integration. It
+does not download a runtime; HA execution keeps its isolated Python 3.14 lane.
+Explicit paths describe the complete change being accepted. The refs mode
+requires the checked-out candidate as its head; it does not include uncommitted
+edits. An empty verified comparison selects no jobs. Missing comparison input
+and unmapped changes fail with an unresolved applicability message.
+
+The product-owned planner traces local Python imports and reviewed direct-file
+consumers. Changed tests run in their native collector; runtime changes include
+the affected success, failure, and recovery consumers in both maintained HA
+environments. A support requirements change selects that environment, without
+invalidating the unchanged sibling lane. Runner and workflow dependency declarations
+are compared against the supplied base, or HEAD for working-path selections;
+changed harness, Python image, action, and tool pins select their actual consumers.
+An unavailable dependency comparison remains unresolved. The Bash runner remains
+the owner of exact local tool versions. Tooling, workflow, public-content and
+metadata checks are selected independently of product tests. Configuration
+changes without a reviewed tool-specific mapping need explicit review, rather
+than an automatic complete run.
+
+Pull requests and main pushes use this same selection. The stable Release gate
+requires the planning job and every selected job to succeed, and accepts skipped
+jobs only when the plan excludes them. Manual workflow dispatch explicitly runs
+the complete lanes. `all`, `unit`, `minimum`, `current`, and `release` remain
+explicit complete-lane requests. Reuse evidence whose source and environment
+have not changed; a merge alone does not invalidate it. Local checks do not
+replace HACS, authorize publication, or establish live behavior.
+
+
 ## Check the complete candidate
 
 On Linux, install Git, Bash, tar, and Podman, then run:
@@ -40,7 +84,7 @@ Use a mode for a narrower check:
 | `minimum` | The minimum Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
 | `current` | The current Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
 | `release` | Hassfest only. |
-| `all` | `unit`, both Home Assistant lanes, then `release`. |
+| `all` | `unit`, both Home Assistant lanes, and `release`. |
 
 Public-safety and runner-orchestration tests execute once in `unit`; they do not
 depend on Core and are excluded from the two Home Assistant lanes.
@@ -109,8 +153,7 @@ python -m pytest tests -q
 ```
 
 Use pytest for the complete suite: unittest discovery alone does not collect the
-module-level async Home Assistant tests. Focused tests speed up iteration; run
-the full candidate check before handing off a code change.
+module-level async Home Assistant tests. Focused tests speed up iteration; run the applicable candidate checks before handing off a code change.
 
 ### Maintain the native help alongside behavior
 
@@ -127,7 +170,7 @@ public-content tests check the runtime language file and help completeness.
 ## Know what the gate proves
 
 [`Validate`](../.github/workflows/validate.yaml) runs on pull requests, pushes to
-`main`, and manual dispatch. Its final release gate requires success from all
+`main`, and manual dispatch. A manual full dispatch requires success from all
 five jobs: static/unit validation, minimum Core, current Core, Hassfest, and HACS.
 The local `all` command includes Hassfest but does **not** run the HACS action;
 local success alone does not satisfy that CI gate. Neither route proves physical
@@ -152,8 +195,8 @@ Installation acceptance and consumer migration are covered in the
 
 ## Maintain the support contract
 
-Change Core and harness pins together, verify dependency consistency, and rerun
-both lanes. A minimum-version change also affects [`hacs.json`](../hacs.json).
+Change each Core and harness pair together, verify dependency consistency, and rerun
+the changed support lane. Reuse unchanged sibling-lane evidence. A minimum-version change also affects [`hacs.json`](../hacs.json).
 Keep the runner, CI job labels, and assertions in `test_public_safety.py` aligned;
 review the external assumptions in [Upstream contracts](upstream-contracts.md).
 Tool versions and container digests are owned by

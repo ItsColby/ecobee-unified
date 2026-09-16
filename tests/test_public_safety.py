@@ -477,11 +477,17 @@ class PublicSafetyTests(unittest.TestCase):
             (minimum_lane, minimum_harness, minimum_core),
             (current_lane, current_harness, current_core),
         ):
-            self.assertLess(lane.index(harness), lane.index(core))
-            self.assertLess(lane.index(core), lane.index(dependency_check))
-            self.assertLess(lane.index(dependency_check), lane.index(all_tests))
+            # The runner appends selected/full checks to the installed environment.
+            setup = lane[lane.index("  run_python '") :]
+            checks = lane[lane.index("  local checks=") : lane.index('  if [[ "$mode"')]
+            execution = setup + checks
+            self.assertLess(execution.index(harness), execution.index(core))
+            self.assertLess(execution.index(core), execution.index(dependency_check))
+            self.assertLess(
+                execution.index(dependency_check), execution.index(all_tests)
+            )
         self.assertIn(
-            "needs: [unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
+            "needs: [plan, unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
             workflow,
         )
         self.assertNotIn("python -m unittest tests.test_models", workflow)

@@ -46,22 +46,14 @@ Public-safety and runner-orchestration tests execute once in `unit`; they do not
 depend on Core and are excluded from the two Home Assistant lanes.
 
 For example, replace `all` with `current` in the Bash command or use
-`-Mode current` in PowerShell. The `native` Bash backend is used by CI; it
-installs through a `bash -lc` login shell instead of a container. It requires
-Python 3.14 and pip, Git, Go for Actionlint, ShellCheck already on `PATH`, and
-Docker for the `release` mode. Actionlint runs before the Python step installs
-`shellcheck-py`; without an existing ShellCheck executable, its workflow-shell
-analysis can be omitted. Confirm that the login shell resolves the intended
-disposable Python environment, since activating a virtual environment in the
-caller alone does not establish that:
-
-```bash
-bash -lc 'python -c "import sys; print(sys.executable)"'
-```
-
-`all native` installs the minimum and current
-lanes sequentially into that same environment; use the container route or separate
-native environments when checking their independent dependency environments.
+`-Mode current` in PowerShell. The `native` Bash backend is used by CI. It
+requires Python 3.14 with pip and venv, Git, Go for Actionlint, and Docker for
+the `release` mode. Each Python lane creates and removes its own temporary
+environment, including the sequential minimum and current lanes in `all native`.
+Actionlint uses a separate temporary environment with the runner's pinned
+ShellCheck version, so workflow-shell analysis does not depend on a caller's
+ShellCheck installation. The selected environments run without a login shell
+overriding their executable paths.
 
 ## Work on one change
 

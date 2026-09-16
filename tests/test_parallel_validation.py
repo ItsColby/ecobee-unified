@@ -84,87 +84,172 @@ else:
 (events / (lane + ".done")).touch()
 sys.exit(23 if failure == lane else 0)
 """
-GO_STAND_IN = r"""
+NATIVE_TOOL_STAND_IN = r"""
+import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
-events = Path(os.environ["ACTIONLINT_EVENTS"])
-binary = Path(os.environ["GOBIN"])
-(events / "binary.path").write_text(str(binary))
-if os.environ.get("ACTIONLINT_FAIL") == "install":
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+events = Path(os.environ["NATIVE_EVENTS"])
+event = {"tool": name, "args": args, "path": sys.argv[0], "cwd": os.getcwd(),
+         "history": os.environ.get("PUBLIC_SAFETY_HISTORY_REPOSITORY")}
+kind = name
+if name == "python" and args[:2] == ["-m", "venv"]:
+    kind = "venv"
+    event["environment"] = args[2]
+elif name == "python" and args[:2] == ["-m", "pip"]:
+    kind = "pip"
+event["kind"] = kind
+with (events / "commands.jsonl").open("a") as log:
+    log.write(json.dumps(event) + "\n")
+if os.environ.get("NATIVE_FAIL") == kind:
     sys.exit(37)
-actionlint = binary / "actionlint"
-actionlint.write_text(
-    '#!/bin/sh\n'
-    'touch "$ACTIONLINT_EVENTS/actionlint.ran"\n'
-    'exit "${ACTIONLINT_STATUS:-0}"\n'
-)
-actionlint.chmod(0o755)
+if kind == "venv":
+    target = Path(args[2]) / "bin" / "python"
+    target.parent.mkdir()
+    shutil.copyfile(__file__, target)
+    target.chmod(0o755)
+elif kind == "pip":
+    for tool in ("shellcheck", "pytest", "zizmor"):
+        target = Path(sys.argv[0]).parent / tool
+        shutil.copyfile(__file__, target)
+        target.chmod(0o755)
+elif name == "go":
+    target = Path(os.environ["GOBIN"]) / "actionlint"
+    shutil.copyfile(__file__, target)
+    target.chmod(0o755)
+elif name == "actionlint":
+    shellcheck = shutil.which("shellcheck")
+    assert shellcheck == str(Path(sys.argv[0]).parent / "shellcheck")
+    subprocess.run([shellcheck, "--version"], check=True)
 """
 
 
 @unittest.skipUnless(os.name == "posix" and BASH, "requires Linux Bash")
-class NativeActionlintValidationTests(unittest.TestCase):
-    """Exercise the native runner without installing or invoking real tools."""
+class NativeValidationTests(unittest.TestCase):
+    """Run the native launcher with task-owned external-tool stand-ins."""
 
-    def test_native_actionlint_cleans_temporary_binary_on_every_exit(self) -> None:
-        for failure, expected_status in (("install", 37), ("lint", 41), ("", 0)):
-            with (
-                self.subTest(failure=failure),
-                tempfile.TemporaryDirectory(prefix="native validation ") as temporary,
-            ):
-                root = Path(temporary)
-                events = root / "events"
-                events.mkdir()
-                binary = root / "bin"
-                binary.mkdir()
-                scratch = root / "scratch"
-                scratch.mkdir()
-                go = binary / "go"
-                go.write_text(f"#!{sys.executable}\n{GO_STAND_IN}", encoding="utf-8")
-                go.chmod(0o755)
-                # The real outer Bash runs the script; only its login-shell
-                # Python lane is replaced, so the test cannot install packages.
-                login_shell = binary / "bash"
-                login_shell.write_text(
-                    '#!/bin/sh\n[ "$1" = "-lc" ] || exit 99\n'
-                    'touch "$ACTIONLINT_EVENTS/python.started"\n',
-                    encoding="utf-8",
+    def run_native(
+        self, mode: str, failure: str = ""
+    ) -> tuple[subprocess.CompletedProcess[str], list[dict[str, object]], list[str]]:
+        with tempfile.TemporaryDirectory(prefix="native validation ") as temporary:
+            root = Path(temporary)
+            events = root / "events"
+            events.mkdir()
+            binary = root / "bin"
+            binary.mkdir()
+            scratch = root / "scratch"
+            scratch.mkdir()
+            for name in ("python", "go", "docker"):
+                tool = binary / name
+                tool.write_text(
+                    f"#!{sys.executable}\n{NATIVE_TOOL_STAND_IN}", encoding="utf-8"
                 )
-                login_shell.chmod(0o755)
-                result = subprocess.run(
-                    [
-                        str(BASH),
-                        str(ROOT / "scripts/verify-release-local.sh"),
-                        "unit",
-                        "native",
-                    ],
-                    cwd=ROOT,
-                    env={
-                        **os.environ,
-                        "PATH": f"{binary}{os.pathsep}{os.environ['PATH']}",
-                        "TMPDIR": str(scratch),
-                        "ACTIONLINT_EVENTS": str(events),
-                        "ACTIONLINT_FAIL": failure,
-                        "ACTIONLINT_STATUS": "41" if failure == "lint" else "0",
-                    },
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=10,
+                tool.chmod(0o755)
+            result = subprocess.run(
+                [
+                    str(BASH),
+                    str(ROOT / "scripts/verify-release-local.sh"),
+                    mode,
+                    "native",
+                ],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{binary}{os.pathsep}{os.environ['PATH']}",
+                    "TMPDIR": str(scratch),
+                    "NATIVE_EVENTS": str(events),
+                    "NATIVE_FAIL": failure,
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+            log = events / "commands.jsonl"
+            commands = (
+                [json.loads(line) for line in log.read_text().splitlines()]
+                if log.exists()
+                else []
+            )
+            return result, commands, [path.name for path in scratch.iterdir()]
+
+    def test_native_actionlint_provisions_shellcheck_and_cleans_every_exit(
+        self,
+    ) -> None:
+        for failure in ("venv", "pip", "go", "actionlint", ""):
+            with self.subTest(failure=failure):
+                result, events, remaining = self.run_native("unit", failure)
+                self.assertEqual(result.returncode, 37 if failure else 0, result.stderr)
+                self.assertEqual(remaining, [])
+                kinds = [event["kind"] for event in events]
+                expected = ["venv", "pip", "go", "actionlint", "shellcheck"]
+                if failure:
+                    self.assertEqual(kinds, expected[: expected.index(failure) + 1])
+                else:
+                    self.assertEqual(kinds[:5], expected)
+                    self.assertEqual(events[3]["cwd"], str(ROOT))
+                    self.assertEqual(
+                        Path(str(events[4]["path"])).parent,
+                        Path(str(events[3]["path"])).parent,
+                    )
+
+    def test_all_native_lanes_use_separate_environments_and_original_history(
+        self,
+    ) -> None:
+        result, events, remaining = self.run_native("all")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(remaining, [])
+        environments = [
+            str(event["environment"]) for event in events if "environment" in event
+        ]
+        self.assertEqual(len(environments), 4)  # Actionlint, unit, minimum, current.
+        self.assertEqual(len(set(environments)), 4)
+        lane_pips = [
+            event
+            for event in events
+            if event["kind"] == "pip" and event["history"] is not None
+        ]
+        self.assertTrue(lane_pips)
+        self.assertTrue(all(event["history"] == str(ROOT) for event in lane_pips))
+        self.assertTrue(all(event["cwd"] == str(ROOT) for event in lane_pips))
+        for environment in environments[1:]:
+            self.assertTrue(
+                any(
+                    Path(str(event["path"])).parent == Path(environment) / "bin"
+                    for event in lane_pips
                 )
+            )
+        test_paths = [
+            str(event["path"]) for event in events if event["tool"] == "pytest"
+        ]
+        self.assertEqual(
+            test_paths,
+            [str(Path(environment) / "bin/pytest") for environment in environments[2:]],
+        )
+
+    def test_native_python_lane_failure_stops_before_tests_and_cleans(self) -> None:
+        for failure in ("venv", "pip"):
+            with self.subTest(failure=failure):
+                result, events, remaining = self.run_native("minimum", failure)
+                self.assertEqual(result.returncode, 37, result.stderr)
+                self.assertEqual(remaining, [])
                 self.assertEqual(
-                    result.returncode, expected_status, result.stdout + result.stderr
+                    [event["kind"] for event in events],
+                    ["venv"] if failure == "venv" else ["venv", "pip"],
                 )
-                temporary_binary = Path((events / "binary.path").read_text())
-                self.assertEqual(temporary_binary.parent, scratch)
-                self.assertEqual(
-                    (events / "actionlint.ran").exists(), failure != "install"
-                )
-                self.assertEqual((events / "python.started").exists(), not failure)
-                self.assertFalse(temporary_binary.exists())
-                self.assertEqual(list(scratch.iterdir()), [])
+
+    def test_native_failed_minimum_blocks_current_and_release(self) -> None:
+        result, events, remaining = self.run_native("all", "pytest")
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertEqual(remaining, [])
+        self.assertEqual(sum(event["kind"] == "venv" for event in events), 3)
+        self.assertEqual(sum(event["tool"] == "pytest" for event in events), 1)
+        self.assertFalse(any(event["tool"] == "docker" for event in events))
 
 
 @unittest.skipUnless(os.name == "posix" and BASH and GIT, "requires Linux Bash/Git")

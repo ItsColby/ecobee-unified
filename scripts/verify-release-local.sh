@@ -57,10 +57,16 @@ python_image="docker.io/library/python@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde1
 actionlint_image="docker.io/rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667"
 hassfest_image="ghcr.io/home-assistant/hassfest@sha256:8cd7bdb8f82430c2c13703290b1fc38dcc99957dd76ad3f230035ecee70b672d"
 
-run_python() {
+run_python() (
   local needs_git="${2:-true}"
   if [[ "$backend" == native ]]; then
-    (cd "$repo_root" && PUBLIC_SAFETY_HISTORY_REPOSITORY="$repo_root" bash -lc "$1")
+    local environment
+    environment="$(mktemp -d)"
+    trap 'rm -rf "$environment"' EXIT
+    python -m venv "$environment"
+    cd "$repo_root"
+    VIRTUAL_ENV="$environment" PATH="$environment/bin:$PATH" \
+      PUBLIC_SAFETY_HISTORY_REPOSITORY="$repo_root" bash -euo pipefail -c "$1"
   else
     podman run --rm \
       -e HOME=/tmp/home -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -81,15 +87,18 @@ run_python() {
        eval "$2"' \
       local-validation "$needs_git" "$1"
   fi
-}
+)
 
 run_actionlint() (
+  cd "$repo_root"
   if [[ "$backend" == native ]]; then
     local bin
     bin="$(mktemp -d)"
     trap 'rm -rf "$bin"' EXIT
-    GOBIN="$bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-    "$bin/actionlint"
+    python -m venv "$bin"
+    "$bin/bin/python" -m pip install "shellcheck-py==0.11.0.1"
+    GOBIN="$bin/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+    PATH="$bin/bin:$PATH" "$bin/bin/actionlint"
   else
     podman run --rm -v "$repo_root:/repo:ro" -w /repo "$actionlint_image"
   fi

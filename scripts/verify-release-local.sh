@@ -6,6 +6,25 @@ backend="${2:-container}"
 source_git_dir="${3:-}"
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$source_root"
+# Refuse inherited repository selection before planning or snapshot reads.
+for variable in GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_INDEX_FILE GIT_REPLACE_REF_BASE GIT_PREFIX GIT_SHALLOW_FILE GIT_COMMON_DIR GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM; do
+  if [[ -v "$variable" ]]; then
+    echo "Inherited local Git overrides are not supported: $variable" >&2
+    exit 2
+  fi
+done
+export GIT_NO_REPLACE_OBJECTS=1
+source_git=(git --no-replace-objects -C "$source_root")
+if [[ -n "$source_git_dir" ]]; then
+  if [[ ! -d "$source_git_dir" ]]; then
+    echo "The explicit Git directory must be an existing metadata directory." >&2; exit 2
+  fi
+  source_git=(git --no-replace-objects --git-dir="$source_git_dir" --work-tree="$source_root")
+fi
+actual_root="$("${source_git[@]}" rev-parse --show-toplevel)"
+if [[ "$(cd "$actual_root" && pwd -P)" != "$(cd "$source_root" && pwd -P)" ]]; then
+  echo "Git target root does not match the wrapper source root." >&2; exit 2
+fi
 validation_python="${VALIDATION_PYTHON:-}"
 if [[ "$mode" == affected && -z "$validation_python" ]]; then
   if command -v python3.14 >/dev/null 2>&1; then
@@ -29,6 +48,10 @@ if [[ "$mode" == affected ]]; then
     case "$1" in
       --only) affected_only="${2:?Missing lane}"; shift 2 ;;
       --plan-only) plan_only=true; shift ;;
+      --base|--head)
+        # Reuse immutable input for initial planning and every later lane command.
+        oid="$("${source_git[@]}" rev-parse --verify --end-of-options "${2:?Missing revision}^{commit}")"
+        affected_args+=("$1" "$oid"); shift 2 ;;
       *) affected_args+=("$1"); shift ;;
     esac
   done
@@ -57,10 +80,6 @@ if [[ "$backend" == container ]]; then
   repo_root="$temporary_root/payload"
   history_root="$temporary_root/history.git"
   mkdir "$repo_root"
-  source_git=(git -C "$source_root")
-  if [[ -n "$source_git_dir" ]]; then
-    source_git=(git --git-dir="$source_git_dir" --work-tree="$source_root")
-  fi
   if [[ "$("${source_git[@]}" rev-parse --is-shallow-repository)" != false ]]; then
     echo "Complete original Git history is required; source is unavailable or shallow." >&2
     exit 1

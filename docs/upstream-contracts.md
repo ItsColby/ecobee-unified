@@ -32,6 +32,20 @@ The [Ecobee Runtime reference][ec-runtime] explains temperature meaning, but doe
 not document the three air-quality runtime keys used by these Core versions.
 The pinned sensor implementation is the source for their field mapping and units.
 
+## Cancellation during global setup
+
+In pinned Core [2026.8.0][core-setup-minimum] and
+[2026.9.1][core-setup-current], `async_setup_component` retains a failed or
+cancelled global setup future. Cancelling an entry while a selected global
+component is still initializing can therefore prevent that component and the
+entry from being set up again in the same Home Assistant instance. Unified
+must release its acquired entry platforms, entities and manager subscriptions;
+it does not clear Core's global setup cache. Cancellation after selected global
+components finish must still allow a clean native entry reload with a fresh
+manager and entities. [`test_setup_lifecycle.py`](../tests/test_setup_lifecycle.py)
+separately covers both boundaries, including cleanup after the ordinary
+concurrent failed retry.
+
 ## Reviewing an upstream change
 
 Review the affected implementation at the proposed Core tag, including any
@@ -70,3 +84,6 @@ commit or release record.
 [device-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.8.0/homeassistant/helpers/device.py
 [event-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.8.0/homeassistant/helpers/event.py
 [state-reported]: https://developers.home-assistant.io/blog/2024/03/20/state_reported_timestamp/
+
+[core-setup-minimum]: https://raw.githubusercontent.com/home-assistant/core/2026.8.0/homeassistant/setup.py
+[core-setup-current]: https://raw.githubusercontent.com/home-assistant/core/2026.9.1/homeassistant/setup.py

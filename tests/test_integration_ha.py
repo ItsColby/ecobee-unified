@@ -30,6 +30,7 @@ from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
     CONF_ECOBEE_ENTITY,
     CONF_HOMEKIT_ENTITY,
+    CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
     DOMAIN,
@@ -79,6 +80,10 @@ async def test_config_flow_creates_two_explicit_mappings(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert len(result["data"][CONF_MAPPINGS]) == 2
+    assert (
+        len({mapping[CONF_MAPPING_ID] for mapping in result["data"][CONF_MAPPINGS]})
+        == 2
+    )
     assert result["data"][CONF_MAPPINGS][0][CONF_HOMEKIT_ENTITY] == hk_a.id
     assert result["data"][CONF_MAPPINGS][1][CONF_ECOBEE_ENTITY] == ec_b.id
 

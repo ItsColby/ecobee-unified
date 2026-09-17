@@ -465,18 +465,25 @@ def _timestamp(value: Any) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _finite_value(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("historical_response_invalid")  # noqa: TRY004 -- Public validation boundary.
+    try:
+        number = float(value)
+    except OverflowError as err:
+        raise ValueError("historical_response_invalid") from err
+    if not isfinite(number):
+        raise ValueError("historical_response_invalid")
+    return number
+
+
 def _values(row: dict[str, Any] | None) -> dict[str, float | None]:
-    result: dict[str, float | None] = {}
-    for measure in _MEASURES:
-        value = row.get(measure) if row else None
-        if value is not None and (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not isfinite(value)
-        ):
-            raise ValueError("historical_response_invalid")
-        result[measure] = float(value) if value is not None else None
-    return result
+    return {
+        measure: _finite_value(row.get(measure) if row else None)
+        for measure in _MEASURES
+    }
 
 
 def _day_row(
@@ -528,13 +535,16 @@ def _transformed(
     def convert(value: float | None) -> float | None:
         if value is None:
             return None
-        if family.quantity in {"temperature", "weather_temperature"}:
-            return TemperatureConverter.convert(
-                value, source["native_unit"], family.unit
-            )
-        if source.get("transformation") == "aqi_raw_div350_times100":
-            return value / 350 * 100
-        return value
+        try:
+            if family.quantity in {"temperature", "weather_temperature"}:
+                value = TemperatureConverter.convert(
+                    value, source["native_unit"], family.unit
+                )
+            elif source.get("transformation") == "aqi_raw_div350_times100":
+                value = value / 350 * 100
+        except OverflowError as err:
+            raise ValueError("historical_response_invalid") from err
+        return _finite_value(value)
 
     return {measure: convert(value) for measure, value in values.items()}
 

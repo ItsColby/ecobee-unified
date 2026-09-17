@@ -485,6 +485,41 @@ class HistoricalReadTests(CoreRuntimeTestCase):
         ):
             await self._read()
 
+    async def test_overflowed_temperature_conversion_is_rejected_and_read_recovers(
+        self,
+    ) -> None:
+        manager = self._manager()
+        for measure in ("mean", "min", "max"):
+            for value in (1e308, -1e308):
+                with self.subTest(measure=measure, value=value):
+                    self._row()
+                    self.daily["sensor.room_temperature"][0][measure] = value
+                    with self.assertRaisesRegex(
+                        ServiceValidationError, "historical_response_invalid"
+                    ):
+                        await self._read(manager)
+        self._row()
+        row = (await self._read(manager))["families"][0]["rows"][0]
+        self.assertEqual(row["values"]["mean"], 68)
+        self.daily["sensor.room_temperature"][0].update(mean=1e307, min=None, max=None)
+        row = (await self._read(manager))["families"][0]["rows"][0]
+        self.assertAlmostEqual(row["values"]["mean"] / 1e307, 1.8)
+        self.assertIsNone(row["values"]["min"])
+        self.assertIsNone(row["values"]["max"])
+
+    async def test_oversized_native_integer_is_rejected_as_bounded_response_error(
+        self,
+    ) -> None:
+        manager = self._manager()
+        for measure in ("mean", "min", "max"):
+            with self.subTest(measure=measure):
+                self._row()
+                self.daily["sensor.room_temperature"][0][measure] = 10**500
+                with self.assertRaisesRegex(
+                    ServiceValidationError, "historical_response_invalid"
+                ):
+                    await self._read(manager)
+
     async def test_parser_roundtrip_limits_and_unknown_source_extensions(self) -> None:
         source = _source()
         source["future_contract"] = {"version": 2}

@@ -218,7 +218,7 @@ behavior. HomeKit event silence is not a staleness timeout.
 
 ## Centralize other datapoints
 
-Under **Reconfigure**, choose **Add datapoint**. Select the quantity, name,
+Under **Reconfigure**, choose **Add multi-source datapoint**. Select the quantity, name,
 output unit where applicable, and up to three ordered sources. An optional
 attribute selects a public field from a source entity instead of its state.
 The sources must belong to the same proven physical Ecobee thermostat or remote
@@ -263,12 +263,25 @@ neither proves a new physical measurement. Forecast dates retain the native
 adapter's meaning. The aliases share one upstream feed and provide no
 independent weather confirmation.
 
-Use **Edit datapoint** or **Remove datapoint** to change the composition. Source
-registry references and output identities survive normal entity renames.
-Changing a source or its meaning requires renewed equivalence confirmation.
-Before adopting a new output, review explicit references and dynamic labels so
-an aggregate includes each physical probe once. Historical statistics stay with
-their existing owner; creating a datapoint does not backfill or merge history.
+Use **Edit multi-source datapoint** to change a datapoint while preserving its
+meaning and stable output identity. Name, source priority, fallback, and freshness
+changes retain that identity. Normal source entity renames retain their registry
+references. Source reordering and compatible output-unit changes still require
+equivalence confirmation; confirmation does not permit a change of meaning.
+
+| Change | Required action |
+|---|---|
+| Quantity type or meaning, such as physical versus control temperature or elapsed duration versus a minimum fan setting | Use **Add multi-source datapoint** to create a new identity |
+| Current versus fixed-interval observations, or the duration of a fixed interval | Use **Add multi-source datapoint** to create a new identity |
+| Temperature output between °C, °F, and K, or duration output between s, min, h, and d | Edit the existing datapoint only when its meaning and time basis stay the same, then confirm equivalence |
+| Any other output-unit change, including **Other numeric quantity** | Use **Add multi-source datapoint** to create a new identity |
+| Source entity or value attribute for **Other numeric quantity** or **Text status** | Keep the same complete set of entity-and-attribute pairs when editing; pairs may be reordered. Adding, removing, or replacing a pair requires a new datapoint because these generic types do not establish a narrower meaning |
+
+Choose **Remove multi-source datapoint** only when you intend to remove the
+existing output. Editing or creating a datapoint does not automatically clear,
+relabel, delete, backfill, or merge its historical statistics. History remains
+with its existing owner. Before adopting a new output, review explicit
+references and dynamic labels so an aggregate includes each physical probe once.
 
 ## Read daily historical families
 

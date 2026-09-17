@@ -266,7 +266,7 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                 self.hass.config_entries.flow.async_abort(result["flow_id"])
         self.assertEqual([], entry.data["datapoints"])
 
-    async def test_quantity_edit_reloads_output_with_current_semantic_and_preserves_future_fields(
+    async def test_meaning_change_rejected_while_compatible_edit_preserves_output_identity(
         self,
     ) -> None:
         await self.manager.async_stop()
@@ -301,6 +301,23 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         values = _datapoint_form_defaults(self.hass, original) | self._values(
             semantic="control_temperature"
         )
+        accepted_data = deepcopy(dict(entry.data))
+        with patch.object(self.hass.config_entries, "async_reload") as reload:
+            result = await self._submit(result, values)
+            self.assertEqual("datapoint_meaning_change", result["errors"]["base"])
+            reload.assert_not_called()
+        self.assertEqual(accepted_data, entry.data)
+        self.assertIs(old_manager, entry.runtime_data.datapoints)
+        self.assertEqual(before, self.hass.states.get(entity_id))
+
+        values = _datapoint_form_defaults(self.hass, original) | {
+            "name": "Renamed control temperature",
+            "unit": "°F",
+            "primary_entity": self.ecobee.entity_id,
+            "secondary_entity": self.homekit.entity_id,
+            "fallback": False,
+            "confirm_equivalence": True,
+        }
         result = await self._submit(result, values)
         self.assertEqual(FlowResultType.MENU, result["type"])
         result = await self._next(result, "reconfigure_finish")
@@ -309,7 +326,9 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
 
         saved = entry.data["datapoints"][0]
         self.assertEqual(original["datapoint_id"], saved["datapoint_id"])
-        self.assertIsNone(saved["semantic"])
+        self.assertEqual("control_temperature", saved["semantic"])
+        self.assertEqual("°F", saved["unit"])
+        self.assertFalse(saved["fallback"])
         self.assertEqual({"keep": True}, saved["future_row"])
         self.assertEqual("keep", saved["sources"][0]["future_binding"])
         self.assertEqual({"keep": True}, entry.data["future_top_level"])
@@ -325,10 +344,151 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         )
         after = self.hass.states.get(entity_id)
         assert after is not None
-        self.assertEqual("42.0", after.state)
-        self.assertEqual("%", after.attributes["unit_of_measurement"])
-        self.assertEqual("humidity", after.attributes["device_class"])
-        self.assertEqual("humidity", after.attributes["semantic"])
+        self.assertEqual("temperature", after.attributes["device_class"])
+        self.assertEqual("control_temperature", after.attributes["semantic"])
+        snapshot = entry.runtime_data.datapoints.snapshot(saved["datapoint_id"])
+        self.assertAlmostEqual(68, snapshot.value)
+
+    async def test_existing_identity_rejects_quantity_semantic_interval_and_generic_meaning_changes(
+        self,
+    ) -> None:
+        for source in (self.homekit, self.ecobee):
+            state = self.hass.states.get(source.entity_id)
+            assert state is not None
+            self.hass.states.async_set(
+                source.entity_id,
+                state.state,
+                dict(state.attributes)
+                | {
+                    "observed_at": state.last_reported.isoformat(),
+                    "runtime": 15,
+                    "generic_a": 10,
+                    "generic_b": 20,
+                },
+            )
+        temperature = self._values(
+            kind="temperature",
+            semantic="control_temperature",
+            unit="°C",
+            primary_attribute="current_temperature",
+            secondary_attribute="current_temperature",
+        )
+        duration = self._values(
+            kind="duration",
+            semantic="elapsed_duration",
+            unit="min",
+            primary_attribute="runtime",
+            secondary_attribute="runtime",
+            primary_unit="min",
+            secondary_unit="min",
+        )
+        interval = self._values(
+            time_basis="interval",
+            interval_seconds=300,
+            primary_timestamp_attribute="observed_at",
+            secondary_timestamp_attribute="observed_at",
+        )
+        number = self._values(
+            kind="number",
+            unit="ppm",
+            primary_attribute="generic_a",
+            secondary_attribute="generic_a",
+            primary_unit="ppm",
+            secondary_unit="ppm",
+        )
+        text = self._values(
+            kind="text",
+            unit="",
+            primary_attribute="equipment_running",
+            secondary_attribute="equipment_running",
+        )
+        for label, original_values, changes in (
+            ("same_unit_new_quantity", self._values(), {"kind": "battery"}),
+            ("temperature_semantic", temperature, {"semantic": "physical_temperature"}),
+            (
+                "duration_semantic",
+                duration,
+                {"semantic": "minimum_fan_runtime_per_hour"},
+            ),
+            ("current_to_interval", self._values(), interval),
+            ("interval_duration", interval, {"interval_seconds": 600}),
+            (
+                "generic_unit",
+                number,
+                {"unit": "%", "primary_unit": "%", "secondary_unit": "%"},
+            ),
+            ("generic_number_attribute", number, {"primary_attribute": "generic_b"}),
+            ("generic_text_attribute", text, {"primary_attribute": "hvac_action"}),
+        ):
+            with self.subTest(change=label):
+                row = _datapoint_from_input(self.hass, original_values)
+                entry = self._entry([row])
+                original_data = deepcopy(dict(entry.data))
+                result = await self._next(await self._open(entry), "datapoint_edit")
+                result = await self._submit(
+                    result, {"datapoint_id": row["datapoint_id"]}
+                )
+                values = (
+                    _datapoint_form_defaults(self.hass, row)
+                    | changes
+                    | {"confirm_equivalence": True}
+                )
+                with patch.object(self.hass.config_entries, "async_reload") as reload:
+                    result = await self._submit(result, values)
+                    self.assertEqual(
+                        "datapoint_meaning_change", result["errors"]["base"]
+                    )
+                    reload.assert_not_called()
+                self.assertEqual(original_data, entry.data)
+                self.hass.config_entries.flow.async_abort(result["flow_id"])
+
+        # Duration conversion and opaque-binding reorder keep their existing meaning.
+        for values, changes in (
+            (duration, {"unit": "h"}),
+            (
+                number,
+                {
+                    "primary_entity": self.ecobee.entity_id,
+                    "secondary_entity": self.homekit.entity_id,
+                },
+            ),
+            (
+                text,
+                {
+                    "primary_entity": self.ecobee.entity_id,
+                    "secondary_entity": self.homekit.entity_id,
+                },
+            ),
+        ):
+            with self.subTest(allowed_kind=values["kind"]):
+                row = _datapoint_from_input(self.hass, values)
+                row["future_row"] = {"keep": True}
+                if values["kind"] in {"number", "text"}:
+                    row["semantic"] = "preserved_source_meaning"
+                entry = self._entry([row])
+                result = await self._next(await self._open(entry), "datapoint_edit")
+                result = await self._submit(
+                    result, {"datapoint_id": row["datapoint_id"]}
+                )
+                result = await self._submit(
+                    result,
+                    _datapoint_form_defaults(self.hass, row)
+                    | changes
+                    | {
+                        "name": "Renamed same meaning",
+                        "fallback": False,
+                        "max_age_seconds": 300,
+                        "confirm_equivalence": True,
+                    },
+                )
+                self.assertEqual(
+                    FlowResultType.MENU, result["type"], result.get("errors")
+                )
+                await self._save(result)
+                saved = entry.data["datapoints"][0]
+                self.assertEqual(row["datapoint_id"], saved["datapoint_id"])
+                self.assertEqual(row["semantic"], saved["semantic"])
+                self.assertEqual({"keep": True}, saved["future_row"])
 
     async def test_changed_sources_require_equivalence_again_but_name_and_fallback_do_not(
         self,

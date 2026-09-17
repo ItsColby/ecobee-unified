@@ -1163,7 +1163,7 @@ def _datapoint_from_input(
             "unit": str(user_input.get("unit", "")).strip() or None,
             "semantic": str(user_input.get("semantic", ""))
             if kind in {"temperature", "duration"}
-            else None,
+            else (current or {}).get("semantic"),
             "time_basis": str(user_input.get("time_basis", "current")),
             "interval_seconds": _datapoint_seconds(
                 user_input.get("interval_seconds"), optional=True, minimum=1
@@ -1173,6 +1173,8 @@ def _datapoint_from_input(
             **_weather_datapoint_identity(hass, sources),
         }
     )
+    if current is not None:
+        _validate_datapoint_edit_meaning(DatapointConfig.from_dict(current), config)
     validate_datapoint(hass, config)
     if not user_input.get("confirm_equivalence", False) and (
         current is None or _datapoint_contract_changed(current, config)
@@ -1206,6 +1208,29 @@ def _datapoint_from_input(
         for index, source in enumerate(canonical["sources"])
     ]
     return result
+
+
+def _validate_datapoint_edit_meaning(
+    previous: DatapointConfig, current: DatapointConfig
+) -> None:
+    """Keep one quantity and time meaning behind an existing Recorder identity."""
+    if (
+        previous.kind != current.kind
+        or (previous.semantic or previous.kind) != (current.semantic or current.kind)
+        or previous.time_basis != current.time_basis
+        or previous.interval_seconds != current.interval_seconds
+        or (
+            previous.unit != current.unit
+            and current.kind not in {"temperature", "duration"}
+        )
+    ):
+        raise vol.Invalid("datapoint_meaning_change")
+    # Generic numbers/text have no narrower native quantity contract. A different
+    # binding may carry a different meaning even when its unit or value matches.
+    if current.kind in {"number", "text"} and {
+        (source.entity, source.attribute) for source in previous.sources
+    } != {(source.entity, source.attribute) for source in current.sources}:
+        raise vol.Invalid("datapoint_meaning_change")
 
 
 def _weather_datapoint_identity(

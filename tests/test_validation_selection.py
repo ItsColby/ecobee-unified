@@ -193,6 +193,15 @@ class ValidationSelectionTests(unittest.TestCase):
         self.assertTrue(plan["ha_tests"])
         self.assertEqual([], plan["unresolved"])
 
+    def test_recorder_continuity_tracks_flow_and_loaded_sensor_platform(self):
+        for name in ("config_flow.py", "sensor.py", "datapoint_entity.py"):
+            with self.subTest(name=name):
+                plan = planner.build_plan([f"{planner.PRODUCT}/{name}"])
+                self.assertIn("tests/test_datapoint_recorder_ha.py", plan["ha_tests"])
+                self.assertTrue(plan["jobs"]["minimum"])
+                self.assertTrue(plan["jobs"]["current"])
+                self.assertEqual([], plan["unresolved"])
+
     def test_native_alternate_test_name_keeps_native_collection(self):
         unit, ha = planner._test_files(
             {"tests/future_test.py", "tests/test_validation_selection.py"}

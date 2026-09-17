@@ -23,6 +23,7 @@ TOOL_TESTS = {
 METADATA_TEST = "tests/test_public_safety.py"
 EXTRA_DEPENDENCIES: dict[str, set[str]] = {
     "tests/test_sensor.py": {f"{PRODUCT}/translations/en.json"},
+    "tests/test_datapoint_recorder_ha.py": {f"{PRODUCT}/sensor.py"},
     "tests/test_history_service.py": {"examples/ecobee_daily_history_report.yaml"},
 }
 JOBS = ("unit", "minimum", "current", "release", "hacs")

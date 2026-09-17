@@ -2332,7 +2332,13 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             tuple(
                 option
                 for option in RECONFIGURE_MENU_OPTIONS
-                if option not in {"datapoint_edit", "datapoint_remove"}
+                if option
+                not in {
+                    "datapoint_edit",
+                    "datapoint_remove",
+                    "historical_edit",
+                    "historical_remove",
+                }
             ),
             tuple(result["menu_options"]),
         )

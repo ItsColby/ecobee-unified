@@ -46,6 +46,31 @@ manager and entities. [`test_setup_lifecycle.py`](../tests/test_setup_lifecycle.
 separately covers both boundaries, including cleanup after the ordinary
 concurrent failed retry.
 
+## Daily statistics and response consumers
+
+Core [2026.8.0 Recorder services][recorder-services-minimum] and
+[2026.9.2 Recorder services][recorder-services-current] expose
+`recorder.get_statistics` as an administrator-only, response-only action. Its
+rows contain UTC ISO start/end timestamps and omit absent measures. The reader
+preserves the caller context and distinguishes this shape from the WebSocket
+statistics response. Core's day reduction uses HA's default timezone and
+expands the day containing `end_time`; the wrapper therefore adjusts an
+exclusive end before dispatch and verifies returned intervals.
+
+The exported asynchronous metadata helper
+[`async_list_statistic_ids`][recorder-statistics-current] is awaited on HA's
+event loop. It owns its cache and executor dispatch. Selected-ID lookup does
+not itself guarantee an arithmetic mean or physical identity; the source
+adapter validates those separately. Unit overrides are keyed by unit class,
+and unsupported requests can leave values unconverted. Verified stored-unit
+requests are grouped before applying the supported local transformations.
+
+The [native script response contract][script-response] supports a named script
+that captures the action response and returns it with `stop`. Tests load the
+actual example into the native script integration and verify administrator
+context and returned data. These interfaces exist at both support pins; no
+private Recorder database or WebSocket API is used by the integration.
+
 ## Reviewing an upstream change
 
 Review the affected implementation at the proposed Core tag, including any
@@ -87,3 +112,7 @@ commit or release record.
 
 [core-setup-minimum]: https://raw.githubusercontent.com/home-assistant/core/2026.8.0/homeassistant/setup.py
 [core-setup-current]: https://raw.githubusercontent.com/home-assistant/core/2026.9.2/homeassistant/setup.py
+[recorder-services-minimum]: https://raw.githubusercontent.com/home-assistant/core/2026.8.0/homeassistant/components/recorder/services.py
+[recorder-services-current]: https://raw.githubusercontent.com/home-assistant/core/2026.9.2/homeassistant/components/recorder/services.py
+[recorder-statistics-current]: https://raw.githubusercontent.com/home-assistant/core/2026.9.2/homeassistant/components/recorder/statistics.py
+[script-response]: https://www.home-assistant.io/docs/scripts/#stopping-a-script-sequence

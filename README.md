@@ -14,6 +14,10 @@ and observation-time information. Thermostat read preferences are configurable
 per field and per mapping.
 Native Ecobee weather aliases can share one weather entity, including daily
 forecasts, while keeping their station, units and report timing explicit.
+Configured historical families provide an on-demand daily report from existing
+Recorder statistics, with explicit source policy, aggregation methods and
+coverage. A [native script](examples/ecobee_daily_history_report.yaml) returns
+the same response for use by other scripts.
 
 ## Is it suitable for my installation?
 

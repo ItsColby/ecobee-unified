@@ -270,6 +270,73 @@ Before adopting a new output, review explicit references and dynamic labels so
 an aggregate includes each physical probe once. Historical statistics stay with
 their existing owner; creating a datapoint does not backfill or merge history.
 
+## Read daily historical families
+
+Under **Reconfigure**, choose **Add daily history mapping**. Select an existing
+sensor for the physical item, or a native Ecobee weather entity for an outdoor
+feed, then choose the quantity and one to three existing statistics in priority
+order. Supported quantities are physical temperature, humidity, battery,
+CO₂, AQI, VOC, outdoor temperature and outdoor humidity. Save changes to apply
+the staged mappings. This creates an on-demand read configuration; it does not
+create a measurement entity or merge stored series.
+
+The native registry and statistic metadata must match the declared quantity and
+current association. Confirm that association explicitly. Beestat's effective
+mapping can originate from automatic matching: it is an owner association,
+not independent hardware proof. Current bindings do not establish identity
+throughout the retained history. Native and mirrored histories can share one
+upstream; they are alternatives, not independent confirmations.
+
+**Fixed source** reads the first source and preserves its gaps. **Ordered daily**
+chooses the first eligible daily row. Accept differing aggregation
+methods explicitly before enabling selection across those methods. A selected
+row supplies all its values; the reader does not combine another source's
+maximum with its mean, fill absent days, or interpolate hourly values.
+
+Run **Ecobee Unified: Get historical configuration** in **Developer tools →
+Actions** to obtain the saved family IDs. Run **Get daily history** with the
+integration entry, an included start date and an excluded end date. Omit family
+IDs to read all configured families when there are at most 16; otherwise choose
+a subset. Each request supports at most 31 calendar days and 16 families. Older
+dates remain readable in bounded requests where Recorder retains data.
+
+Dates use Home Assistant's configured timezone, with actual 23/25-hour DST
+days. A timezone change requires explicit rebinding. Calendars whose midnight
+does not align with UTC hourly bins are rejected. Administrator access follows
+the same native authorization rules as `recorder.get_statistics`.
+
+For a reusable report, create a native script using
+[`ecobee_daily_history_report.yaml`](../examples/ecobee_daily_history_report.yaml).
+Call its named action directly to receive the response. Another script can set
+`response_variable` on that call; `script.turn_on` does not return the report.
+The example has no notification destination, scheduled acquisition or history
+write. Standard history and statistics cards do not consume this response;
+the configured family ID is not a Recorder statistic alias.
+
+The response preserves candidate values, native units, source and statistic
+IDs, aggregation methods, missing measures and coverage. Recorder hourly-bin
+coverage does not establish complete samples. Legacy Beestat daily aggregates
+remain labeled as daily values stored in an hourly table; one such row is not
+one hour of a 24-hour observation record. Provider window end, importer timing
+and response acquisition remain separate. Open dates and dates whose available
+provider watermark precedes their end are provisional and excluded by default.
+Absent settling evidence remains **unknown**, including for elapsed dates.
+
+AQI uses two distinct calculations: a native raw daily aggregate can be scaled
+linearly by `100 / 350`; Beestat aggregates samples normalized and rounded
+before aggregation. The scaled daily mean does not reproduce those missing
+sample-level operations. Accepting fallback permits the documented method
+difference; it does not make the methods equal. VOC candidates retain their
+native declared units and values, but equivalent-source selection remains
+blocked until authoritative unit/calibration evidence resolves them.
+
+Metadata, identity, calendar or configuration changes during a read fail the
+request instead of relabeling the result. An unavailable native read service is
+a failed read, not a successful empty history. Only one read per entry runs at
+a time, with a timeout and no automatic retry. Beestat retains import and
+interval-repair ownership; this interface does not migrate legacy IDs or admit
+future successor series merely because their names have a particular suffix.
+
 ## Verify an installation before moving its consumers
 
 For an installation being evaluated, compare Unified with the mapped sources

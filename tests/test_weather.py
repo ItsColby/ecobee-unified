@@ -207,6 +207,56 @@ class WeatherPlatformTests(WeatherSourceFixture):
         self.assertIsNotNone(await self.entity.async_forecast_daily())
         self.assertEqual(self.second.entity_id, self.calls[-1]["entity_id"])
 
+    async def test_recorder_excludes_receipt_but_retains_weather_changes(self) -> None:
+        before = self.hass.states.get(self.entity_id)
+        assert before is not None
+        self.hass.states.async_set(
+            self.first.entity_id, "sunny", self.source_attributes
+        )
+        await self.hass.async_block_till_done()
+        repeated = self.hass.states.get(self.entity_id)
+        assert repeated is not None
+        self.assertEqual(before.state, repeated.state)
+        self.assertEqual(
+            {"ha_reported_at"},
+            {
+                key
+                for key in before.attributes.keys() | repeated.attributes.keys()
+                if before.attributes.get(key) != repeated.attributes.get(key)
+            },
+        )
+        self.assertEqual(
+            self.provider_time, repeated.attributes["provider_reported_at"]
+        )
+        assert repeated.state_info is not None
+        self.assertIn("ha_reported_at", repeated.state_info["unrecorded_attributes"])
+        self.assertNotIn(
+            "provider_reported_at", repeated.state_info["unrecorded_attributes"]
+        )
+
+        provider_time = self.provider_time + timedelta(seconds=30)
+        self.hass.states.async_set(
+            self.first.entity_id,
+            "rainy",
+            self.source_attributes
+            | {
+                "attribution": "Ecobee weather provided by STATION-A at "
+                f"{provider_time:%Y-%m-%d %H:%M:%S} UTC",
+            },
+        )
+        await self.hass.async_block_till_done()
+        changed = self.hass.states.get(self.entity_id)
+        assert changed is not None
+        self.assertEqual("rainy", changed.state)
+        self.assertNotEqual(repeated.state, changed.state)
+        self.assertEqual(provider_time, changed.attributes["provider_reported_at"])
+        assert changed.state_info is not None
+        self.assertIn("ha_reported_at", changed.attributes)
+        self.assertIn("ha_reported_at", changed.state_info["unrecorded_attributes"])
+        self.assertNotIn(
+            "provider_reported_at", changed.state_info["unrecorded_attributes"]
+        )
+
     async def test_forecast_rejects_malformed_data_and_read_failure(self) -> None:
         for rows in (
             None,

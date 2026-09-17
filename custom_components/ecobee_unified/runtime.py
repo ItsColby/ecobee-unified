@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 
 from .datapoints import DatapointManager
+from .historical import HistoricalManager
 from .manager import MappingManager
 
 
@@ -16,6 +17,7 @@ class EcobeeUnifiedRuntime:
 
     manager: MappingManager
     datapoints: DatapointManager | None = None
+    history: HistoricalManager | None = None
 
 
 type EcobeeUnifiedConfigEntry = ConfigEntry[EcobeeUnifiedRuntime]

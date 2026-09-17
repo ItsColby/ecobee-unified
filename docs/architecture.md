@@ -116,6 +116,47 @@ actual canonical state changes; earlier history is not rewritten. Stage and
 runtime remain reported thermostat evidence, not measured electrical operation.
 [Operational projection and both-zone regression cases](../tests/test_operating_state.py).
 
+### Daily historical reads
+
+Historical families are separate, optional config-entry rows with stable family
+and source IDs, current native identity evidence, metadata signatures, quantity,
+calendar, units and explicit source policy. Reconfigure stages add/edit/remove
+operations and preserves unowned fields; confirmation of a current association
+does not prove historical continuity. Physical temperature is distinct from
+thermostat control/display temperature. Outdoor feeds use native station
+identity rather than thermostat-device equality.
+
+The administrator-only response actions list configured families and perform
+bounded daily reads. The reader groups compatible native units, requests
+`recorder.get_statistics` with the initiating context and normalizes only
+verified quantities. Day reads use the exclusive calendar end minus one
+microsecond because Core expands the containing day; hour reads use the exact
+exclusive end for bin coverage. Dates are bounded to 31 days and 16 selected
+families, using HA's calendar and actual UTC midnight boundaries.
+
+One in-flight read belongs to the entry runtime. Identity, metadata, timezone
+and configuration are rechecked around awaited reads; unload fences pending
+responses. Daily values and hourly coverage remain separate native reads, with
+an acquisition interval rather than a claim of an atomic database snapshot.
+Missing values stay null. A fixed source preserves gaps; accepted ordered
+selection chooses a whole daily source row and exposes all candidate reasons.
+
+Legacy Beestat daily aggregates are never projected into invented hourly
+samples. Native bin completeness, provider-window timing, importer timing,
+sample completeness and settlement are distinct. AQI forward scaling of raw
+daily aggregates retains the difference from provider per-sample rounding.
+VOC native values remain inspectable while equivalent selection is blocked on
+the unresolved units. No provider polling, statistics import, historical
+measurement entity or database is added.
+
+The [native script](../examples/ecobee_daily_history_report.yaml) consumes and
+returns the action response. Standard statistical cards retain their original
+statistic IDs; family IDs are not aliases in Recorder. See the
+[operating contract](user-guide.md#read-daily-historical-families),
+[reader](../custom_components/ecobee_unified/historical.py),
+[source adapter](../custom_components/ecobee_unified/history_source.py), and
+[native service/consumer tests](../tests/test_history_service.py).
+
 ### Compose other equivalent datapoints
 
 The same config entry stores explicit `DatapointConfig` records with stable IDs,
@@ -163,8 +204,8 @@ owned projection; source loss never substitutes another entity with the same nam
 This composes existing HA observations. Beestat retains historical acquisition,
 external statistics, imports, forecasts and gaps; Recorder retains storage.
 Long-term statistics are not silently converted into current sensor inputs.
-These mappings do not provide historical source selection or reconcile the
-aggregation and coverage of separately stored statistics.
+Historical families use the separate daily read contract; current datapoints
+do not backfill or reconcile separately stored statistics.
 Each optional output is adopted by consumers explicitly, avoiding duplicate
 physical probes in label-based aggregates. [Datapoint engine](../custom_components/ecobee_unified/datapoints.py),
 [native projections](../custom_components/ecobee_unified/datapoint_entity.py),

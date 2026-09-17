@@ -23,6 +23,7 @@ TOOL_TESTS = {
 METADATA_TEST = "tests/test_public_safety.py"
 EXTRA_DEPENDENCIES: dict[str, set[str]] = {
     "tests/test_sensor.py": {f"{PRODUCT}/translations/en.json"},
+    "tests/test_history_service.py": {"examples/ecobee_daily_history_report.yaml"},
 }
 JOBS = ("unit", "minimum", "current", "release", "hacs")
 
@@ -475,6 +476,9 @@ def _route_path(
         plan["unresolved"].append(
             "pyproject.toml: select the affected tool configuration explicitly after review"
         )
+    elif selected and any(path in uses for uses in EXTRA_DEPENDENCIES.values()):
+        # Explicit non-Python runtime inputs use their real native consumer.
+        pass
     elif path.endswith(".md") or path in {
         "LICENSE",
         ".gitignore",

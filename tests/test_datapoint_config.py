@@ -266,6 +266,70 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                 self.hass.config_entries.flow.async_abort(result["flow_id"])
         self.assertEqual([], entry.data["datapoints"])
 
+    async def test_quantity_edit_reloads_output_with_current_semantic_and_preserves_future_fields(
+        self,
+    ) -> None:
+        await self.manager.async_stop()
+        original = _datapoint_from_input(
+            self.hass,
+            self._values(
+                name="Zone control temperature",
+                kind="temperature",
+                semantic="control_temperature",
+                unit="°C",
+                primary_attribute="current_temperature",
+                secondary_attribute="current_temperature",
+            ),
+        )
+        original["future_row"] = {"keep": True}
+        original["sources"][0]["future_binding"] = "keep"
+        entry = self._entry([original])
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        old_manager = entry.runtime_data.datapoints
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "sensor", DOMAIN, old_manager.unique_id(original["datapoint_id"])
+        )
+        assert entity_id is not None
+        before = self.hass.states.get(entity_id)
+        assert before is not None
+        self.assertEqual("control_temperature", before.attributes["semantic"])
+        self.assertEqual("temperature", before.attributes["device_class"])
+
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": original["datapoint_id"]})
+        values = _datapoint_form_defaults(self.hass, original) | self._values(
+            semantic="control_temperature"
+        )
+        result = await self._submit(result, values)
+        self.assertEqual(FlowResultType.MENU, result["type"])
+        result = await self._next(result, "reconfigure_finish")
+        self.assertEqual("reconfigure_successful", result["reason"])
+        await self.hass.async_block_till_done()
+
+        saved = entry.data["datapoints"][0]
+        self.assertEqual(original["datapoint_id"], saved["datapoint_id"])
+        self.assertIsNone(saved["semantic"])
+        self.assertEqual({"keep": True}, saved["future_row"])
+        self.assertEqual("keep", saved["sources"][0]["future_binding"])
+        self.assertEqual({"keep": True}, entry.data["future_top_level"])
+        self.assertIsNot(old_manager, entry.runtime_data.datapoints)
+        self.assertFalse(old_manager._running)
+        self.assertEqual(
+            entity_id,
+            er.async_get(self.hass).async_get_entity_id(
+                "sensor",
+                DOMAIN,
+                entry.runtime_data.datapoints.unique_id(saved["datapoint_id"]),
+            ),
+        )
+        after = self.hass.states.get(entity_id)
+        assert after is not None
+        self.assertEqual("42.0", after.state)
+        self.assertEqual("%", after.attributes["unit_of_measurement"])
+        self.assertEqual("humidity", after.attributes["device_class"])
+        self.assertEqual("humidity", after.attributes["semantic"])
+
     async def test_changed_sources_require_equivalence_again_but_name_and_fallback_do_not(
         self,
     ) -> None:

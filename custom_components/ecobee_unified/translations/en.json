@@ -5,7 +5,10 @@
       "one_mapping_required": "This integration needs at least one thermostat mapping. Keep one mapping, or remove the integration entry to remove them all.",
       "invalid_datapoint_identity": "This datapoint identity is missing or repeated in the saved configuration. No changes were saved. Restore one distinct stable identity per datapoint before editing.",
       "datapoint_source_limit": "This saved datapoint has more than three sources. This form supports up to three and cannot edit it without losing sources. No changes were saved.",
-      "datapoint_not_supported": "This saved datapoint uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available."
+      "datapoint_not_supported": "This saved datapoint uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available.",
+      "historical_identity_invalid": "This saved daily history mapping has a missing or repeated stable identity. No changes were saved. Restore one distinct identity per mapping before editing.",
+      "historical_source_limit": "This saved daily history mapping has more than three sources. This form supports up to three and cannot edit it without losing sources. No changes were saved.",
+      "historical_not_supported": "This saved daily history mapping uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available."
     },
     "error": {
       "confirmation_required": "Review this source change or mapping removal, then select the confirmation checkbox to continue.",
@@ -100,7 +103,33 @@
       "membership_profile_context_invalid": "The member list has invalid comfort-profile context. Check the source report.",
       "membership_timestamp_invalid": "Use the source-owned metadata timestamp for configured membership. Another timestamp cannot establish freshness of the member list.",
       "metadata_time_unknown": "The source supplies no membership metadata time, so a maximum age cannot establish freshness. Select a source with metadata timing or leave age expiry disabled.",
-      "source_disabled": "The source entity or its device is disabled. Restore it in its native integration."
+      "source_disabled": "The source entity or its device is disabled. Restore it in its native integration.",
+      "historical_family_invalid": "This daily history mapping is invalid. Check its name, physical item or shared weather feed, quantity, sources, and selection policy.",
+      "historical_quantity_invalid": "Choose temperature, relative humidity, battery level, carbon dioxide, air quality index, VOC, weather temperature, or weather humidity.",
+      "historical_unit_invalid": "Choose a supported unit for this quantity. Temperature and weather temperature use °C or °F; humidity, weather humidity, and battery level use %; carbon dioxide uses ppm; normalized AQI uses 0–100; and VOC uses native source values without claiming equivalent units.",
+      "historical_policy_invalid": "Choose one fixed source or ordered daily source selection.",
+      "historical_cross_method_required": "These sources use different aggregation methods. Review the method differences and explicitly accept them before allowing selection across methods.",
+      "historical_sources_invalid": "Select one to three distinct, supported statistic IDs for the same quantity and physical item or shared weather feed.",
+      "historical_timezone_invalid": "Enter a valid time zone matching the current Home Assistant calendar. The time zone defines the days used for selection.",
+      "historical_confirmation_required": "Confirm that the selected statistics belong to the same physical item or shared weather feed and quantity. This association does not prove identity continuity throughout their stored history.",
+      "historical_duplicate_name": "Another daily history mapping uses this name, ignoring letter case and surrounding spaces. Enter a distinct name.",
+      "historical_identity_invalid": "This saved daily history mapping has a missing or repeated stable identity. No changes were saved. Restore one distinct identity per mapping before editing.",
+      "historical_source_limit": "This saved daily history mapping has more than three sources. This form supports up to three and cannot edit it without losing sources. No changes were saved.",
+      "historical_not_supported": "This saved daily history mapping uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available.",
+      "historical_unsupported_quantity": "This source does not support the selected historical quantity. Choose a supported source and quantity.",
+      "historical_source_metadata_unavailable": "Metadata for a selected statistic is unavailable. Restore the native source or select a statistic with available metadata.",
+      "historical_source_metadata_invalid": "A selected statistic has invalid or incomplete metadata. Correct it in its native integration before selecting it.",
+      "historical_source_unit_mismatch": "The source unit is incompatible with the selected output. VOC values may be viewed in their native units, but equivalent selection is blocked until unit and calibration equivalence is proven.",
+      "historical_source_role_mismatch": "A selected statistic represents a different quantity or measurement role. Choose sources that represent the intended quantity for this item.",
+      "historical_source_identity_unproven": "The source metadata does not establish this statistic's physical item or shared weather feed. Choose a supported sensor or weather entity with proven association and explicitly confirm the statistic belongs to it.",
+      "historical_source_identity_mismatch": "A selected statistic identifies a different physical item or weather feed. Select statistics for the same thermostat, remote sensor, or shared weather feed.",
+      "historical_source_unavailable": "A selected statistic or its native source is unavailable. Restore it or select an available supported source.",
+      "historical_source_changed": "A selected source changed during validation. Review its current metadata and association, then submit the form again.",
+      "historical_beestat_unavailable": "Beestat Statistics is unavailable. Restore its integration and effective source mapping before selecting this statistic.",
+      "historical_beestat_mapping_invalid": "The Beestat Statistics mapping does not establish a usable association with this physical item. Correct its mapping before continuing.",
+      "historical_beestat_mapping_ambiguous": "More than one effective Beestat Statistics mapping could own this statistic. Resolve the ambiguous mapping before continuing.",
+      "historical_unsupported_source": "Choose a supported historical statistic associated with a registered sensor or weather entity from Ecobee, HomeKit Device, Ecobee Unified, or an effective Beestat Statistics mapping.",
+      "historical_timezone_mismatch": "Daily selection requires the mapping, sources, and current Home Assistant calendar to use the same time zone. Select the current Home Assistant time zone."
     },
     "step": {
       "user": {
@@ -137,7 +166,7 @@
         "title": "Thermostat mapping"
       },
       "reconfigure": {
-        "description": "Add, edit, or remove thermostat mappings and read-only datapoints, then choose Save changes to apply the complete set. Saving reloads the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained.",
+        "description": "Add, edit, or remove thermostat mappings, read-only datapoints, and daily history mappings, then choose Save changes to apply the complete set. Saving reloads the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained.",
         "menu_options": {
           "reconfigure_add": "Add thermostat mapping",
           "reconfigure_edit": "Edit thermostat mapping",
@@ -145,7 +174,10 @@
           "reconfigure_finish": "Save changes",
           "datapoint_add": "Add multi-source datapoint",
           "datapoint_edit": "Edit multi-source datapoint",
-          "datapoint_remove": "Remove multi-source datapoint"
+          "datapoint_remove": "Remove multi-source datapoint",
+          "historical_add": "Add daily history mapping",
+          "historical_edit": "Edit daily history mapping",
+          "historical_remove": "Remove daily history mapping"
         },
         "title": "Reconfigure unified sources"
       },
@@ -370,6 +402,94 @@
         },
         "data_description": {
           "confirm_change": "Confirm removal of this one canonical datapoint. No native source or thermostat mapping is removed. Apply with Save changes."
+        }
+      },
+      "historical_add": {
+        "title": "Add daily history mapping",
+        "description": "Group existing daily statistics for one physical thermostat, remote sensor, or shared weather feed. Historical identity continuity remains unknown. Changes are staged until Save changes; this daily view does not import or rewrite source history.",
+        "data": {
+          "name": "Daily history mapping name",
+          "quantity": "Quantity",
+          "unit": "Output unit",
+          "timezone": "Daily calendar time zone",
+          "anchor_ref": "Entity identifying the item or weather feed",
+          "primary_statistic": "First statistic (required)",
+          "secondary_statistic": "Second statistic (optional)",
+          "tertiary_statistic": "Third statistic (optional)",
+          "policy": "Daily source policy",
+          "accept_cross_method": "Accept selection across different aggregation methods",
+          "confirm_association": "Confirm the sources belong to this item or weather feed and quantity"
+        },
+        "data_description": {
+          "name": "Use a distinct name for this daily history mapping. Renaming it preserves its stable identity.",
+          "quantity": "Select the quantity to compare by day: temperature, humidity, battery level, carbon dioxide, AQI, VOC, weather temperature, or weather humidity. Weather sources are aliases of a shared feed; their association does not establish a physical weather sensor or independent measurements.",
+          "unit": "Choose a compatible output unit. AQI 0–100 compares a scaled raw daily mean with a mean of provider-rounded samples; these methods are not interchangeable, and neither exactly reconstructs the other. VOC native values remain visible, but equivalent selection is blocked pending unit and calibration proof.",
+          "timezone": "Defines each calendar day, including daylight saving changes. Defaults to the current Home Assistant time zone and must match that calendar and the captured sources.",
+          "anchor_ref": "Select a registered sensor from Ecobee, HomeKit Device, Ecobee Unified, or Battery Notes, or a native Ecobee weather entity. Its identity or shared weather feed association must match the selected quantity. Weather association does not prove geography or independent measurement. Current association does not establish continuity throughout stored history.",
+          "primary_statistic": "Required statistic ID and first preferred source for the same physical item or shared weather feed and quantity. An effective Beestat Statistics mapping may supply the association automatically. Explicitly confirm that the selected sources belong together.",
+          "secondary_statistic": "Optional second statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when the first source cannot supply that day.",
+          "tertiary_statistic": "Optional third statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when earlier sources cannot supply that day.",
+          "policy": "Fixed source uses only the first statistic and leaves its gaps. Ordered daily selection chooses one whole eligible source for each day; it does not combine observations from different sources within a day.",
+          "accept_cross_method": "Required to use ordered daily selection when sources use different aggregation methods. Acceptance allows selection despite the stated differences; it does not make the methods equivalent or reconstruct missing samples.",
+          "confirm_association": "Confirm that every statistic belongs to the selected physical item or shared weather feed and quantity. A current mapping or matching label cannot establish historical identity continuity. This view reads existing daily history and does not import or rewrite it."
+        }
+      },
+      "historical_edit": {
+        "title": "Choose daily history mapping to edit",
+        "data": {
+          "family_id": "Daily history mapping"
+        },
+        "data_description": {
+          "family_id": "Choose the existing daily history mapping to edit. Its stable identity is retained."
+        }
+      },
+      "historical_edit_confirm": {
+        "title": "Edit daily history mapping",
+        "description": "Group existing daily statistics for one physical thermostat, remote sensor, or shared weather feed. Historical identity continuity remains unknown. Changes are staged until Save changes; this daily view does not import or rewrite source history.",
+        "data": {
+          "name": "Daily history mapping name",
+          "quantity": "Quantity",
+          "unit": "Output unit",
+          "timezone": "Daily calendar time zone",
+          "anchor_ref": "Entity identifying the item or weather feed",
+          "primary_statistic": "First statistic (required)",
+          "secondary_statistic": "Second statistic (optional)",
+          "tertiary_statistic": "Third statistic (optional)",
+          "policy": "Daily source policy",
+          "accept_cross_method": "Accept selection across different aggregation methods",
+          "confirm_association": "Confirm the sources belong to this item or weather feed and quantity"
+        },
+        "data_description": {
+          "name": "Use a distinct name for this daily history mapping. Renaming it preserves its stable identity.",
+          "quantity": "Select the quantity to compare by day: temperature, humidity, battery level, carbon dioxide, AQI, VOC, weather temperature, or weather humidity. Weather sources are aliases of a shared feed; their association does not establish a physical weather sensor or independent measurements.",
+          "unit": "Choose a compatible output unit. AQI 0–100 compares a scaled raw daily mean with a mean of provider-rounded samples; these methods are not interchangeable, and neither exactly reconstructs the other. VOC native values remain visible, but equivalent selection is blocked pending unit and calibration proof.",
+          "timezone": "Defines each calendar day, including daylight saving changes. Defaults to the current Home Assistant time zone and must match that calendar and the captured sources.",
+          "anchor_ref": "Select a registered sensor from Ecobee, HomeKit Device, Ecobee Unified, or Battery Notes, or a native Ecobee weather entity. Its identity or shared weather feed association must match the selected quantity. Weather association does not prove geography or independent measurement. Current association does not establish continuity throughout stored history.",
+          "primary_statistic": "Required statistic ID and first preferred source for the same physical item or shared weather feed and quantity. An effective Beestat Statistics mapping may supply the association automatically. Explicitly confirm that the selected sources belong together.",
+          "secondary_statistic": "Optional second statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when the first source cannot supply that day.",
+          "tertiary_statistic": "Optional third statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when earlier sources cannot supply that day.",
+          "policy": "Fixed source uses only the first statistic and leaves its gaps. Ordered daily selection chooses one whole eligible source for each day; it does not combine observations from different sources within a day.",
+          "accept_cross_method": "Required to use ordered daily selection when sources use different aggregation methods. Acceptance allows selection despite the stated differences; it does not make the methods equivalent or reconstruct missing samples.",
+          "confirm_association": "Confirm that every statistic belongs to the selected physical item or shared weather feed and quantity. A current mapping or matching label cannot establish historical identity continuity. This view reads existing daily history and does not import or rewrite it."
+        }
+      },
+      "historical_remove": {
+        "title": "Choose daily history mapping to remove",
+        "data": {
+          "family_id": "Daily history mapping"
+        },
+        "data_description": {
+          "family_id": "Choose the existing daily history mapping to remove. Source entities and stored statistics remain with their native owners."
+        }
+      },
+      "historical_remove_confirm": {
+        "title": "Remove daily history mapping",
+        "description": "Remove {name} from Ecobee Unified when you choose Save changes. This removes its selection configuration, not native sources or stored history.",
+        "data": {
+          "confirm_change": "Confirm removal of this daily history mapping"
+        },
+        "data_description": {
+          "confirm_change": "Confirm removal of this one mapping. No source entity, stored statistic, or thermostat mapping is removed. Apply with Save changes."
         }
       }
     }
@@ -612,6 +732,24 @@
         "elapsed_duration": "Measured elapsed duration",
         "minimum_fan_runtime_per_hour": "Minimum fan runtime per hour (setting)",
         "weather_temperature": "Outdoor weather temperature"
+      }
+    },
+    "historical_quantity": {
+      "options": {
+        "temperature": "Temperature",
+        "humidity": "Relative humidity",
+        "co2": "Carbon dioxide",
+        "aqi": "Air quality index",
+        "voc": "Volatile organic compounds",
+        "battery": "Battery level",
+        "weather_temperature": "Weather temperature",
+        "weather_humidity": "Weather relative humidity"
+      }
+    },
+    "historical_policy": {
+      "options": {
+        "fixed_source": "Fixed first source; preserve gaps",
+        "ordered_daily": "First eligible whole source per day"
       }
     }
   }

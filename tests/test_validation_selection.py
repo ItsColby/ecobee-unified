@@ -207,6 +207,12 @@ class ValidationSelectionTests(unittest.TestCase):
         self.assertTrue(plan["jobs"]["current"])
         self.assertFalse(plan["jobs"]["minimum"])
 
+    def test_native_report_example_selects_its_real_script_consumer(self):
+        plan = planner.build_plan(["examples/ecobee_daily_history_report.yaml"])
+        self.assertEqual([], plan["unresolved"])
+        self.assertIn("tests/test_history_service.py", plan["ha_tests"])
+        self.assertTrue(plan["jobs"]["current"])
+
     def test_unknown_change_is_not_converted_to_a_full_plan(self):
         plan = planner.build_plan(["future/unknown.py"])
         self.assertEqual(["future/unknown.py"], plan["unresolved"])

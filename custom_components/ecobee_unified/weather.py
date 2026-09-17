@@ -68,6 +68,7 @@ class EcobeeUnifiedWeather(WeatherEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _unrecorded_attributes = frozenset({"ha_reported_at"})
 
     def __init__(self, manager: DatapointManager, config: DatapointConfig) -> None:
         self._manager = manager

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant import setup as ha_setup
 from homeassistant.config_entries import ConfigEntryState
@@ -17,7 +17,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ecobee_unified import async_setup_entry
+from custom_components.ecobee_unified import async_setup_entry, async_unload_entry
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
@@ -35,6 +35,53 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
 
     async def test_cancel_during_manager_start(self) -> None:
         await self._cancel_setup("start", "mismatch")
+
+    def _historical_row(self):
+        return {
+            "family_id": "room_history",
+            "name": "Room history",
+            "quantity": "temperature",
+            "unit": "°C",
+            "timezone": self.hass.config.time_zone,
+            "anchor_ref": self.homekit_temperature.id,
+            "sources": [
+                {
+                    "source_id": "room_source",
+                    "statistic_id": self.homekit_temperature.entity_id,
+                    "method": "recorder_hourly_time_weighted",
+                }
+            ],
+        }
+
+    async def test_historical_runtime_survives_failed_unload_then_stops(self) -> None:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            data={
+                CONF_MAPPINGS: [self.mapping.as_dict()],
+                "historical_families": [self._historical_row()],
+            },
+            version=1,
+            minor_version=4,
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        history = entry.runtime_data.history
+        self.assertIsNotNone(history)
+        self.assertTrue(history._active)
+        with patch.object(
+            self.hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(return_value=False),
+        ):
+            self.assertFalse(await async_unload_entry(self.hass, entry))
+        self.assertTrue(history._active)
+        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+        self.assertFalse(history._active)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        self.assertIsNot(history, entry.runtime_data.history)
+        self.assertTrue(entry.runtime_data.history._active)
+        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
 
     async def test_cancel_during_forward_with_mismatch_deadline(self) -> None:
         await self._cancel_setup("forward", "mismatch")
@@ -372,7 +419,10 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [mapping.as_dict()]},
+            data={
+                CONF_MAPPINGS: [mapping.as_dict()],
+                "historical_families": [self._historical_row()],
+            },
             version=1,
             minor_version=3,
         )
@@ -478,6 +528,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 self.assertFalse(entry.setup_lock.locked())
                 native_cleanup.assert_called_once_with()
                 self.assertTrue(manager._stopped.is_set())
+                self.assertFalse(entry.runtime_data.history._active)
                 for unsubscribe in (*subscriptions, *deadlines):
                     unsubscribe.assert_called_once_with()
                 self.assertEqual(

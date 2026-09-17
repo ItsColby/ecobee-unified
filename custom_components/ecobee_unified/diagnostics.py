@@ -82,13 +82,32 @@ async def async_get_config_entry_diagnostics(
                     "source_statuses": [item.status for item in point.source_statuses],
                 }
             )
+    historical_families = (
+        [
+            {
+                "family": f"family_{index}",
+                "quantity": family.quantity,
+                "policy": family.policy,
+                "source_count": len(family.sources),
+                "equivalent_selection": (
+                    "blocked_voc_units" if family.quantity == "voc" else "configured"
+                ),
+                "historical_identity_continuity": "unknown",
+            }
+            for index, family in enumerate(entry.runtime_data.history.families, start=1)
+        ]
+        if entry.runtime_data.history is not None
+        else []
+    )
     return {
         "entry": {
             "version": entry.version,
             "minor_version": entry.minor_version,
             "mapping_count": len(mappings),
             "datapoint_count": len(datapoints),
+            "historical_family_count": len(historical_families),
         },
         "mappings": mappings,
         "datapoints": datapoints,
+        "historical_families": historical_families,
     }

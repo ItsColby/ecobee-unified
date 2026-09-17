@@ -1,6 +1,7 @@
 {
   "domain": "ecobee_unified",
   "name": "Ecobee Unified",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@ItsColby"],
   "config_flow": true,
   "documentation": "https://github.com/ItsColby/ecobee-unified",

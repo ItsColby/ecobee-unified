@@ -10,6 +10,7 @@ from uuid import uuid4
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -51,7 +52,12 @@ from .const import (
     NAME,
     RECONFIGURE_MENU_OPTIONS,
 )
-from .datapoints import DatapointConfig, SourceBinding, validate_datapoint
+from .datapoints import (
+    DatapointConfig,
+    SourceBinding,
+    validate_datapoint,
+    validate_datapoint_edit_sources,
+)
 from .historical import HistoricalFamily
 from .history_source import (
     SOURCE_CONTRACT_FIELDS,
@@ -1174,7 +1180,9 @@ def _datapoint_from_input(
         }
     )
     if current is not None:
-        _validate_datapoint_edit_meaning(DatapointConfig.from_dict(current), config)
+        _validate_datapoint_edit_meaning(
+            hass, DatapointConfig.from_dict(current), config
+        )
     validate_datapoint(hass, config)
     if not user_input.get("confirm_equivalence", False) and (
         current is None or _datapoint_contract_changed(current, config)
@@ -1211,9 +1219,9 @@ def _datapoint_from_input(
 
 
 def _validate_datapoint_edit_meaning(
-    previous: DatapointConfig, current: DatapointConfig
+    hass: HomeAssistant, previous: DatapointConfig, current: DatapointConfig
 ) -> None:
-    """Keep one quantity and time meaning behind an existing Recorder identity."""
+    """Keep one subject, quantity, role and time meaning behind a Recorder identity."""
     if (
         previous.kind != current.kind
         or (previous.semantic or previous.kind) != (current.semantic or current.kind)
@@ -1231,6 +1239,7 @@ def _validate_datapoint_edit_meaning(
         (source.entity, source.attribute) for source in previous.sources
     } != {(source.entity, source.attribute) for source in current.sources}:
         raise vol.Invalid("datapoint_meaning_change")
+    validate_datapoint_edit_sources(hass, previous, current)
 
 
 def _weather_datapoint_identity(

@@ -257,7 +257,7 @@ For household weather, choose **Weather and daily forecast**, select the two
 native Ecobee weather entities, and leave unit, attribute and timestamp fields
 blank. This creates one weather entity with ordered source selection and daily
 forecasts. Both sources must report the same station through the same Ecobee
-connection. A changed station requires renewed confirmation. The weather
+connection. A different station or Ecobee connection requires a new datapoint. The weather
 provider's forecast time is retained separately from Home Assistant receipt;
 neither proves a new physical measurement. Forecast dates retain the native
 adapter's meaning. The aliases share one upstream feed and provide no
@@ -268,10 +268,16 @@ meaning and stable output identity. Name, source priority, fallback, and freshne
 changes retain that identity. Normal source entity renames retain their registry
 references. Source reordering and compatible output-unit changes still require
 equivalence confirmation; confirmation does not permit a change of meaning.
+Replacing a typed source also requires proof that the old and new sources refer
+to the same physical item and native observation role. Measured humidity and
+target humidity are different roles. Matching units, values or device labels
+cannot establish that continuity. When the native role cannot be proven, keep
+the existing entity-and-attribute bindings or add a new datapoint.
 
 | Change | Required action |
 |---|---|
 | Quantity type or meaning, such as physical versus control temperature or elapsed duration versus a minimum fan setting | Use **Add multi-source datapoint** to create a new identity |
+| Physical item, shared weather feed, or observation role, such as measured versus target humidity | Use **Add multi-source datapoint** to create a new identity |
 | Current versus fixed-interval observations, or the duration of a fixed interval | Use **Add multi-source datapoint** to create a new identity |
 | Temperature output between °C, °F, and K, or duration output between s, min, h, and d | Edit the existing datapoint only when its meaning and time basis stay the same, then confirm equivalence |
 | Any other output-unit change, including **Other numeric quantity** | Use **Add multi-source datapoint** to create a new identity |

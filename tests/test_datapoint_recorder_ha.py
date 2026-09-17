@@ -55,6 +55,8 @@ class Sources:
     primary: er.RegistryEntry
     secondary: er.RegistryEntry
     batteries: tuple[er.RegistryEntry, er.RegistryEntry]
+    replacements: tuple[er.RegistryEntry, er.RegistryEntry]
+    other_thermostat: tuple[er.RegistryEntry, er.RegistryEntry]
 
     def form(self, kind: str, **changes: Any) -> dict[str, Any]:
         battery = kind == "battery"
@@ -87,6 +89,8 @@ async def sources(hass: HomeAssistant, recorder_mock: Recorder) -> Sources:
     registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     records = []
+    replacements = []
+    other_thermostat = []
     devices = []
     entries = []
     for platform in ("homekit_controller", "ecobee"):
@@ -106,6 +110,35 @@ async def sources(hass: HomeAssistant, recorder_mock: Recorder) -> Sources:
             device_id=device.id,
         )
         _thermostat_state(hass, entry.entity_id, 20 if not records else 21)
+        replacement = registry.async_get_or_create(
+            "climate",
+            platform,
+            f"{platform}_thermostat_a_replacement",
+            config_entry=source_entry,
+            device_id=device.id,
+        )
+        _thermostat_state(
+            hass,
+            replacement.entity_id,
+            23 if not records else 24,
+            humidity=46 if not records else 47,
+        )
+        other_device = device_registry.async_get_or_create(
+            config_entry_id=source_entry.entry_id,
+            identifiers={(platform, "thermostat_b")},
+            serial_number="thermostat_b",
+            manufacturer="ecobee Inc.",
+        )
+        other = registry.async_get_or_create(
+            "climate",
+            platform,
+            f"{platform}_thermostat_b",
+            config_entry=source_entry,
+            device_id=other_device.id,
+        )
+        _thermostat_state(hass, other.entity_id, 24 if not records else 25)
+        replacements.append(replacement)
+        other_thermostat.append(other)
         records.append(entry)
         devices.append(device)
         entries.append(source_entry)
@@ -134,16 +167,25 @@ async def sources(hass: HomeAssistant, recorder_mock: Recorder) -> Sources:
         )
         batteries.append(entry)
     await async_wait_recording_done(hass)
-    return Sources(records[0], records[1], (batteries[0], batteries[1]))
+    return Sources(
+        records[0],
+        records[1],
+        (batteries[0], batteries[1]),
+        (replacements[0], replacements[1]),
+        (other_thermostat[0], other_thermostat[1]),
+    )
 
 
-def _thermostat_state(hass: HomeAssistant, entity_id: str, temperature: float) -> None:
+def _thermostat_state(
+    hass: HomeAssistant, entity_id: str, temperature: float, *, humidity: float = 42
+) -> None:
     hass.states.async_set(
         entity_id,
         "heat",
         {
             "current_temperature": temperature,
-            "current_humidity": 42,
+            "current_humidity": humidity,
+            "humidity": 55,
             "unit_of_measurement": "°C",
             "temperature": 22,
             "hvac_modes": ["heat", "off"],
@@ -280,17 +322,25 @@ async def _history(
 
 
 @pytest.mark.parametrize(
-    ("old_kind", "new_kind"), [("temperature", "humidity"), ("humidity", "battery")]
+    ("old_kind", "new_kind", "change", "new_mean"),
+    [
+        ("temperature", "humidity", "quantity", 42),
+        ("humidity", "battery", "quantity", 87),
+        ("temperature", "temperature", "subject", 24),
+        ("humidity", "humidity", "role", 55),
+    ],
 )
-async def test_changed_quantity_preserves_existing_recorder_identity(
+async def test_changed_meaning_preserves_existing_recorder_identity(
     hass: HomeAssistant,
     sources: Sources,
     freezer: FrozenDateTimeFactory,
     recorder_db_url: str,
     old_kind: str,
     new_kind: str,
+    change: str,
+    new_mean: float,
 ) -> None:
-    """Reject both incompatible units and equal-unit/different-meaning reuse."""
+    """Reject quantity, physical-subject and measured/target-role identity reuse."""
     entry, entity_id = await _setup(hass, sources, old_kind)
     await _compile_hour(hass, freezer, 0)
     assert recorder_db_url.startswith("sqlite:///")
@@ -304,26 +354,42 @@ async def test_changed_quantity_preserves_existing_recorder_identity(
     assert recorded_history[entity_id]
     original = deepcopy(dict(entry.data))
     manager = entry.runtime_data.datapoints
-    registry_id = er.async_get(hass).async_get(entity_id).id
+    registry_entry = er.async_get(hass).async_get(entity_id)
+    assert registry_entry is not None
+    assert registry_entry.device_id is not None
+    device_entry = dr.async_get(hass).async_get(registry_entry.device_id)
+    assert device_entry is not None
+    values = sources.form(new_kind)
+    if change == "subject":
+        values |= {
+            "primary_entity": sources.other_thermostat[0].entity_id,
+            "secondary_entity": sources.other_thermostat[1].entity_id,
+        }
+    elif change == "role":
+        values |= {"primary_attribute": "humidity", "secondary_attribute": "humidity"}
 
     freezer.move_to(START + timedelta(hours=1, minutes=5))
     flow = await _form(hass, entry, "recorded_channel")
-    rejected = await hass.config_entries.flow.async_configure(
-        flow["flow_id"], sources.form(new_kind)
-    )
+    rejected = await hass.config_entries.flow.async_configure(flow["flow_id"], values)
     assert rejected["type"] is FlowResultType.FORM
     assert rejected["errors"] == {"base": "datapoint_meaning_change"}
     assert entry.data == original
     assert entry.runtime_data.datapoints is manager
     assert _entity_id(hass, entry, "recorded_channel") == entity_id
-    assert er.async_get(hass).async_get(entity_id).id == registry_id
+    await async_wait_recording_done(hass)
+    assert er.async_get(hass).async_get(entity_id) == registry_entry
+    assert dr.async_get(hass).async_get(registry_entry.device_id) == device_entry
     assert await _metadata(hass, [entity_id]) == metadata
     assert await _statistics(hass, [entity_id]) == recorded
     assert await _history(hass, [entity_id]) == recorded_history
     hass.config_entries.flow.async_abort(flow["flow_id"])
 
     # The instructed replacement route creates its own HA/Recorder identity.
-    await _save(hass, await _form(hass, entry, None), sources.form(new_kind))
+    await _save(
+        hass,
+        await _form(hass, entry, None),
+        values | {"name": f"New {change} {new_kind}"},
+    )
     new_config = entry.data["datapoints"][1]
     new_entity_id = _entity_id(hass, entry, new_config["datapoint_id"])
     assert new_config["datapoint_id"] != "recorded_channel"
@@ -336,7 +402,7 @@ async def test_changed_quantity_preserves_existing_recorder_identity(
     assert await _history(hass, [entity_id]) == recorded_history
     new_rows = (await _statistics(hass, [new_entity_id], 2))[new_entity_id]
     assert len(new_rows) == 1
-    assert new_rows[0]["mean"] == (42 if new_kind == "humidity" else 87)
+    assert new_rows[0]["mean"] == new_mean
     all_history = await _history(hass, [entity_id, new_entity_id], 2)
     for current_id, kind in ((entity_id, old_kind), (new_entity_id, new_kind)):
         assert {
@@ -348,6 +414,62 @@ async def test_changed_quantity_preserves_existing_recorder_identity(
         issue.translation_key == "units_changed"
         for issue in ir.async_get(hass).issues.values()
     )
+
+
+@pytest.mark.parametrize(
+    ("kind", "old_mean", "new_mean"),
+    [("temperature", 20, 23), ("humidity", 42, 46)],
+)
+async def test_equivalent_native_rebinding_preserves_persisted_identity(
+    hass: HomeAssistant,
+    sources: Sources,
+    freezer: FrozenDateTimeFactory,
+    kind: str,
+    old_mean: float,
+    new_mean: float,
+) -> None:
+    """New registry UUIDs can retain a proven thermostat and native measured role."""
+    entry, entity_id = await _setup(hass, sources, kind)
+    await _compile_hour(hass, freezer, 0)
+    metadata = await _metadata(hass, [entity_id])
+    first_statistics = await _statistics(hass, [entity_id])
+    first_history = await _history(hass, [entity_id])
+    original_registry = er.async_get(hass).async_get(entity_id)
+    assert original_registry is not None
+    assert original_registry.device_id == sources.primary.device_id
+    assert {source.id for source in sources.replacements}.isdisjoint(
+        {sources.primary.id, sources.secondary.id}
+    )
+
+    freezer.move_to(START + timedelta(hours=1, minutes=5))
+    await _save(
+        hass,
+        await _form(hass, entry, "recorded_channel"),
+        sources.form(
+            kind,
+            primary_entity=sources.replacements[0].entity_id,
+            secondary_entity=sources.replacements[1].entity_id,
+        ),
+    )
+    rebound = er.async_get(hass).async_get(entity_id)
+    assert rebound is not None
+    assert rebound.id == original_registry.id
+    assert rebound.device_id == original_registry.device_id
+    assert _entity_id(hass, entry, "recorded_channel") == entity_id
+    assert {source["entity"] for source in entry.data["datapoints"][0]["sources"]} == {
+        source.id for source in sources.replacements
+    }
+    assert entry.runtime_data.datapoints.snapshot("recorded_channel").value == new_mean
+    # The former source is no longer a dependency of the retained datapoint.
+    _thermostat_state(hass, sources.primary.entity_id, 99, humidity=99)
+    await async_wait_recording_done(hass)
+    assert float(hass.states.get(entity_id).state) == new_mean
+    await _compile_hour(hass, freezer, 1)
+    assert await _metadata(hass, [entity_id]) == metadata
+    assert await _statistics(hass, [entity_id]) == first_statistics
+    assert await _history(hass, [entity_id]) == first_history
+    rows = (await _statistics(hass, [entity_id], 2))[entity_id]
+    assert [row["mean"] for row in rows] == [old_mean, new_mean]
 
 
 async def test_same_meaning_edits_preserve_persisted_statistics_and_convert_units(

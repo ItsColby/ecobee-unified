@@ -10,6 +10,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed_exact,
@@ -24,6 +25,7 @@ from custom_components.ecobee_unified.datapoints import (
     DatapointManager,
     SourceBinding,
     validate_datapoint,
+    validate_datapoint_edit_sources,
 )
 from custom_components.ecobee_unified.weather_source import WeatherSnapshot
 
@@ -72,6 +74,132 @@ def _config(*sources: er.RegistryEntry, **changes: Any) -> DatapointConfig:
     if values["kind"] == "duration":
         values.setdefault("semantic", "elapsed_duration")
     return DatapointConfig(**values)
+
+
+async def test_typed_edit_requires_same_subject_and_all_normalized_roles(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", domain="climate", unit=None)
+    second = _source(hass, "ecobee", domain="climate", unit=None)
+    device = dr.async_get(hass).async_get(second.device_id)
+    assert isinstance(device, dr.DeviceEntry)
+    measured = _source(hass, "ecobee", device=device)
+    replacement = _source(
+        hass, "ecobee", domain="climate", device=device, unique_id="replacement"
+    )
+    other = _source(hass, "ecobee", "OTHER", domain="climate", unit=None)
+    for source in (first, second, replacement, other):
+        hass.states.async_set(
+            source.entity_id, "cool", {"current_humidity": 42, "humidity": 55}
+        )
+    hass.states.async_set(measured.entity_id, "42")
+    original = _config(
+        sources=(
+            SourceBinding(first.id, "current_humidity"),
+            SourceBinding(second.id, "current_humidity"),
+        )
+    )
+    validate_datapoint(hass, original)
+    for changed in (
+        # A different registry UUID and entity form can prove the same measured role.
+        (SourceBinding(measured.id), original.sources[0]),
+        (SourceBinding(replacement.id, "current_humidity"), original.sources[1]),
+    ):
+        candidate = replace(original, sources=changed)
+        validate_datapoint(hass, candidate)
+        validate_datapoint_edit_sources(hass, original, candidate)
+    target = SourceBinding(second.id, "humidity")
+    for changed in (
+        (original.sources[0], target),
+        (*original.sources, target),
+        (SourceBinding(first.id, "humidity"), target),
+        (SourceBinding(other.id, "current_humidity"), original.sources[0]),
+    ):
+        with pytest.raises(ValueError, match="datapoint_meaning_change"):
+            validate_datapoint_edit_sources(
+                hass, original, replace(original, sources=changed)
+            )
+    mixed = replace(original, sources=(*original.sources, target))
+    with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        validate_datapoint_edit_sources(hass, mixed, original)
+
+
+@pytest.mark.parametrize("kind", ["humidity", "battery", "duration", "occupancy"])
+async def test_opaque_typed_roles_require_same_bindings_despite_matching_metadata(
+    hass: HomeAssistant, kind: str
+) -> None:
+    domain = "binary_sensor" if kind == "occupancy" else "sensor"
+    unit = None if kind == "occupancy" else "min" if kind == "duration" else "%"
+    first = _source(hass, "homekit_controller", kind=kind, unit=unit, domain=domain)
+    second = _source(hass, "ecobee", kind=kind, unit=unit, domain=domain)
+    device = dr.async_get(hass).async_get(first.device_id)
+    assert isinstance(device, dr.DeviceEntry)
+    replacement = _source(
+        hass,
+        "homekit_controller",
+        kind=kind,
+        unit=unit,
+        domain=domain,
+        device=device,
+        unique_id="other_native_role",
+    )
+    for source in (first, second, replacement):
+        hass.states.async_set(source.entity_id, "on" if kind == "occupancy" else "42")
+    original = _config(first, second, kind=kind, unit=unit)
+    validate_datapoint(hass, original)
+    reordered = replace(original, sources=tuple(reversed(original.sources)))
+    validate_datapoint_edit_sources(hass, original, reordered)
+    candidate = replace(
+        original, sources=(SourceBinding(replacement.id), original.sources[1])
+    )
+    validate_datapoint(hass, candidate)
+    with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        validate_datapoint_edit_sources(hass, original, candidate)
+
+
+async def test_unknown_attribute_and_missing_old_binding_cannot_authorize_replacement(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", domain="climate", unit=None)
+    second = _source(hass, "ecobee", domain="climate", unit=None)
+    for source in (first, second):
+        hass.states.async_set(
+            source.entity_id, "cool", {"observed_percent": 42, "other_percent": 42}
+        )
+    original = _config(
+        sources=(
+            SourceBinding(first.id, "observed_percent", unit="%"),
+            SourceBinding(second.id, "observed_percent", unit="%"),
+        )
+    )
+    validate_datapoint(hass, original)
+    validate_datapoint_edit_sources(
+        hass, original, replace(original, sources=tuple(reversed(original.sources)))
+    )
+    changed = replace(
+        original,
+        sources=(
+            SourceBinding(first.id, "other_percent", unit="%"),
+            original.sources[1],
+        ),
+    )
+    validate_datapoint(hass, changed)
+    with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        validate_datapoint_edit_sources(hass, original, changed)
+    # A same-subject replacement is still not proof of an absent old source's role.
+    er.async_get(hass).async_remove(first.entity_id)
+    replacement = _source(
+        hass, "ecobee", domain="climate", unit=None, unique_id="replacement"
+    )
+    changed = replace(
+        original,
+        sources=(
+            SourceBinding(replacement.id, "observed_percent", unit="%"),
+            original.sources[1],
+        ),
+    )
+    with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        validate_datapoint_edit_sources(hass, original, changed)
 
 
 def _weather_sources(hass: HomeAssistant) -> tuple[er.RegistryEntry, er.RegistryEntry]:
@@ -1006,6 +1134,51 @@ async def test_weather_whole_snapshot_station_fallback_and_missing_primary(
     assert manager.snapshot(config.datapoint_id).available
     assert manager.snapshot(config.datapoint_id).selected_source == second.entity_id
     await manager.async_stop()
+
+
+async def test_weather_edit_rejects_new_provider_entry_even_at_same_station(
+    hass: HomeAssistant,
+) -> None:
+    first, second = _weather_sources(hass)
+    issued = dt_util.utcnow()
+    for source in (first, second):
+        hass.states.async_set(source.entity_id, "sunny", _weather_attributes(issued))
+    original = _config(
+        first,
+        second,
+        kind="weather",
+        unit=None,
+        weather_station="Example Station",
+        weather_config_entry_id=first.config_entry_id,
+    )
+    validate_datapoint(hass, original)
+    provider = MockConfigEntry(domain="ecobee")
+    provider.add_to_hass(hass)
+    replacements = []
+    for serial in ("200000000001", "200000000002"):
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=provider.entry_id,
+            identifiers={("ecobee", serial)},
+        )
+        replacement = er.async_get(hass).async_get_or_create(
+            "weather",
+            "ecobee",
+            serial,
+            config_entry=provider,
+            device_id=device.id,
+        )
+        hass.states.async_set(
+            replacement.entity_id, "sunny", _weather_attributes(issued)
+        )
+        replacements.append(SourceBinding(replacement.id))
+    changed = replace(
+        original,
+        weather_config_entry_id=provider.entry_id,
+        sources=tuple(replacements),
+    )
+    validate_datapoint(hass, changed)
+    with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        validate_datapoint_edit_sources(hass, original, changed)
 
 
 async def test_weather_scalar_temperature_and_native_device_proof(

@@ -176,6 +176,20 @@ selection; missing and malformed observations do not become zero or a retained
 last-known value. Compatible temperature and duration units may be converted;
 unrelated concentration units cannot be relabeled.
 
+Edits retaining a datapoint ID preserve its quantity, time basis, physical/feed
+subject and normalized observation role. Changed typed bindings must prove the
+same native physical identity across the old and new source groups. Native role
+contracts distinguish measured from target humidity and retain known temperature,
+profile, membership and fan-setting semantics. An opaque role keeps its exact
+registry UUID and value attribute; equal units or values do not prove a replacement.
+Weather edits retain the saved station and Ecobee connection. Generic number/text
+edits retain their complete binding set. Names, ordering, fallback/freshness and
+compatible temperature/duration output units can change without a new ID.
+These checks use current native identity evidence; they cannot reconstruct an
+earlier device association after an existing registry binding has been reassigned.
+[Edit continuity](../custom_components/ecobee_unified/config_flow.py),
+[persistent Recorder regression](../tests/test_datapoint_recorder_ha.py).
+
 Configured membership preserves the selected source's exact bounded member
 labels in an attribute and publishes its count. It neither merges lists nor
 infers that differently named members share an identity. Empty reported lists

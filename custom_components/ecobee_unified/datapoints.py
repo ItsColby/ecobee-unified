@@ -395,9 +395,16 @@ def _identity_error(hass: HomeAssistant, config: DatapointConfig) -> str | None:
     """Prove Ecobee origin and a single serial, rejecting association contradictions."""
     if config.weather_config_entry_id is not None:
         return None  # Each alias independently proves the persisted weather feed.
+    return _source_identity_error(hass, config.sources)
+
+
+def _source_identity_error(
+    hass: HomeAssistant, sources: tuple[SourceBinding, ...]
+) -> str | None:
+    """Reuse native device proof for one group or both sides of a source edit."""
     devices: dict[str, dr.DeviceEntry] = {}
     platforms: dict[str, set[str]] = {}
-    for binding in config.sources:
+    for binding in sources:
         entry = _registry_entry(hass, binding.entity)
         if entry is None:
             continue
@@ -444,6 +451,112 @@ def _compare_devices(
     if len(identities) > 1:
         return "source_identity_mismatch"
     return None if proven_ecobee and identities else "source_identity_unproven"
+
+
+def validate_datapoint_edit_sources(
+    hass: HomeAssistant, previous: DatapointConfig, current: DatapointConfig
+) -> None:
+    """Keep a saved feed/subject and observation roles behind one output identity.
+
+    Unchanged registry bindings retain their meaning without inventing proof for
+    an opaque role. Replacing them requires native cross-source evidence; units,
+    device classes, and coincident values alone do not establish that evidence.
+    """
+    previous_feed = (previous.weather_config_entry_id, previous.weather_station)
+    current_feed = (current.weather_config_entry_id, current.weather_station)
+    if previous_feed != current_feed:
+        raise ValueError("datapoint_meaning_change")
+    if current.weather_config_entry_id is not None:
+        if _weather_role(previous) != _weather_role(current):
+            raise ValueError("datapoint_meaning_change")
+        return
+    previous_bindings = {(item.entity, item.attribute) for item in previous.sources}
+    current_bindings = {(item.entity, item.attribute) for item in current.sources}
+    if previous_bindings == current_bindings:
+        return
+    # A missing old registry entry cannot prove what a replacement would replace.
+    # Do not let a surviving source silently stand in for an unknown old binding.
+    combined = previous.sources + current.sources
+    if any(_registry_entry(hass, item.entity) is None for item in combined):
+        raise ValueError("datapoint_meaning_change")
+    if _source_identity_error(hass, combined) is not None:
+        raise ValueError("datapoint_meaning_change")
+    if _edit_roles(hass, previous) != _edit_roles(hass, current):
+        raise ValueError("datapoint_meaning_change")
+
+
+def _edit_roles(hass: HomeAssistant, config: DatapointConfig) -> set[tuple[str, ...]]:
+    roles: set[tuple[str, ...]] = set()
+    for binding in config.sources:
+        entry = _registry_entry(hass, binding.entity)
+        assert entry is not None  # Both complete source sets were resolved above.
+        try:
+            role = _native_edit_role(hass, config, binding, entry)
+        except ValueError:
+            role = None
+        roles.add(
+            ("role", role)
+            if role is not None
+            else ("binding", binding.entity, binding.attribute or "")
+        )
+    return roles
+
+
+def _native_edit_role(
+    hass: HomeAssistant,
+    config: DatapointConfig,
+    binding: SourceBinding,
+    entry: er.RegistryEntry,
+) -> str | None:
+    """Normalize only native roles, leaving unknown attributes and states opaque."""
+    if config.kind == "temperature":
+        return _temperature_semantic(hass, entry, binding)
+    if config.kind == "profile":
+        _profile_representation(hass, entry, binding)
+        return "current_profile"
+    if config.kind == "configured_membership":
+        _membership_metadata(entry, binding)
+        return (
+            "active_preset_membership"
+            if entry.platform == "ecobee"
+            else "current_program_membership"
+        )
+    if config.kind == "duration":
+        _validate_duration_semantic(config, entry, binding)
+        return (
+            "minimum_fan_runtime_per_hour"
+            if config.semantic == "minimum_fan_runtime_per_hour"
+            else None
+        )
+    return _native_measurement_role(config.kind, binding, entry)
+
+
+def _native_measurement_role(
+    kind: DatapointKind, binding: SourceBinding, entry: er.RegistryEntry
+) -> str | None:
+    if kind == "humidity" and entry.domain == "climate":
+        return {
+            "current_humidity": "measured_humidity",
+            "humidity": "target_humidity",
+        }.get(binding.attribute or "")
+    # Native Ecobee capability entities use the capability class as the final
+    # unique-ID component. HomeKit instance IDs and generic elapsed-duration
+    # sources do not independently identify a narrower observation role.
+    if entry.platform != "ecobee" or binding.attribute is not None:
+        return None
+    if (
+        kind == "humidity"
+        and entry.domain == "sensor"
+        and entry.unique_id.endswith("-humidity")
+    ):
+        return "measured_humidity"
+    if (
+        kind == "occupancy"
+        and entry.domain == "binary_sensor"
+        and entry.unique_id.endswith("-occupancy")
+    ):
+        return "occupancy"
+    return None
 
 
 def _temperature_semantic(

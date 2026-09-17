@@ -6,7 +6,6 @@ from copy import deepcopy
 from typing import Any
 from unittest.mock import patch
 
-import voluptuous as vol
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -35,7 +34,7 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                 dict(state.attributes) | {"current_humidity": 42},
             )
 
-    async def test_weather_mapping_persists_feed_and_requires_confirmation_on_drift(
+    async def test_weather_mapping_preserves_feed_and_requires_new_identity_on_drift(
         self,
     ) -> None:
         """Different thermostat aliases share only their explicitly proven station feed."""
@@ -45,7 +44,11 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         assert source_entry is not None
         registry = er.async_get(self.hass)
         aliases = []
-        for serial in ("weather_thermostat_a", "weather_thermostat_b"):
+        for serial in (
+            "weather_thermostat_a",
+            "weather_thermostat_b",
+            "weather_thermostat_c",
+        ):
             device = dr.async_get(self.hass).async_get_or_create(
                 config_entry_id=source_entry.entry_id,
                 identifiers={("ecobee", serial)},
@@ -86,6 +89,19 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         saved = entry.data["datapoints"][0]
         self.assertEqual("STATION-A", saved["weather_station"])
         self.assertEqual(source_entry.entry_id, saved["weather_config_entry_id"])
+        rebound = _datapoint_from_input(
+            self.hass,
+            values
+            | {
+                "primary_entity": aliases[2].entity_id,
+                "name": "Same station through another alias",
+                "fallback": False,
+            },
+            saved,
+        )
+        self.assertEqual(saved["datapoint_id"], rebound["datapoint_id"])
+        self.assertEqual("STATION-A", rebound["weather_station"])
+        self.assertEqual(aliases[2].id, rebound["sources"][0]["entity"])
         for alias in aliases:
             state = self.hass.states.get(alias.entity_id)
             assert state is not None
@@ -99,13 +115,17 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                     )
                 },
             )
-        with self.assertRaisesRegex(vol.Invalid, "datapoint_equivalence_required"):
-            _datapoint_from_input(
-                self.hass, values | {"confirm_equivalence": False}, saved
-            )
-        changed = _datapoint_from_input(self.hass, values, saved)
-        self.assertEqual(saved["datapoint_id"], changed["datapoint_id"])
-        self.assertEqual("STATION-B", changed["weather_station"])
+        for confirmed in (False, True):
+            with (
+                self.subTest(confirmed=confirmed),
+                self.assertRaisesRegex(ValueError, "datapoint_meaning_change"),
+            ):
+                _datapoint_from_input(
+                    self.hass, values | {"confirm_equivalence": confirmed}, saved
+                )
+        added = _datapoint_from_input(self.hass, values)
+        self.assertNotEqual(saved["datapoint_id"], added["datapoint_id"])
+        self.assertEqual("STATION-B", added["weather_station"])
 
     def _values(self, **changes: Any) -> dict[str, Any]:
         return {

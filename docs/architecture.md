@@ -201,6 +201,23 @@ selection; missing and malformed observations do not become zero or a retained
 last-known value. Compatible temperature and duration units may be converted;
 unrelated concentration units cannot be relabeled.
 
+Current physical-temperature datapoints may define optional inclusive accepted
+minimum and maximum values in their output unit. These are explicit selection
+policy, not a classifier proving that a source measurement is faulty. The
+runtime converts and validates each observation before checking this range and
+choosing a source. A rejected source reports `out_of_range`; the next eligible
+source can supply the reading when fallback is enabled. No eligible source
+means unavailable, without clamping, averaging or retaining an old value.
+Admission still accepts an identity- and unit-valid source whose present value
+is outside the selected range, so configuration can address that condition.
+Bounds default to absent and do not change raw source entities or their history.
+
+Range-only edits preserve the output identity and existing recorded data; they
+change future source eligibility. An output-unit-only edit converts active saved
+bounds to the new unit atomically. Changing or removing bounds at the same time
+as an output-unit change is rejected; edit the range separately. Other quantity,
+semantic and time-basis contracts do not admit these physical-temperature bounds.
+
 Admission, edit validation and runtime selection share the native observation-role
 check. A recognized contradiction such as measured and target humidity rejects
 the whole source group, regardless of ordering, fallback or individual source
@@ -364,7 +381,7 @@ The native flow owns one config entry with a nonempty mapping collection. Reconf
 
 Editing can preserve an unchanged saved reference that is temporarily missing, and can retain an unchanged climate pairing whose identity is temporarily unproven. That allowance preserves intent; it does not validate a new source or restore runtime eligibility. An absent parent cannot establish the association of a newly selected optional source, and an explicit identity mismatch remains invalid. Accepted unknown data is preserved rather than silently erased. [Preservation boundaries](../custom_components/ecobee_unified/config_flow.py), [mapping merge](../custom_components/ecobee_unified/models.py), [missing-parent tests](../tests/test_configuration_source_contracts.py).
 
-Schema migration accepts major version 1 through minor version 4, normalizes existing mappings without inventing identity, and removes named retired mapping fields and timing options. It preserves other entry data and options, and fails closed for unsupported future versions or an empty mapping collection. Datapoints and read preferences are optional; migration does not create either. [Migration](../custom_components/ecobee_unified/__init__.py), [schema tests](../tests/test_runtime_core_api.py).
+Schema migration accepts major version 1 through minor version 5, normalizes existing mappings without inventing identity, and removes named retired mapping fields and timing options. It preserves other entry data and options, and fails closed for unsupported future versions or an empty mapping collection. Datapoints and read preferences are optional; migration does not create either or enable accepted ranges. Minor version 5 prevents older code that ignores range fields from silently losing a configured selection policy: version 2026.9.17 rejects this newer schema. Code-only downgrade therefore requires a separately reviewed compatible configuration or recovery plan. [Migration](../custom_components/ecobee_unified/__init__.py), [schema tests](../tests/test_runtime_core_api.py).
 
 Setup installs the typed runtime, removes only this entry's Unified registry entities no longer declared by the mapping collection, starts subscriptions and snapshots, then forwards enabled platforms. A setup exception or cancellation stops the manager. Unload first asks Home Assistant to unload platforms; only success stops the manager. Each subsequent setup creates a new manager, so command history and temperature-recovery evidence do not persist across reload. Registry listeners rebuild relevant subscriptions, recheck identity, and relink Unified entities when the HomeKit source device association changes. They do not create a replacement physical device. [Entry lifecycle and owned cleanup](../custom_components/ecobee_unified/__init__.py), [device relinking](../custom_components/ecobee_unified/manager.py), [setup tests](../tests/test_setup_lifecycle.py), [device identity tests](../tests/test_source_device_identity.py).
 

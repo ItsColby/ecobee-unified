@@ -6,11 +6,18 @@ from copy import deepcopy
 from typing import Any
 from unittest.mock import patch
 
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+try:
+    from probatio import to_field_list as serialize_schema
+except ImportError:
+    # Older Core versions use voluptuous-serialize for native form schemas.
+    from voluptuous_serialize import convert as serialize_schema
 
 from custom_components.ecobee_unified.config_flow import (
     READ_POLICY_FIELDS,
@@ -152,7 +159,7 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
             domain=DOMAIN,
             unique_id=DOMAIN,
             version=1,
-            minor_version=4,
+            minor_version=5,
             data={
                 CONF_MAPPINGS: [self.mapping.as_dict() | {"future_mapping": 7}],
                 "datapoints": rows or [],
@@ -188,6 +195,268 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
             await self.hass.async_block_till_done()
         self.assertEqual("reconfigure_successful", result["reason"])
         return result
+
+    def _physical_temperature_values(self, **changes: Any) -> dict[str, Any]:
+        """Create an identity-proven pair of physical temperature observations."""
+        sources = []
+        for platform in ("homekit_controller", "ecobee"):
+            source = self._source(
+                platform,
+                f"{platform}_physical-temperature",
+                device=True,
+                domain="sensor",
+                physical_identity="physical_sensor_a",
+            )
+            assert source.device_id is not None
+            dr.async_get(self.hass).async_update_device(
+                source.device_id,
+                manufacturer="ecobee",
+                model="EBERS41"
+                if platform == "homekit_controller"
+                else "Remote sensor",
+            )
+            self.hass.states.async_set(
+                source.entity_id,
+                "21",
+                {"device_class": "temperature", "unit_of_measurement": "°C"},
+            )
+            sources.append(source)
+        return (
+            self._values(
+                name="Physical temperature",
+                kind="temperature",
+                unit="°C",
+                primary_entity=sources[0].entity_id,
+                secondary_entity=sources[1].entity_id,
+                primary_attribute="",
+                secondary_attribute="",
+            )
+            | changes
+        )
+
+    async def test_temperature_range_create_with_active_outlier_edit_and_clear(
+        self,
+    ) -> None:
+        values = self._physical_temperature_values(
+            minimum_value=-12.5, maximum_value=40.25
+        )
+        # A current policy violation is runtime eligibility, not an enrollment veto.
+        source = self.hass.states.get(values["primary_entity"])
+        assert source is not None
+        self.hass.states.async_set(source.entity_id, "212", dict(source.attributes))
+        entry = self._entry()
+        result = await self._next(await self._open(entry), "datapoint_add")
+        serialized = {
+            field["name"]: field
+            for field in serialize_schema(
+                result["data_schema"], custom_serializer=cv.custom_serializer
+            )
+        }
+        for field in ("minimum_value", "maximum_value"):
+            selector = result["data_schema"].schema[field]
+            self.assertEqual("box", selector.config["mode"])
+            self.assertEqual("any", selector.config["step"])
+            self.assertNotIn("min", selector.config)
+            self.assertEqual(
+                {"number": {"step": "any", "mode": "box"}},
+                serialized[field]["selector"],
+            )
+            self.assertFalse(serialized[field]["required"])
+        result = await self._submit(result, values)
+        self.assertEqual(FlowResultType.MENU, result["type"])
+        self.assertEqual([], entry.data["datapoints"])
+        await self._save(result)
+        original = deepcopy(entry.data["datapoints"][0])
+        self.assertEqual(-12.5, original["minimum_value"])
+        self.assertEqual(40.25, original["maximum_value"])
+
+        for bounds in (
+            {"minimum_value": -20.25, "maximum_value": 38.5},
+            {"maximum_value": 38.5},
+            {},
+        ):
+            with self.subTest(bounds=bounds):
+                saved = deepcopy(entry.data["datapoints"][0])
+                result = await self._next(await self._open(entry), "datapoint_edit")
+                result = await self._submit(
+                    result, {"datapoint_id": saved["datapoint_id"]}
+                )
+                defaults = _datapoint_form_defaults(self.hass, saved)
+                for field in ("minimum_value", "maximum_value"):
+                    self.assertEqual(saved[field], defaults.get(field))
+                    defaults.pop(field, None)
+                result = await self._submit(
+                    result, defaults | bounds | {"confirm_equivalence": False}
+                )
+                self.assertEqual(FlowResultType.MENU, result["type"])
+                self.assertEqual(saved, entry.data["datapoints"][0])
+                await self._save(result)
+                edited = entry.data["datapoints"][0]
+                self.assertEqual(original["datapoint_id"], edited["datapoint_id"])
+                self.assertEqual(bounds.get("minimum_value"), edited["minimum_value"])
+                self.assertEqual(bounds.get("maximum_value"), edited["maximum_value"])
+
+    async def test_temperature_range_unit_change_converts_atomically_and_confirms(
+        self,
+    ) -> None:
+        original = _datapoint_from_input(
+            self.hass,
+            self._physical_temperature_values(
+                minimum_value=-12.34, maximum_value=37.29
+            ),
+        )
+        entry = self._entry([original])
+        for unit, minimum, maximum in (
+            ("°F", 9.788, 99.122),
+            ("K", 260.81, 310.44),
+            ("°C", -12.34, 37.29),
+        ):
+            with self.subTest(unit=unit):
+                saved = deepcopy(entry.data["datapoints"][0])
+                result = await self._next(await self._open(entry), "datapoint_edit")
+                result = await self._submit(
+                    result, {"datapoint_id": saved["datapoint_id"]}
+                )
+                values = _datapoint_form_defaults(self.hass, saved) | {
+                    "unit": unit,
+                    "confirm_equivalence": False,
+                }
+                result = await self._submit(result, values)
+                self.assertEqual(
+                    "datapoint_equivalence_required", result["errors"]["base"]
+                )
+                self.assertEqual(saved, entry.data["datapoints"][0])
+                result = await self._submit(
+                    result, values | {"confirm_equivalence": True}
+                )
+                self.assertEqual(FlowResultType.MENU, result["type"])
+                self.assertEqual(saved, entry.data["datapoints"][0])
+                await self._save(result)
+                edited = entry.data["datapoints"][0]
+                self.assertEqual(original["datapoint_id"], edited["datapoint_id"])
+                self.assertEqual(unit, edited["unit"])
+                self.assertAlmostEqual(minimum, edited["minimum_value"])
+                self.assertAlmostEqual(maximum, edited["maximum_value"])
+
+    async def test_temperature_range_preserves_exact_absolute_zero_across_units(
+        self,
+    ) -> None:
+        original = _datapoint_from_input(
+            self.hass, self._physical_temperature_values(minimum_value=-273.15)
+        )
+        entry = self._entry([original])
+        for unit, minimum in (("°F", -459.67), ("K", 0), ("°C", -273.15)):
+            with self.subTest(unit=unit):
+                saved = entry.data["datapoints"][0]
+                result = await self._next(await self._open(entry), "datapoint_edit")
+                result = await self._submit(
+                    result, {"datapoint_id": saved["datapoint_id"]}
+                )
+                result = await self._submit(
+                    result,
+                    _datapoint_form_defaults(self.hass, saved)
+                    | {"unit": unit, "confirm_equivalence": True},
+                )
+                self.assertEqual(FlowResultType.MENU, result["type"])
+                await self._save(result)
+                edited = entry.data["datapoints"][0]
+                self.assertEqual(original["datapoint_id"], edited["datapoint_id"])
+                self.assertEqual(unit, edited["unit"])
+                self.assertEqual(minimum, edited["minimum_value"])
+                self.assertIsNone(edited["maximum_value"])
+
+    async def test_temperature_unit_change_rejects_concurrent_range_change_or_clear(
+        self,
+    ) -> None:
+        original = _datapoint_from_input(
+            self.hass,
+            self._physical_temperature_values(minimum_value=-12.5, maximum_value=40),
+        )
+        entry = self._entry([original])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": original["datapoint_id"]})
+        defaults = _datapoint_form_defaults(self.hass, original)
+        for bounds in (
+            {"minimum_value": 9.5, "maximum_value": 104},
+            {"minimum_value": -12.5},
+            {"maximum_value": 40},
+            {},
+        ):
+            with self.subTest(bounds=bounds):
+                values = (
+                    {
+                        key: value
+                        for key, value in defaults.items()
+                        if key not in {"minimum_value", "maximum_value"}
+                    }
+                    | bounds
+                    | {"unit": "°F", "confirm_equivalence": True}
+                )
+                with patch.object(self.hass.config_entries, "async_reload") as reload:
+                    result = await self._submit(result, values)
+                    self.assertEqual(
+                        "datapoint_range_unit_change", result["errors"]["base"]
+                    )
+                    reload.assert_not_called()
+                self.assertEqual(original, entry.data["datapoints"][0])
+
+    async def test_native_range_rejects_invalid_or_unsupported_policy(self) -> None:
+        values = self._physical_temperature_values()
+        entry = self._entry()
+        for bounds, schema_rejected in (
+            ({"minimum_value": True}, True),
+            ({"maximum_value": False}, True),
+            ({"maximum_value": float("nan")}, False),
+            ({"minimum_value": float("inf")}, False),
+            ({"minimum_value": "not a number"}, True),
+            ({"minimum_value": -274}, False),
+            ({"minimum_value": 20, "maximum_value": 20}, False),
+            ({"minimum_value": 20, "maximum_value": 19}, False),
+        ):
+            with self.subTest(bounds=bounds):
+                result = await self._next(await self._open(entry), "datapoint_add")
+                flow_id = result["flow_id"]
+                try:
+                    if schema_rejected:
+                        with self.assertRaises(InvalidData):
+                            await self._submit(result, values | bounds)
+                    else:
+                        result = await self._submit(result, values | bounds)
+                        self.assertEqual(
+                            "invalid_accepted_range", result["errors"]["base"]
+                        )
+                    self.assertEqual([], entry.data["datapoints"])
+                finally:
+                    self.hass.config_entries.flow.async_abort(flow_id)
+        result = await self._next(await self._open(entry), "datapoint_add")
+        result = await self._submit(result, self._values(minimum_value=10))
+        self.assertEqual("accepted_range_not_supported", result["errors"]["base"])
+        self.assertEqual([], entry.data["datapoints"])
+        self.hass.config_entries.flow.async_abort(result["flow_id"])
+
+    async def test_temperature_range_stale_commit_preserves_concurrent_options(
+        self,
+    ) -> None:
+        original = _datapoint_from_input(
+            self.hass, self._physical_temperature_values(maximum_value=40)
+        )
+        entry = self._entry([original])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": original["datapoint_id"]})
+        result = await self._submit(
+            result,
+            _datapoint_form_defaults(self.hass, original)
+            | {"maximum_value": 35, "confirm_equivalence": False},
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"])
+        concurrent_options = {"external_policy_change": True}
+        self.hass.config_entries.async_update_entry(entry, options=concurrent_options)
+        with patch.object(self.hass.config_entries, "async_reload") as reload:
+            result = await self._next(result, "reconfigure_finish")
+            self.assertEqual("configuration_changed", result["reason"])
+            reload.assert_not_called()
+        self.assertEqual(concurrent_options, entry.options)
+        self.assertEqual(original, entry.data["datapoints"][0])
 
     async def test_add_edit_remove_preserves_mappings_identity_and_future_fields(
         self,

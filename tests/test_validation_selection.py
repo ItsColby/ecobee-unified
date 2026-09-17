@@ -376,6 +376,8 @@ class ValidationSelectionTests(unittest.TestCase):
                 GIT_AUTHOR_EMAIL="validation@example.com",
                 GIT_COMMITTER_EMAIL="validation@example.com",
             )
+            # The adversarial fixture must honor replacements inherited runners disable.
+            env.pop("GIT_NO_REPLACE_OBJECTS", None)
 
             def git(*args):
                 return subprocess.check_output(

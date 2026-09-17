@@ -24,6 +24,7 @@ from custom_components.ecobee_unified.datapoints import (
     DatapointConfig,
     DatapointManager,
     SourceBinding,
+    datapoint_observation_role,
     validate_datapoint,
     validate_datapoint_edit_sources,
 )
@@ -109,19 +110,133 @@ async def test_typed_edit_requires_same_subject_and_all_normalized_roles(
         validate_datapoint(hass, candidate)
         validate_datapoint_edit_sources(hass, original, candidate)
     target = SourceBinding(second.id, "humidity")
-    for changed in (
-        (original.sources[0], target),
-        (*original.sources, target),
-        (SourceBinding(first.id, "humidity"), target),
-        (SourceBinding(other.id, "current_humidity"), original.sources[0]),
+    for changed, reason in (
+        ((original.sources[0], target), "source_observation_role_mismatch"),
+        ((*original.sources, target), "source_observation_role_mismatch"),
+        ((SourceBinding(first.id, "humidity"), target), "datapoint_meaning_change"),
+        (
+            (SourceBinding(other.id, "current_humidity"), original.sources[0]),
+            "datapoint_meaning_change",
+        ),
     ):
-        with pytest.raises(ValueError, match="datapoint_meaning_change"):
+        with pytest.raises(ValueError, match=reason):
             validate_datapoint_edit_sources(
                 hass, original, replace(original, sources=changed)
             )
     mixed = replace(original, sources=(*original.sources, target))
     with pytest.raises(ValueError, match="datapoint_meaning_change"):
         validate_datapoint_edit_sources(hass, mixed, original)
+
+
+@pytest.mark.parametrize(
+    "primary_status", ["cool", "unavailable", "missing", "disabled"]
+)
+async def test_known_humidity_contradiction_blocks_admission_and_saved_fallback(
+    hass: HomeAssistant, primary_status: str
+) -> None:
+    first = _source(hass, "homekit_controller", domain="climate", unit=None)
+    second = _source(hass, "ecobee", domain="climate", unit=None)
+    if primary_status != "missing":
+        hass.states.async_set(
+            first.entity_id,
+            "unavailable" if primary_status == "unavailable" else "cool",
+            {"current_humidity": 42},
+        )
+    if primary_status == "disabled":
+        er.async_get(hass).async_update_entity(
+            first.entity_id, disabled_by=er.RegistryEntryDisabler.USER
+        )
+    hass.states.async_set(second.entity_id, "cool", {"humidity": 55})
+    config = _config(
+        sources=(
+            SourceBinding(first.id, "current_humidity"),
+            SourceBinding(second.id, "humidity"),
+        )
+    )
+    for candidate in (config, replace(config, sources=tuple(reversed(config.sources)))):
+        with pytest.raises(ValueError, match="source_observation_role_mismatch"):
+            validate_datapoint(hass, candidate)
+        with pytest.raises(ValueError, match="source_observation_role_mismatch"):
+            validate_datapoint_edit_sources(hass, config, candidate)
+        manager = DatapointManager(hass, "unified", (candidate,))
+        await manager.async_start()
+        snapshot = manager.snapshot(candidate.datapoint_id)
+        assert snapshot.status == "source_observation_role_mismatch"
+        assert not snapshot.available and snapshot.value is None
+        assert snapshot.selected_source is None and not snapshot.fallback_used
+        assert {item.status for item in snapshot.source_statuses} == {
+            "source_observation_role_mismatch"
+        }
+        await manager.async_stop()
+
+
+@pytest.mark.parametrize("attribute", ["current_humidity", "humidity"])
+async def test_homogeneous_humidity_and_known_opaque_equivalence_preserve_fallback(
+    hass: HomeAssistant, attribute: str
+) -> None:
+    first = _source(hass, "homekit_controller", domain="climate", unit=None)
+    second = _source(hass, "ecobee", domain="climate", unit=None)
+    hass.states.async_set(first.entity_id, "cool", {attribute: 42})
+    hass.states.async_set(
+        second.entity_id, "cool", {attribute: 55, "opaque_percent": 50}
+    )
+    for secondary in (
+        SourceBinding(second.id, attribute),
+        SourceBinding(second.id, "opaque_percent", unit="%"),
+    ):
+        config = _config(sources=(SourceBinding(first.id, attribute), secondary))
+        validate_datapoint(hass, config)
+        expected_role = (
+            "measured_humidity"
+            if attribute == "current_humidity"
+            else "target_humidity"
+        )
+        assert datapoint_observation_role(hass, config) == (
+            None if secondary.attribute == "opaque_percent" else expected_role
+        )
+        manager = DatapointManager(hass, "unified", (config,))
+        await manager.async_start()
+        assert manager.snapshot(config.datapoint_id).value == 42
+        hass.states.async_set(first.entity_id, "unavailable")
+        await hass.async_block_till_done()
+        snapshot = manager.snapshot(config.datapoint_id)
+        assert snapshot.available and snapshot.fallback_used
+        assert snapshot.value == (50 if secondary.attribute == "opaque_percent" else 55)
+        hass.states.async_set(first.entity_id, "cool", {attribute: 42})
+        await hass.async_block_till_done()
+        assert manager.snapshot(config.datapoint_id).value == 42
+        await manager.async_stop()
+
+
+async def test_complete_observation_role_requires_every_native_binding_and_subject(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", domain="climate", unit=None)
+    second = _source(hass, "ecobee", domain="climate", unit=None)
+    config = _config(
+        sources=(
+            SourceBinding(first.id, "current_humidity"),
+            SourceBinding(second.id, "current_humidity"),
+        )
+    )
+    # Native roles remain known with no current source state; values are not proof.
+    assert datapoint_observation_role(hass, config) == "measured_humidity"
+    target = replace(
+        config, sources=(config.sources[0], SourceBinding(second.id, "humidity"))
+    )
+    assert datapoint_observation_role(hass, target) is None
+    assert second.device_id is not None
+    devices = dr.async_get(hass)
+    device = devices.async_get(second.device_id)
+    assert isinstance(device, dr.DeviceEntry)
+    devices.async_update_device(
+        device.id, new_identifiers={("ecobee", "different_subject")}
+    )
+    assert datapoint_observation_role(hass, config) is None
+    devices.async_update_device(device.id, new_identifiers={("ecobee", "SENSORA")})
+    assert datapoint_observation_role(hass, config) == "measured_humidity"
+    er.async_get(hass).async_remove(first.entity_id)
+    assert datapoint_observation_role(hass, config) is None
 
 
 @pytest.mark.parametrize("kind", ["humidity", "battery", "duration", "occupancy"])

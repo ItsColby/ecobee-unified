@@ -176,6 +176,22 @@ selection; missing and malformed observations do not become zero or a retained
 last-known value. Compatible temperature and duration units may be converted;
 unrelated concentration units cannot be relabeled.
 
+Admission, edit validation and runtime selection share the native observation-role
+check. A recognized contradiction such as measured and target humidity rejects
+the whole source group, regardless of ordering, fallback or individual source
+availability. Retained contradictory groups become unavailable without rewriting
+their configuration or recorded history. Opaque roles still require explicit
+equivalence confirmation; they are not inferred from values. Intentional
+configured-membership bases retain their separate context. A deleted registry
+binding cannot supply role evidence that no longer exists.
+
+Historical measured-humidity admission resolves a Unified output to its exact
+saved datapoint and requires current, proven measured roles across every binding,
+plus agreement between those bindings and the output's physical identity. Target,
+mixed, interval, opaque or missing role evidence cannot enter that historical
+family, including as its anchor. The same boundary runs during source revalidation;
+it does not rewrite existing Recorder data or establish past continuity.
+
 Edits retaining a datapoint ID preserve its quantity, time basis, physical/feed
 subject and normalized observation role. Changed typed bindings must prove the
 same native physical identity across the old and new source groups. Native role

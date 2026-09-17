@@ -20,6 +20,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN
+from .datapoints import DatapointConfig, datapoint_observation_role
 from .weather_source import validate_weather_feed
 
 _OWNERS = frozenset({"ecobee", "homekit_controller", "ecobee_unified", "battery_notes"})
@@ -262,6 +264,8 @@ def _validate_role(hass: HomeAssistant, entry: er.RegistryEntry, quantity: str) 
     }
     if not isinstance(unit, str | type(None)) or unit not in allowed_units[quantity]:
         raise ValueError("historical_source_unit_mismatch")
+    if quantity == "humidity" and entry.platform == DOMAIN:
+        _validate_composed_humidity(hass, entry)
     if quantity != "temperature":
         return
     device = dr.async_get(hass).async_get(entry.device_id) if entry.device_id else None
@@ -288,6 +292,44 @@ def _validate_role(hass: HomeAssistant, entry: er.RegistryEntry, quantity: str) 
     )
     if not physical:
         raise ValueError("historical_source_role_mismatch")
+
+
+def _validate_composed_humidity(hass: HomeAssistant, entry: er.RegistryEntry) -> None:
+    """Admit only proven current measurements from the exact saved output owner."""
+    owner = (
+        hass.config_entries.async_get_entry(entry.config_entry_id)
+        if entry.config_entry_id
+        else None
+    )
+    rows = owner.data.get("datapoints", []) if owner and owner.domain == DOMAIN else []
+    matches = (
+        [
+            row
+            for row in rows
+            if isinstance(row, Mapping)
+            and entry.unique_id
+            == f"{entry.config_entry_id}_datapoint_{row.get('datapoint_id')}"
+        ]
+        if isinstance(rows, list)
+        else []
+    )
+    if len(matches) != 1:
+        raise ValueError("historical_source_role_mismatch")
+    try:
+        config = DatapointConfig.from_dict(matches[0])
+    except KeyError, TypeError, ValueError:
+        raise ValueError("historical_source_role_mismatch") from None
+    if (
+        config.kind != "humidity"
+        or config.time_basis != "current"
+        or datapoint_observation_role(hass, config) != "measured_humidity"
+    ):
+        raise ValueError("historical_source_role_mismatch")
+    output = _entity_identity(hass, entry)
+    for binding in config.sources:
+        _require_equivalent(
+            hass, _entity_identity(hass, _entry(hass, binding.entity)), output
+        )
 
 
 def _physical_serial(device: dr.DeviceEntry) -> tuple[str, list[str]]:

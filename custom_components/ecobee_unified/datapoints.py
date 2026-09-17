@@ -462,6 +462,8 @@ def validate_datapoint_edit_sources(
     an opaque role. Replacing them requires native cross-source evidence; units,
     device classes, and coincident values alone do not establish that evidence.
     """
+    if reason := _observation_role_error(hass, current):
+        raise ValueError(reason)
     previous_feed = (previous.weather_config_entry_id, previous.weather_station)
     current_feed = (current.weather_config_entry_id, current.weather_station)
     if previous_feed != current_feed:
@@ -489,9 +491,12 @@ def _edit_roles(hass: HomeAssistant, config: DatapointConfig) -> set[tuple[str, 
     roles: set[tuple[str, ...]] = set()
     for binding in config.sources:
         entry = _registry_entry(hass, binding.entity)
-        assert entry is not None  # Both complete source sets were resolved above.
         try:
-            role = _native_edit_role(hass, config, binding, entry)
+            role = (
+                _native_edit_role(hass, config, binding, entry)
+                if entry is not None
+                else None
+            )
         except ValueError:
             role = None
         roles.add(
@@ -500,6 +505,35 @@ def _edit_roles(hass: HomeAssistant, config: DatapointConfig) -> set[tuple[str, 
             else ("binding", binding.entity, binding.attribute or "")
         )
     return roles
+
+
+def _observation_role_error(hass: HomeAssistant, config: DatapointConfig) -> str | None:
+    """Reject known contradictions independently of individual source availability."""
+    if config.weather_config_entry_id is not None:
+        return None  # Weather configuration already requires one exact feed and role.
+    if config.kind == "configured_membership":
+        # Both admitted membership bases are intentional alternatives; the selected
+        # source retains its active-preset/program context instead of asserting sameness.
+        return None
+    roles = {token[1] for token in _edit_roles(hass, config) if token[0] == "role"}
+    return "source_observation_role_mismatch" if len(roles) > 1 else None
+
+
+def datapoint_observation_role(
+    hass: HomeAssistant, config: DatapointConfig
+) -> str | None:
+    """Prove one native role across all bindings for a stricter typed consumer.
+
+    An opaque or missing source cannot establish a role for the complete output.
+    This describes current registry evidence, not historical subject continuity.
+    """
+    if _identity_error(hass, config) is not None:
+        return None
+    roles = _edit_roles(hass, config)
+    if len(roles) != 1:
+        return None
+    token = next(iter(roles))
+    return token[1] if token[0] == "role" else None
 
 
 def _native_edit_role(
@@ -814,7 +848,7 @@ def validate_datapoint(hass: HomeAssistant, config: DatapointConfig) -> None:
     if config.weather_config_entry_id is not None:
         _validate_weather_datapoint(hass, config)
         return
-    if reason := _identity_error(hass, config):
+    if reason := _identity_error(hass, config) or _observation_role_error(hass, config):
         raise ValueError(reason)
     for binding in config.sources:
         entry = _registry_entry(hass, binding.entity)
@@ -1178,14 +1212,16 @@ class DatapointManager:
     def _evaluate(
         self, config: DatapointConfig, now: datetime
     ) -> tuple[DatapointSnapshot, list[float]]:
-        identity_error = _identity_error(self.hass, config)
+        group_error = _identity_error(self.hass, config) or _observation_role_error(
+            self.hass, config
+        )
         statuses: list[SourceStatus] = []
         deadlines: list[float] = []
         selected: tuple[_Observation, int] | None = None
         for index, binding in enumerate(config.sources):
             try:
-                if identity_error:
-                    raise ValueError(identity_error)
+                if group_error:
+                    raise ValueError(group_error)
                 observation = self._read(config, binding, now)
                 cutoff = _source_max_age(config, binding)
                 if cutoff:
@@ -1211,7 +1247,7 @@ class DatapointManager:
             return DatapointSnapshot(
                 None,
                 False,
-                identity_error or "no_usable_source",
+                group_error or "no_usable_source",
                 None,
                 None,
                 None,

@@ -49,6 +49,7 @@
       "unsupported_source_platform": "Select sources from HomeKit Device, Ecobee, Beestat Statistics, or Battery Notes with proven Ecobee device identity.",
       "source_identity_unproven": "The device records do not establish the same physical item for these sources. Restore their source device identities; matching names are not proof.",
       "source_identity_mismatch": "These sources identify different physical items. Select the same thermostat or the same remote sensor in every source.",
+      "source_observation_role_mismatch": "These sources describe different observations, such as measured humidity and a humidity target. Use separate datapoints for these roles; confirmation cannot make them equivalent.",
       "invalid_source_domain": "Select a sensor, binary sensor, climate, select, or number source with a compatible quantity.",
       "source_device_class_mismatch": "A selected source reports a device class incompatible with this quantity.",
       "source_attribute_semantic_mismatch": "A selected attribute has a different meaning from this quantity. Select equivalent readings.",

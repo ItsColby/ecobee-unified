@@ -226,6 +226,14 @@ sensor, or be native Ecobee weather aliases of the same station feed.
 Confirm they represent the same quantity; similar values or names are
 insufficient. Save the staged changes to reload the entry.
 
+Keep measured humidity (`current_humidity`) and humidity targets (`humidity`)
+in separate datapoints. Confirmation cannot override a known difference in
+observation role. A saved mapping that mixes recognized contradictory roles
+stays unavailable, including when a source is missing, unavailable or disabled
+but its registry role remains known. Reordering or enabling fallback cannot
+select through that contradiction. Existing history is retained unchanged;
+create separate mappings for the observations you need.
+
 Useful choices include paired room temperatures, humidity, occupancy, battery
 readings, current comfort-profile identity and configured comfort membership.
 Physical room temperature and thermostat control/display temperature are
@@ -305,6 +313,12 @@ mapping can originate from automatic matching: it is an owner association,
 not independent hardware proof. Current bindings do not establish identity
 throughout the retained history. Native and mirrored histories can share one
 upstream; they are alternatives, not independent confirmations.
+
+A composed Unified humidity source or anchor must prove that all its bindings
+represent current measured humidity. Target, mixed, interval and unproven
+compositions cannot enter a measured-humidity history family. Confirmed opaque
+and target mappings can still be used as separate current datapoints. This
+admission check neither repairs old statistics nor proves past source continuity.
 
 **Fixed source** reads the first source and preserves its gaps. **Ordered daily**
 chooses the first eligible daily row. Accept differing aggregation

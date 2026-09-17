@@ -31,7 +31,7 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
             self.hass.states.async_set(
                 source.entity_id,
                 state.state,
-                dict(state.attributes) | {"current_humidity": 42},
+                dict(state.attributes) | {"current_humidity": 42, "humidity": 55},
             )
 
     async def test_weather_mapping_preserves_feed_and_requires_new_identity_on_drift(
@@ -285,6 +285,55 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                 self.assertEqual(expected, result["errors"]["base"])
                 self.hass.config_entries.flow.async_abort(result["flow_id"])
         self.assertEqual([], entry.data["datapoints"])
+
+    async def test_add_rejects_known_role_contradiction_despite_confirmation(
+        self,
+    ) -> None:
+        entry = self._entry()
+        original_data = deepcopy(dict(entry.data))
+        result = await self._next(await self._open(entry), "datapoint_add")
+        for confirmed in (False, True):
+            with self.subTest(confirmed=confirmed):
+                result = await self._submit(
+                    result,
+                    self._values(
+                        secondary_attribute="humidity", confirm_equivalence=confirmed
+                    ),
+                )
+                self.assertEqual(FlowResultType.FORM, result["type"])
+                self.assertEqual(
+                    "source_observation_role_mismatch", result["errors"]["base"]
+                )
+                self.assertEqual(original_data, entry.data)
+        # A homogeneous measured group remains admissible in the same form.
+        result = await self._submit(result, self._values())
+        self.assertEqual(FlowResultType.MENU, result["type"])
+        await self._save(result)
+        self.assertEqual(1, len(entry.data["datapoints"]))
+
+    async def test_saved_mixed_role_reorder_cannot_save_or_reload(self) -> None:
+        saved = _datapoint_from_input(self.hass, self._values())
+        saved["sources"][1]["attribute"] = "humidity"
+        entry = self._entry([saved])
+        original_data = deepcopy(dict(entry.data))
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": saved["datapoint_id"]})
+        with patch.object(self.hass.config_entries, "async_reload") as reload:
+            result = await self._submit(
+                result,
+                self._values(
+                    primary_entity=self.ecobee.entity_id,
+                    primary_attribute="humidity",
+                    secondary_entity=self.homekit.entity_id,
+                    secondary_attribute="current_humidity",
+                ),
+            )
+            self.assertEqual(FlowResultType.FORM, result["type"])
+            self.assertEqual(
+                "source_observation_role_mismatch", result["errors"]["base"]
+            )
+            reload.assert_not_called()
+        self.assertEqual(original_data, entry.data)
 
     async def test_meaning_change_rejected_while_compatible_edit_preserves_output_identity(
         self,

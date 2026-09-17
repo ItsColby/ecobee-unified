@@ -14,6 +14,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ecobee_unified.const import DOMAIN
+from custom_components.ecobee_unified.datapoints import DatapointConfig, SourceBinding
 from custom_components.ecobee_unified.history_source import (
     async_capture_source,
     async_validate_source,
@@ -153,6 +155,128 @@ class HistorySourceTests(CoreRuntimeTestCase):
         )
         self.hass.states.async_set(entry.entity_id, state, attributes)
         return entry
+
+    def _composed_humidity(self) -> tuple[MockConfigEntry, er.RegistryEntry, dict]:
+        config = DatapointConfig(
+            "measured",
+            "Measured humidity",
+            "humidity",
+            (
+                SourceBinding(self.homekit.id, "current_humidity"),
+                SourceBinding(self.ecobee.id, "current_humidity"),
+            ),
+            unit="%",
+        ).as_dict()
+        owner = MockConfigEntry(domain=DOMAIN, data={"datapoints": [config]})
+        owner.add_to_hass(self.hass)
+        output = self.registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"{owner.entry_id}_datapoint_measured",
+            config_entry=owner,
+            device_id=self.homekit.device_id,
+            original_device_class="humidity",
+            unit_of_measurement="%",
+        )
+        self.hass.states.async_set(
+            output.entity_id,
+            "40",
+            {
+                "device_class": "humidity",
+                "unit_of_measurement": "%",
+                "state_class": "measurement",
+                "semantic": "measured_humidity",
+            },
+        )
+        self._statistic(output.entity_id, "%")
+        return owner, output, config
+
+    async def test_composed_humidity_revalidates_the_saved_role_owner(self) -> None:
+        """Matching state labels cannot substitute for the saved native role proof."""
+        owner, output, config = self._composed_humidity()
+        captured = await async_capture_source(
+            self.hass, output.entity_id, "humidity", self.humidity.id
+        )
+        variants = {}
+        for name, attributes in (
+            ("target", ("humidity", "humidity")),
+            ("mixed", ("current_humidity", "humidity")),
+            ("opaque", ("opaque_humidity", "opaque_humidity")),
+        ):
+            row = deepcopy(config)
+            for binding, attribute in zip(row["sources"], attributes, strict=True):
+                binding["attribute"] = attribute
+            variants[name] = [row]
+        interval = deepcopy(config)
+        interval.update(time_basis="interval", interval_seconds=3600)
+        for binding in interval["sources"]:
+            binding["timestamp_attribute"] = "observed_at"
+        missing = deepcopy(config)
+        missing["sources"][0]["entity"] = "deleted_registry_uuid"
+        malformed = deepcopy(config)
+        del malformed["kind"]
+        variants.update(
+            interval=[interval],
+            missing=[missing],
+            malformed=[malformed],
+            duplicate=[config, deepcopy(config)],
+            absent=[],
+        )
+        for name, rows in variants.items():
+            with self.subTest(name=name):
+                self.hass.config_entries.async_update_entry(
+                    owner, data={"datapoints": rows}
+                )
+                for source, anchor in (
+                    (output.entity_id, self.humidity.id),
+                    (self.humidity.entity_id, output.id),
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError, "historical_source_role_mismatch"
+                    ):
+                        await async_capture_source(
+                            self.hass, source, "humidity", anchor
+                        )
+                with self.assertRaisesRegex(
+                    ValueError, "historical_source_role_mismatch"
+                ):
+                    await async_validate_source(
+                        self.hass, captured, "humidity", self.humidity.id
+                    )
+        self.hass.config_entries.async_update_entry(
+            owner, data={"datapoints": [config]}
+        )
+        self.assertEqual(
+            await async_validate_source(
+                self.hass, captured, "humidity", self.humidity.id
+            ),
+            captured,
+        )
+
+    async def test_composed_humidity_requires_output_and_binding_identity_agreement(
+        self,
+    ) -> None:
+        _owner, output, _config = self._composed_humidity()
+        captured = await async_capture_source(
+            self.hass, output.entity_id, "humidity", self.humidity.id
+        )
+        other = self._source(
+            "ecobee", "other_thermostat", device=True, physical_identity="thermostat_b"
+        )
+        self.registry.async_update_entity(output.entity_id, device_id=other.device_id)
+        with self.assertRaisesRegex(ValueError, "historical_source_identity_mismatch"):
+            await async_capture_source(
+                self.hass, output.entity_id, "humidity", output.id
+            )
+        self.registry.async_update_entity(
+            output.entity_id, device_id=self.homekit.device_id
+        )
+        self.assertEqual(
+            await async_validate_source(
+                self.hass, captured, "humidity", self.humidity.id
+            ),
+            captured,
+        )
 
     async def test_native_families_keep_units_and_raw_aqi_forward_transform(
         self,

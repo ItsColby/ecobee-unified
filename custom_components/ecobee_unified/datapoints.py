@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from math import isfinite
+from math import isfinite, ulp
 from typing import Any, Literal
 
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
@@ -74,6 +74,7 @@ _PLATFORMS = frozenset(
     {"homekit_controller", "ecobee", "beestat_statistics", "battery_notes"}
 )
 _TEMPERATURE_UNITS = frozenset({"°C", "°F", "K"})
+TEMPERATURE_ABSOLUTE_ZERO = {"°C": -273.15, "°F": -459.67, "K": 0.0}
 _DURATION_SECONDS = {"s": 1, "min": 60, "h": 3600, "d": 86400}
 _EMPTY = frozenset({"unknown", "unavailable"})
 _TEXT_LIMIT = 255
@@ -161,6 +162,8 @@ class DatapointConfig:
     semantic: str | None = None
     weather_station: str | None = None
     weather_config_entry_id: str | None = None
+    minimum_value: float | None = None
+    maximum_value: float | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", self.datapoint_id):
@@ -202,6 +205,7 @@ class DatapointConfig:
         _optional_text(self.semantic, "invalid_semantic")
         _validate_output_unit(self)
         _validate_weather_config(self)
+        _validate_accepted_range(self)
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> DatapointConfig:
@@ -219,6 +223,8 @@ class DatapointConfig:
             semantic=value.get("semantic"),
             weather_station=value.get("weather_station"),
             weather_config_entry_id=value.get("weather_config_entry_id"),
+            minimum_value=value.get("minimum_value"),
+            maximum_value=value.get("maximum_value"),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -236,7 +242,72 @@ class DatapointConfig:
             "semantic": self.semantic,
             "weather_station": self.weather_station,
             "weather_config_entry_id": self.weather_config_entry_id,
+            "minimum_value": self.minimum_value,
+            "maximum_value": self.maximum_value,
         }
+
+
+def _validate_accepted_range(config: DatapointConfig) -> None:
+    if config.minimum_value is None and config.maximum_value is None:
+        return
+    if (
+        config.kind != "temperature"
+        or config.semantic != "physical_temperature"
+        or config.time_basis != "current"
+    ):
+        raise ValueError("accepted_range_not_supported")
+    assert config.unit is not None
+    # Compare in the declared unit so conversion roundoff cannot reject -459.67°F.
+    absolute_zero = TEMPERATURE_ABSOLUTE_ZERO[config.unit]
+    for field in ("minimum_value", "maximum_value"):
+        raw = getattr(config, field)
+        if raw is None:
+            continue
+        try:
+            number = _finite_number(raw)
+        except ValueError as err:
+            raise ValueError("invalid_accepted_range") from err
+        if number < absolute_zero:
+            raise ValueError("invalid_accepted_range")
+        object.__setattr__(config, field, number)
+    if (
+        config.minimum_value is not None
+        and config.maximum_value is not None
+        and config.minimum_value >= config.maximum_value
+    ):
+        raise ValueError("invalid_accepted_range")
+
+
+def _check_accepted_range(config: DatapointConfig, value: DatapointValue) -> None:
+    """Apply user acceptance policy after conversion, without claiming a fault."""
+    if config.minimum_value is None and config.maximum_value is None:
+        return
+    assert isinstance(value, float)
+    assert config.unit is not None
+    if (
+        config.minimum_value is not None
+        and value < config.minimum_value
+        and not _temperature_endpoint_equal(value, config.minimum_value, config.unit)
+    ) or (
+        config.maximum_value is not None
+        and value > config.maximum_value
+        and not _temperature_endpoint_equal(value, config.maximum_value, config.unit)
+    ):
+        raise ValueError("out_of_range")
+
+
+def _temperature_endpoint_equal(value: float, bound: float, unit: str) -> bool:
+    """Ignore bounded conversion roundoff, never a measurement tolerance."""
+    # Affine conversions can lose precision near zero through cancellation.
+    # Include their offset scale, rather than only the much smaller result ULP.
+    # Four steps cover conversion arithmetic and a saved-bound unit roundtrip.
+    scale = max(
+        abs(value),
+        abs(bound),
+        abs(TEMPERATURE_ABSOLUTE_ZERO[unit]),
+        -TEMPERATURE_ABSOLUTE_ZERO["°C"],
+    )
+    return abs(value - bound) <= 4 * ulp(scale)
 
 
 def _validate_output_unit(config: DatapointConfig) -> None:
@@ -973,8 +1044,9 @@ def _value(config: DatapointConfig, raw: Any, unit: str | None) -> DatapointValu
 def _numeric_value(config: DatapointConfig, number: float, unit: str | None) -> float:
     if config.kind == "temperature":
         assert unit is not None and config.unit is not None
-        kelvin = TemperatureConverter.convert(number, unit, "K")
-        if not isfinite(kelvin) or kelvin < 0:
+        # Native-unit comparison avoids a small negative Kelvin result when
+        # converting the exact Fahrenheit absolute-zero endpoint.
+        if number < TEMPERATURE_ABSOLUTE_ZERO[unit]:
             raise ValueError("invalid_temperature")
         number = TemperatureConverter.convert(number, unit, config.unit)
     elif config.kind in {"humidity", "battery"} and not 0 <= number <= 100:
@@ -1223,6 +1295,7 @@ class DatapointManager:
                 if group_error:
                     raise ValueError(group_error)
                 observation = self._read(config, binding, now)
+                _check_accepted_range(config, observation.value)
                 cutoff = _source_max_age(config, binding)
                 if cutoff:
                     if observation.freshness_timestamp is None:

@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed_exact,
@@ -390,6 +391,299 @@ async def test_primary_order_conversion_invalid_unit_fallback_and_recovery(
     await hass.async_block_till_done()
     assert manager.snapshot(config.datapoint_id).value == pytest.approx(21.1111111)
     await manager.async_stop()
+
+
+async def test_temperature_accepted_range_conversion_endpoints_fallback_and_recovery(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", kind="temperature", unit="°F")
+    second = _source(hass, "ecobee", kind="temperature", unit="°C")
+    config = _config(
+        first,
+        second,
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        minimum_value=15,
+        maximum_value=30,
+    )
+    hass.states.async_set(first.entity_id, "86")
+    hass.states.async_set(second.entity_id, "25")
+    validate_datapoint(hass, config)
+    manager = DatapointManager(hass, "unified", (config,))
+    await manager.async_start()
+    snapshot = manager.snapshot(config.datapoint_id)
+    assert snapshot.available and snapshot.value == 30
+    assert snapshot.selected_source == first.entity_id
+
+    # Inclusive endpoints apply to converted values, not the source's raw unit.
+    for primary, expected, fallback in (
+        ("86.18", 25, True),
+        ("59", 15, False),
+        ("58.82", 25, True),
+    ):
+        hass.states.async_set(first.entity_id, primary)
+        await hass.async_block_till_done()
+        snapshot = manager.snapshot(config.datapoint_id)
+        assert snapshot.available and snapshot.value == expected
+        assert snapshot.fallback_used == fallback
+        assert snapshot.selected_source == (
+            second.entity_id if fallback else first.entity_id
+        )
+        assert snapshot.source_statuses[0].status == (
+            "out_of_range" if fallback else "available"
+        )
+
+    hass.states.async_set(second.entity_id, "31")
+    await hass.async_block_till_done()
+    snapshot = manager.snapshot(config.datapoint_id)
+    assert not snapshot.available
+    assert snapshot.value is None and snapshot.selected_source is None
+    assert snapshot.status == "no_usable_source"
+    assert [item.status for item in snapshot.source_statuses] == [
+        "out_of_range",
+        "out_of_range",
+    ]
+
+    hass.states.async_set(first.entity_id, "77")
+    await hass.async_block_till_done()
+    snapshot = manager.snapshot(config.datapoint_id)
+    assert snapshot.available and snapshot.value == 25
+    assert snapshot.selected_source == first.entity_id
+    assert not snapshot.fallback_used
+    await manager.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("native_unit", "output_unit", "raw", "field", "bound", "roundtrip"),
+    [
+        ("°F", "°C", "65.12", "maximum_value", 18.4, False),
+        ("°F", "°C", "64.94", "minimum_value", 18.3, False),
+        ("°F", "°C", "32.18", "minimum_value", 0.1, False),
+        ("K", "°F", "0", "maximum_value", -459.67, False),
+        ("°F", "K", "-459.67", "minimum_value", 0, False),
+        ("°C", "°C", "18.3", "maximum_value", 18.3, True),
+    ],
+)
+async def test_temperature_accepted_endpoints_survive_conversion_roundoff(
+    hass: HomeAssistant,
+    native_unit: str,
+    output_unit: str,
+    raw: str,
+    field: str,
+    bound: float,
+    roundtrip: bool,
+) -> None:
+    first = _source(hass, "homekit_controller", kind="temperature", unit=native_unit)
+    second = _source(hass, "ecobee", kind="temperature", unit=output_unit)
+    if roundtrip:
+        bound = TemperatureConverter.convert(
+            TemperatureConverter.convert(bound, "°C", "°F"), "°F", "°C"
+        )
+    config = _config(
+        first,
+        second,
+        kind="temperature",
+        unit=output_unit,
+        semantic="physical_temperature",
+        **{field: bound},
+    )
+    hass.states.async_set(first.entity_id, raw)
+    hass.states.async_set(second.entity_id, str(bound))
+    validate_datapoint(hass, config)
+    manager = DatapointManager(hass, "unified", (config,))
+    await manager.async_start()
+    snapshot = manager.snapshot(config.datapoint_id)
+    assert snapshot.available and snapshot.selected_source == first.entity_id
+    assert not snapshot.fallback_used
+    assert snapshot.source_statuses[0].status == "available"
+    # Endpoint equivalence never clips or rounds the published converted value.
+    assert snapshot.value == TemperatureConverter.convert(
+        float(raw), native_unit, output_unit
+    )
+    await manager.async_stop()
+
+
+async def test_temperature_roundoff_guard_rejects_real_outside_values(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", kind="temperature", unit="°C")
+    second = _source(hass, "ecobee", kind="temperature", unit="°C")
+    config = _config(
+        first,
+        second,
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        minimum_value=18.3,
+        maximum_value=18.4,
+    )
+    hass.states.async_set(first.entity_id, "18.35")
+    hass.states.async_set(second.entity_id, "18.36")
+    manager = DatapointManager(hass, "unified", (config,))
+    await manager.async_start()
+    for outside in ("18.299999999", "18.400000001"):
+        hass.states.async_set(first.entity_id, outside)
+        await hass.async_block_till_done()
+        snapshot = manager.snapshot(config.datapoint_id)
+        assert snapshot.available and snapshot.value == 18.36
+        assert snapshot.fallback_used
+        assert snapshot.source_statuses[0].status == "out_of_range"
+    await manager.async_stop()
+
+
+async def test_temperature_range_admission_disabled_fallback_and_default_off(
+    hass: HomeAssistant,
+) -> None:
+    first = _source(hass, "homekit_controller", kind="temperature", unit="°C")
+    second = _source(hass, "ecobee", kind="temperature", unit="°C")
+    hass.states.async_set(first.entity_id, "100")
+    hass.states.async_set(second.entity_id, "25")
+    config = _config(
+        first,
+        second,
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        minimum_value=15,
+        maximum_value=30,
+    )
+    strict = replace(config, datapoint_id="strict", fallback=False)
+    unbounded = replace(
+        config, datapoint_id="unbounded", minimum_value=None, maximum_value=None
+    )
+    # A valid source outside user policy remains admissible, enabling fallback.
+    for candidate in (config, strict, unbounded):
+        validate_datapoint(hass, candidate)
+    manager = DatapointManager(hass, "unified", (config, strict, unbounded))
+    await manager.async_start()
+    assert manager.snapshot(config.datapoint_id).value == 25
+    assert manager.snapshot(config.datapoint_id).fallback_used
+    snapshot = manager.snapshot(strict.datapoint_id)
+    assert not snapshot.available and snapshot.value is None
+    assert snapshot.selected_source is None and not snapshot.fallback_used
+    assert [item.status for item in snapshot.source_statuses] == [
+        "out_of_range",
+        "available",
+    ]
+    snapshot = manager.snapshot(unbounded.datapoint_id)
+    assert snapshot.available and snapshot.value == 100
+    assert snapshot.selected_source == first.entity_id and not snapshot.fallback_used
+    await manager.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("minimum", "maximum", "outside"), [(15, None, "14"), (None, 30, "31")]
+)
+async def test_temperature_one_sided_accepted_range(
+    hass: HomeAssistant, minimum: float | None, maximum: float | None, outside: str
+) -> None:
+    first = _source(hass, "homekit_controller", kind="temperature", unit="°C")
+    second = _source(hass, "ecobee", kind="temperature", unit="°C")
+    config = _config(
+        first,
+        second,
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        minimum_value=minimum,
+        maximum_value=maximum,
+    )
+    assert DatapointConfig.from_dict(config.as_dict()) == config
+    hass.states.async_set(first.entity_id, outside)
+    hass.states.async_set(second.entity_id, "20")
+    validate_datapoint(hass, config)
+    manager = DatapointManager(hass, "unified", (config,))
+    await manager.async_start()
+    snapshot = manager.snapshot(config.datapoint_id)
+    assert snapshot.value == 20 and snapshot.fallback_used
+    assert snapshot.source_statuses[0].status == "out_of_range"
+    await manager.async_stop()
+
+
+@pytest.mark.parametrize("field", ["minimum_value", "maximum_value"])
+@pytest.mark.parametrize("value", [True, False, float("nan"), float("inf"), "bad", []])
+def test_temperature_range_rejects_invalid_bounds(field: str, value: Any) -> None:
+    with pytest.raises(ValueError, match="invalid_accepted_range"):
+        _config(
+            kind="temperature",
+            unit="°C",
+            semantic="physical_temperature",
+            sources=(SourceBinding("first"), SourceBinding("second")),
+            **{field: value},
+        )
+
+
+@pytest.mark.parametrize("minimum,maximum", [(20, 20), (30, 20)])
+def test_temperature_range_requires_increasing_bounds(
+    minimum: float, maximum: float
+) -> None:
+    with pytest.raises(ValueError, match="invalid_accepted_range"):
+        _config(
+            kind="temperature",
+            unit="°C",
+            semantic="physical_temperature",
+            sources=(SourceBinding("first"), SourceBinding("second")),
+            minimum_value=minimum,
+            maximum_value=maximum,
+        )
+
+
+@pytest.mark.parametrize(
+    "unit,absolute_zero", [("°C", -273.15), ("°F", -459.67), ("K", 0)]
+)
+@pytest.mark.parametrize("field", ["minimum_value", "maximum_value"])
+def test_temperature_bounds_cannot_be_below_absolute_zero(
+    unit: str, absolute_zero: float, field: str
+) -> None:
+    config = _config(
+        kind="temperature",
+        unit=unit,
+        semantic="physical_temperature",
+        sources=(SourceBinding("first"), SourceBinding("second")),
+        **{field: absolute_zero},
+    )
+    assert DatapointConfig.from_dict(config.as_dict()) == config
+    with pytest.raises(ValueError, match="invalid_accepted_range"):
+        replace(config, **{field: absolute_zero - 0.01})
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"kind": "humidity", "unit": "%"},
+        {"semantic": "control_temperature"},
+        {"time_basis": "interval", "interval_seconds": 300},
+    ],
+)
+def test_accepted_range_requires_current_physical_temperature(
+    changes: dict[str, Any],
+) -> None:
+    config = _config(
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        sources=(
+            SourceBinding("first", timestamp_attribute="measured_at"),
+            SourceBinding("second", timestamp_attribute="measured_at"),
+        ),
+    )
+    with pytest.raises(ValueError, match="accepted_range_not_supported"):
+        replace(config, minimum_value=15, **changes)
+
+
+def test_legacy_datapoint_without_range_fields_preserves_disabled_policy() -> None:
+    config = _config(
+        kind="temperature",
+        unit="°C",
+        semantic="physical_temperature",
+        sources=(SourceBinding("first"), SourceBinding("second")),
+    )
+    saved = config.as_dict()
+    del saved["minimum_value"]
+    del saved["maximum_value"]
+    assert DatapointConfig.from_dict(saved) == config
+    assert config.minimum_value is None and config.maximum_value is None
 
 
 async def test_identity_contradiction_blocks_both_sources_then_recovers(

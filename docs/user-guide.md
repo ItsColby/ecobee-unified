@@ -250,6 +250,29 @@ source-age cutoff needs a reporting cadence or a deliberate silent-source guard;
 leave it zero for healthy quiet event sources. A source-specific cutoff can
 override the datapoint default. Neither setting refreshes an upstream source.
 
+For **current physical temperature**, optional **Minimum accepted temperature**
+and **Maximum accepted temperature** fields can exclude a source from selection
+when its converted value is outside your chosen range. Enter limits in the
+datapoint's output unit; either limit may be left blank, and both are disabled
+by default. Endpoints are included. When both limits are set, the minimum must
+be lower than the maximum. A source outside the range reports `out_of_range`;
+with fallback enabled, the next eligible source supplies the reading. If none
+qualifies, the output is unavailable. Values are never clipped or held.
+
+Choose limits for the intended use: a real extreme temperature can also be
+outside an accepted range. This policy does not prove a sensor is faulty,
+calibrate it, or change raw readings and their history. Keep any required raw
+diagnostic or safety consumers. Range checks do not apply to thermostat
+control/display temperatures, weather or interval observations. You can still
+configure a proven source pair while one source is outside the range.
+
+Editing these limits preserves the output identity and existing recorded data;
+it affects future source selection. Clear both fields to disable the policy.
+When changing an output unit with active limits, leave the displayed limit
+numbers unchanged: the integration converts the saved limits to the new unit
+at the same time. To change or remove the limits as well, do that in a separate
+edit. This avoids silently interpreting an old limit in a different unit.
+
 Interval observations require an observation timestamp attribute and interval
 length. They retain their interval meaning and never replace current equipment
 state. Minimum fan minutes per hour is a setting, with its own semantic choice,

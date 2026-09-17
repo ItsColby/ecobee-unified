@@ -2892,7 +2892,20 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(externally_updated, entry.options)
 
     async def test_minor_schema_migration_normalizes_mapping_data(self) -> None:
-        self.assertEqual(4, EcobeeUnifiedConfigFlow.MINOR_VERSION)
+        self.assertEqual(5, EcobeeUnifiedConfigFlow.MINOR_VERSION)
+        retained_datapoint = DatapointConfig(
+            "retained_humidity",
+            "Retained humidity",
+            "humidity",
+            (
+                SourceBinding(self.homekit.id, "current_humidity"),
+                SourceBinding(self.ecobee.id, "current_humidity"),
+            ),
+            unit="%",
+        ).as_dict()
+        # Older optional datapoints have no accepted-range policy to enable.
+        retained_datapoint.pop("minimum_value", None)
+        retained_datapoint.pop("maximum_value", None)
         legacy = self.mapping.as_dict() | {
             "scheduled_profile_entity": "",
             "next_transition_entity": "",
@@ -2902,7 +2915,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             domain=DOMAIN,
             title="Ecobee Unified",
             unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [legacy], "future_field": ["preserve"]},
+            data={
+                CONF_MAPPINGS: [legacy],
+                "datapoints": [retained_datapoint],
+                "future_field": ["preserve"],
+            },
             version=1,
             minor_version=0,
             options={
@@ -2913,12 +2930,13 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(4, entry.minor_version)
+        self.assertEqual(5, entry.minor_version)
         self.assertEqual(
             [self.mapping.as_dict() | {"future_mapping_field": {"opaque": "preserve"}}],
             entry.data[CONF_MAPPINGS],
         )
         self.assertEqual(["preserve"], entry.data["future_field"])
+        self.assertEqual([retained_datapoint], entry.data["datapoints"])
         self.assertEqual({"future_option": {"opaque": "preserve"}}, entry.options)
 
     async def test_future_schema_fails_closed_without_rewriting_data(self) -> None:
@@ -2935,6 +2953,19 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertFalse(await async_migrate_entry(self.hass, entry))
         self.assertEqual(2, entry.version)
         self.assertEqual(original_data, entry.data)
+
+        future_minor = MockConfigEntry(
+            domain=DOMAIN,
+            data=original_data,
+            version=1,
+            minor_version=6,
+            options={"future_policy": "preserve"},
+        )
+        future_minor.add_to_hass(self.hass)
+        self.assertFalse(await async_migrate_entry(self.hass, future_minor))
+        self.assertEqual(6, future_minor.minor_version)
+        self.assertEqual(original_data, future_minor.data)
+        self.assertEqual({"future_policy": "preserve"}, future_minor.options)
 
         empty_entry = MockConfigEntry(
             domain=DOMAIN,

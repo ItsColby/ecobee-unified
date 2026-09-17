@@ -131,7 +131,10 @@
       "historical_beestat_mapping_ambiguous": "More than one effective Beestat Statistics mapping could own this statistic. Resolve the ambiguous mapping before continuing.",
       "historical_unsupported_source": "Choose a supported historical statistic associated with a registered sensor or weather entity from Ecobee, HomeKit Device, Ecobee Unified, or an effective Beestat Statistics mapping.",
       "historical_timezone_mismatch": "Daily selection requires the mapping, sources, and current Home Assistant calendar to use the same time zone. Select the current Home Assistant time zone.",
-      "datapoint_meaning_change": "This edit cannot preserve the datapoint's meaning. Use Add multi-source datapoint for a different physical item, weather feed, observation role, quantity, time basis, fixed interval, incompatible unit, or generic number/text binding set. A replacement source needs proof of the same physical item and native role. Existing history is not changed."
+      "datapoint_meaning_change": "This edit cannot preserve the datapoint's meaning. Use Add multi-source datapoint for a different physical item, weather feed, observation role, quantity, time basis, fixed interval, incompatible unit, or generic number/text binding set. A replacement source needs proof of the same physical item and native role. Existing history is not changed.",
+      "accepted_range_not_supported": "Accepted temperature bounds apply only to Current physical temperature datapoints. Clear both bounds for other quantities, meanings or time bases.",
+      "invalid_accepted_range": "Enter finite temperature bounds in the output unit, at or above absolute zero. If both bounds are set, the minimum must be lower than the maximum. Leave either bound blank to omit that limit.",
+      "datapoint_range_unit_change": "When changing the output unit, keep both existing bounds unchanged in this form. They will be converted together with the output unit. Edit or clear the range in a separate saved change."
     },
     "step": {
       "user": {
@@ -293,7 +296,9 @@
           "tertiary_unit": "Third (optional) source unit (if needed)",
           "primary_max_age_seconds": "First source maximum age (seconds; optional)",
           "secondary_max_age_seconds": "Second source maximum age (seconds; optional)",
-          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)"
+          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)",
+          "minimum_value": "Minimum accepted temperature",
+          "maximum_value": "Maximum accepted temperature"
         },
         "data_description": {
           "name": "Use a distinct name up to 64 characters. Editing the name preserves this datapoint’s stable identity.",
@@ -319,12 +324,14 @@
           "tertiary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
           "primary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
           "secondary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
-          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically."
+          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "minimum_value": "Optional inclusive lower bound in the output unit for Current physical temperature only. A source below this bound is ineligible before fallback selection. This is an acceptance policy, not proof that a rejected reading is faulty. Leave blank for no lower bound.",
+          "maximum_value": "Optional inclusive upper bound in the output unit for Current physical temperature only. A source above this bound is ineligible before fallback selection. This is an acceptance policy, not proof that a rejected reading is faulty. Leave blank for no upper bound."
         }
       },
       "datapoint_edit_confirm": {
         "title": "Edit multi-source datapoint",
-        "description": "Preserve this datapoint's meaning and identity. Name, source priority, fallback, and freshness may change. A different quantity, meaning, time basis, or fixed interval length needs Add multi-source datapoint. Generic number/text sources must keep the same entity-and-attribute pairs; reordering is allowed. Changes are staged until Save changes.",
+        "description": "Preserve this datapoint's meaning and identity. Name, source priority, fallback, freshness, and accepted temperature range may change. A different quantity, meaning, time basis, or fixed interval length needs Add multi-source datapoint. Generic number/text sources must keep the same entity-and-attribute pairs; reordering is allowed. Changes are staged until Save changes.",
         "data": {
           "name": "Datapoint name",
           "kind": "Quantity type",
@@ -349,18 +356,20 @@
           "tertiary_unit": "Third (optional) source unit (if needed)",
           "primary_max_age_seconds": "First source maximum age (seconds; optional)",
           "secondary_max_age_seconds": "Second source maximum age (seconds; optional)",
-          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)"
+          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)",
+          "minimum_value": "Minimum accepted temperature",
+          "maximum_value": "Maximum accepted temperature"
         },
         "data_description": {
           "name": "Use a distinct name up to 64 characters. Renaming preserves this datapoint's stable identity and meaning.",
           "kind": "Keep the existing quantity type. Use Add multi-source datapoint for a different type so its observations have a new identity.",
           "semantic": "Keep the meaning used by this quantity. Physical room, control/display, and weather temperatures are distinct; elapsed duration and minimum fan runtime per hour are distinct. Use Add multi-source datapoint to change meaning. Other quantities ignore this choice.",
-          "unit": "Temperature may change between °C, °F, and K; duration may change between s, min, h, and d. Meaning and time basis must stay the same. Keep all other output units unchanged, including Other numeric quantity. Confirm an allowed unit change.",
+          "unit": "Temperature may change between °C, °F, and K; duration may change between s, min, h, and d. Meaning and time basis must stay the same. Keep all other output units unchanged, including Other numeric quantity. Confirm an allowed unit change. With active temperature bounds, leave the displayed bound values unchanged when changing units; they are converted atomically. Edit or clear bounds in a separate saved change.",
           "time_basis": "Keep the existing Current or Fixed observation interval choice. Use Add multi-source datapoint to change the time basis.",
           "interval_seconds": "For a fixed interval, keep its existing duration in seconds. A different interval length requires Add multi-source datapoint and a new identity. This field remains blank for Current observations.",
           "max_age_seconds": "Default maximum age for sources without an override. Zero keeps quiet event sources usable. Membership uses its source metadata clock where supplied; weather uses its provider forecast timestamp. A receipt or provider report is not proof of a new physical measurement.",
           "fallback": "Use the first usable source, then the second and optional third if enabled. Disabling fallback uses only the first source. This affects reads only and never changes thermostat command writers.",
-          "confirm_equivalence": "Required for source changes, including reordering, and compatible unit or timestamp changes. Confirmation does not permit changes to physical item, weather feed, observation role, quantity, time basis, fixed interval length, or the generic number/text entity-and-attribute set. Name, fallback, and freshness changes alone do not need reconfirmation.",
+          "confirm_equivalence": "Required for source changes, including reordering, and compatible unit or timestamp changes. Confirmation does not permit changes to physical item, weather feed, observation role, quantity, time basis, fixed interval length, or the generic number/text entity-and-attribute set. Name, fallback, freshness, and accepted-range changes alone do not need reconfirmation.",
           "primary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a different station or Ecobee connection requires a new datapoint. Typed replacements must prove the same physical item and native observation role. Otherwise keep the bindings or add a new datapoint. For Other numeric quantity or Text status, keep the same complete set of entity-and-attribute pairs; reordering is allowed.",
           "primary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
           "primary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
@@ -375,7 +384,9 @@
           "tertiary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
           "primary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
           "secondary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
-          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically."
+          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "minimum_value": "Optional inclusive lower bound in the output unit for Current physical temperature only. A source below this bound is ineligible before fallback selection. This is an acceptance policy, not proof that a rejected reading is faulty. Leave blank for no lower bound. For an output-unit change, keep this displayed value unchanged so it is converted automatically; do not edit or clear it in the same change.",
+          "maximum_value": "Optional inclusive upper bound in the output unit for Current physical temperature only. A source above this bound is ineligible before fallback selection. This is an acceptance policy, not proof that a rejected reading is faulty. Leave blank for no upper bound. For an output-unit change, keep this displayed value unchanged so it is converted automatically; do not edit or clear it in the same change."
         }
       },
       "datapoint_edit": {

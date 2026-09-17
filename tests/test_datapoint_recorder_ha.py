@@ -180,6 +180,55 @@ async def sources(hass: HomeAssistant, recorder_mock: Recorder) -> Sources:
     )
 
 
+@pytest.fixture
+async def physical_temperature_sources(
+    hass: HomeAssistant, recorder_mock: Recorder
+) -> tuple[er.RegistryEntry, er.RegistryEntry]:
+    """Keep native room-probe meaning separate from thermostat control readings."""
+    hass.config.units = METRIC_SYSTEM
+    assert await async_setup_component(hass, "sensor", {})
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+    records = []
+    for platform in ("homekit_controller", "ecobee"):
+        source_entry = MockConfigEntry(domain=platform)
+        source_entry.add_to_hass(hass)
+        device = device_registry.async_get_or_create(
+            config_entry_id=source_entry.entry_id,
+            identifiers={(platform, "room_probe_a")},
+            serial_number="room_probe_a",
+            manufacturer="ecobee Inc.",
+            model="EBERS41" if platform == "homekit_controller" else "Remote sensor",
+        )
+        source = registry.async_get_or_create(
+            "sensor",
+            platform,
+            "room_probe_a-temperature",
+            config_entry=source_entry,
+            device_id=device.id,
+            original_device_class="temperature",
+            unit_of_measurement="°C",
+        )
+        _physical_temperature_state(hass, source.entity_id, 20 if not records else 21)
+        records.append(source)
+    await async_wait_recording_done(hass)
+    return records[0], records[1]
+
+
+def _physical_temperature_state(
+    hass: HomeAssistant, entity_id: str, temperature: float
+) -> None:
+    hass.states.async_set(
+        entity_id,
+        str(temperature),
+        {
+            "device_class": "temperature",
+            "unit_of_measurement": "°C",
+            "state_class": "measurement",
+        },
+    )
+
+
 def _thermostat_state(
     hass: HomeAssistant, entity_id: str, temperature: float, *, humidity: float = 42
 ) -> None:
@@ -217,7 +266,7 @@ async def _setup(
         domain=DOMAIN,
         unique_id=DOMAIN,
         version=1,
-        minor_version=4,
+        minor_version=5,
         data={CONF_MAPPINGS: [], "datapoints": [config.as_dict()]},
     )
     entry.add_to_hass(hass)
@@ -323,6 +372,144 @@ async def _history(
         ]
         for entity_id, states in raw.items()
     }
+
+
+async def test_physical_temperature_range_edit_preserves_recorded_identity_and_fallback(
+    hass: HomeAssistant,
+    physical_temperature_sources: tuple[er.RegistryEntry, er.RegistryEntry],
+    freezer: FrozenDateTimeFactory,
+    recorder_db_url: str,
+) -> None:
+    """A saved acceptance policy rejects before selection without replacing history."""
+    primary, secondary = physical_temperature_sources
+    config = DatapointConfig(
+        datapoint_id="recorded_room_temperature",
+        name="Recorded room temperature",
+        kind="temperature",
+        sources=(SourceBinding(primary.id), SourceBinding(secondary.id)),
+        unit="°C",
+        semantic="physical_temperature",
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        version=1,
+        minor_version=5,
+        data={CONF_MAPPINGS: [], "datapoints": [config.as_dict()]},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await async_wait_recording_done(hass)
+    entity_id = _entity_id(hass, entry, config.datapoint_id)
+    await _compile_hour(hass, freezer, 0)
+    assert recorder_db_url.startswith("sqlite:///")
+    database = Path(recorder_db_url.removeprefix("sqlite:///"))
+    assert (await hass.async_add_executor_job(database.stat)).st_size > 0
+    metadata = await _metadata(hass, [entity_id])
+    recorded = await _statistics(hass, [entity_id])
+    recorded_history = await _history(hass, [entity_id])
+    assert recorded[entity_id][0]["mean"] == 20
+    assert recorded_history[entity_id]
+    registry_entry = er.async_get(hass).async_get(entity_id)
+    assert registry_entry is not None
+    original_identity = (
+        registry_entry.id,
+        registry_entry.unique_id,
+        registry_entry.device_id,
+    )
+
+    freezer.move_to(START + timedelta(hours=1, minutes=5))
+    values = _datapoint_form_defaults(hass, entry.data["datapoints"][0]) | {
+        "minimum_value": 5,
+        "maximum_value": 30,
+        "confirm_equivalence": True,
+    }
+    await _save(hass, await _form(hass, entry, config.datapoint_id), values)
+    saved = entry.data["datapoints"][0]
+    assert saved["datapoint_id"] == config.datapoint_id
+    assert saved["minimum_value"] == 5
+    assert saved["maximum_value"] == 30
+    assert _entity_id(hass, entry, config.datapoint_id) == entity_id
+    assert float(hass.states.get(entity_id).state) == 20
+
+    fallback_time = START + timedelta(hours=1, minutes=10)
+    freezer.move_to(fallback_time)
+    _physical_temperature_state(hass, primary.entity_id, 100)
+    await async_wait_recording_done(hass)
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert float(state.state) == 21
+    assert state.attributes["source"] == secondary.entity_id
+    assert state.attributes["fallback_used"] is True
+    await _compile_hour(hass, freezer, 1)
+
+    unavailable_time = START + timedelta(hours=2, minutes=5)
+    freezer.move_to(unavailable_time)
+    _physical_temperature_state(hass, secondary.entity_id, -10)
+    await async_wait_recording_done(hass)
+    assert hass.states.get(entity_id).state == "unavailable"
+    snapshot = entry.runtime_data.datapoints.snapshot(config.datapoint_id)
+    assert snapshot.value is None
+    assert snapshot.selected_source is None
+    assert snapshot.status == "no_usable_source"
+    assert [source.status for source in snapshot.source_statuses] == [
+        "out_of_range",
+        "out_of_range",
+    ]
+    await _compile_hour(hass, freezer, 2)
+
+    recovery_time = START + timedelta(hours=3, minutes=5)
+    freezer.move_to(recovery_time)
+    _physical_temperature_state(hass, primary.entity_id, 22)
+    await async_wait_recording_done(hass)
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert float(state.state) == 22
+    assert state.attributes["source"] == primary.entity_id
+    assert state.attributes["fallback_used"] is False
+    await _compile_hour(hass, freezer, 3)
+
+    current_registry = er.async_get(hass).async_get(entity_id)
+    assert current_registry is not None
+    assert (
+        current_registry.id,
+        current_registry.unique_id,
+        current_registry.device_id,
+    ) == original_identity
+    assert await _metadata(hass, [entity_id]) == metadata
+    assert await _statistics(hass, [entity_id]) == recorded
+    assert await _history(hass, [entity_id]) == recorded_history
+    rows = (await _statistics(hass, [entity_id], 4))[entity_id]
+    assert [row["mean"] for row in rows] == [20, 21, 22]
+    assert [row["min"] for row in rows] == [20, 21, 22]
+    assert [row["max"] for row in rows] == [20, 21, 22]
+    recorded_states = (await _history(hass, [entity_id], 4))[entity_id]
+    fallback_states = [
+        (value, attributes)
+        for value, attributes, updated in recorded_states
+        if fallback_time <= updated < unavailable_time
+    ]
+    assert fallback_states
+    assert {float(value) for value, _ in fallback_states} == {21}
+    assert {attributes["source"] for _, attributes in fallback_states} == {
+        secondary.entity_id
+    }
+    unavailable_states = [
+        value
+        for value, _, updated in recorded_states
+        if unavailable_time <= updated < recovery_time
+    ]
+    assert unavailable_states
+    assert set(unavailable_states) == {"unavailable"}
+    assert {
+        float(value)
+        for value, _, _ in recorded_states
+        if value not in {"unavailable", "unknown"}
+    } == {20, 21, 22}
+    assert not any(
+        issue.translation_key == "units_changed"
+        for issue in ir.async_get(hass).issues.values()
+    )
 
 
 @pytest.mark.parametrize("edit", [False, True], ids=["add", "edit"])

@@ -120,7 +120,7 @@ async def async_unload_entry(
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Normalize supported schema revisions without guessing source identity."""
 
-    if entry.version != 1 or entry.minor_version > 4:
+    if entry.version != 1 or entry.minor_version > 5:
         return False
     normalized = [
         merge_mapping_data(item, MappingConfig.from_dict(item).as_dict())
@@ -138,7 +138,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data=updated_data,
         options=updated_options,
         version=1,
-        minor_version=4,
+        minor_version=5,
     )
     return True
 

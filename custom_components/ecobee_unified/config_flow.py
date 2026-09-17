@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
@@ -27,6 +28,7 @@ from homeassistant.helpers.selector import (
     StatisticSelectorConfig,
     TextSelector,
 )
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_ADD_ANOTHER,
@@ -53,6 +55,7 @@ from .const import (
     RECONFIGURE_MENU_OPTIONS,
 )
 from .datapoints import (
+    TEMPERATURE_ABSOLUTE_ZERO,
     DatapointConfig,
     SourceBinding,
     validate_datapoint,
@@ -152,7 +155,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Create the single multi-thermostat Ecobee Unified entry."""
 
     VERSION = 1
-    MINOR_VERSION = 4
+    MINOR_VERSION = 5
 
     def __init__(self) -> None:
         self._original_data: dict[str, Any] | None = None
@@ -1040,6 +1043,15 @@ def _validate_historical_collection(
         raise ValueError("historical_duplicate_name")
 
 
+class _TemperatureBoundSelector(NumberSelector):
+    """Keep HA's native number box without coercing booleans into bounds."""
+
+    def __call__(self, data: Any) -> float:
+        if isinstance(data, bool):
+            raise vol.Invalid("invalid_accepted_range")
+        return super().__call__(data)
+
+
 def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Describe quantities and each ordered source without guessing names."""
     schema: dict[vol.Marker, Any] = {}
@@ -1091,6 +1103,18 @@ def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
         schema[vol.Required(field, default=defaults.get(field, default))] = selector
     for field, selector in (
         ("unit", TextSelector()),
+        (
+            "minimum_value",
+            _TemperatureBoundSelector(
+                NumberSelectorConfig(step="any", mode=NumberSelectorMode.BOX)
+            ),
+        ),
+        (
+            "maximum_value",
+            _TemperatureBoundSelector(
+                NumberSelectorConfig(step="any", mode=NumberSelectorMode.BOX)
+            ),
+        ),
         (
             "interval_seconds",
             NumberSelector(
@@ -1183,6 +1207,7 @@ def _datapoint_from_input(
         _validate_datapoint_edit_meaning(
             hass, DatapointConfig.from_dict(current), config
         )
+    config = _datapoint_with_range(config, user_input, current)
     validate_datapoint(hass, config)
     if not user_input.get("confirm_equivalence", False) and (
         current is None or _datapoint_contract_changed(current, config)
@@ -1191,7 +1216,13 @@ def _datapoint_from_input(
     result = deepcopy(current or {})
     canonical = config.as_dict()
     # Clear nullable owned fields before overlay; retain unknown future fields.
-    for field in ("unit", "interval_seconds", "semantic"):
+    for field in (
+        "unit",
+        "interval_seconds",
+        "semantic",
+        "minimum_value",
+        "maximum_value",
+    ):
         result.pop(field, None)
     result.update(canonical)
     old_sources = (current or {}).get("sources", [])
@@ -1216,6 +1247,53 @@ def _datapoint_from_input(
         for index, source in enumerate(canonical["sources"])
     ]
     return result
+
+
+def _datapoint_with_range(
+    config: DatapointConfig,
+    user_input: dict[str, Any],
+    current: dict[str, Any] | None,
+) -> DatapointConfig:
+    """Apply bounds in output units without reinterpreting an existing range."""
+    bounds = {
+        field: _datapoint_bound(user_input.get(field))
+        for field in ("minimum_value", "maximum_value")
+    }
+    if current is not None:
+        previous = DatapointConfig.from_dict(current)
+        if previous.unit != config.unit and any(
+            getattr(previous, field) is not None for field in bounds
+        ):
+            if any(bounds[field] != getattr(previous, field) for field in bounds):
+                raise vol.Invalid("datapoint_range_unit_change")
+            assert previous.unit is not None and config.unit is not None
+            bounds = {
+                field: None
+                if value is None
+                else TEMPERATURE_ABSOLUTE_ZERO[config.unit]
+                if value == TEMPERATURE_ABSOLUTE_ZERO[previous.unit]
+                else TemperatureConverter.convert(value, previous.unit, config.unit)
+                for field, value in bounds.items()
+            }
+    return replace(
+        config,
+        minimum_value=bounds["minimum_value"],
+        maximum_value=bounds["maximum_value"],
+    )
+
+
+def _datapoint_bound(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        raise vol.Invalid("invalid_accepted_range")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as err:
+        raise vol.Invalid("invalid_accepted_range") from err
+    if not isfinite(number):
+        raise vol.Invalid("invalid_accepted_range")
+    return number
 
 
 def _validate_datapoint_edit_meaning(
@@ -1335,6 +1413,8 @@ def _datapoint_form_defaults(hass: Any, row: dict[str, Any]) -> dict[str, Any]:
             "interval_seconds",
             "max_age_seconds",
             "fallback",
+            "minimum_value",
+            "maximum_value",
         )
         if getattr(config, field) is not None
     }

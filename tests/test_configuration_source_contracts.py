@@ -372,9 +372,11 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         self.assertEqual(submitted, displayed)
         self.assertEqual(original_options, entry.options)
 
-        result = await self.hass.config_entries.options.async_configure(
-            result["flow_id"], displayed | {CONF_ECOBEE_STALE_SECONDS: 1200}
-        )
+        with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
+            result = await self.hass.config_entries.options.async_configure(
+                result["flow_id"], displayed | {CONF_ECOBEE_STALE_SECONDS: 1200}
+            )
+        reload.assert_called_once_with(entry.entry_id)
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
         self.assertEqual(
             original_options

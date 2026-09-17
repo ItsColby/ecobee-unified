@@ -91,11 +91,14 @@ data:
 ```
 
 Alongside the climate, **Minimum fan runtime** sets Ecobee's minimum fan minutes
-per hour, from 0 to 60 in five-minute increments. **Equipment stage** reduces
-Ecobee equipment tokens to a bounded state such as idle, fan, or a heating or
-cooling stage. An empty usable report means idle; absent data does not. Multiple
-or unrecognized tokens can yield `multiple` or `unknown`. This state is neither
-electrical metering nor a measurement of equipment performance.
+per hour, from 0 to 60 in five-minute increments. **Equipment stage** follows
+the selected current action and adds a reported stage when the cloud detail
+agrees. Cooling without compatible stage evidence displays **Cooling (stage
+unavailable)**. Idle cannot simultaneously display a canonical cooling stage.
+The separate `reported_equipment_stage` attribute preserves cloud detail,
+including ambiguous reports; `detail_status` explains whether it agrees.
+Report timestamps describe HA receipt, not exact equipment transitions.
+This state is neither electrical metering nor a measurement of performance.
 
 Mapped air-quality entities display the source's values with their source
 measurement or estimate semantics. Unified does not calculate a new AQI, infer
@@ -196,7 +199,13 @@ them explicitly. The integration does not pick a similarly named substitute.
 If another configuration session saves first, reopen the flow to work from its
 saved state. Accepted changes reload this entry without a Home Assistant restart.
 
-**Configure** opens two local timing settings. Both default to 1800 seconds:
+**Configure** opens two local timing settings and an optional **Configure
+thermostat read preferences** choice. Select a thermostat to set HomeKit-first,
+Ecobee-first, HomeKit-only or Ecobee-only reads separately for mode, current
+action, display temperature, humidity, targets and fan mode. HomeKit-first is
+the default. An only-source policy makes the field unavailable when that source
+cannot provide it. These settings never move the command writer. The two timing
+settings default to 1800 seconds:
 
 | Setting | Allowed whole seconds | What changes |
 |---|---|---|
@@ -206,6 +215,191 @@ saved state. Accepted changes reload this entry without a Home Assistant restart
 These options do not set polling cadence, refresh a source, change a hold's
 duration, or schedule another write. Choose them from observed reporting
 behavior. HomeKit event silence is not a staleness timeout.
+
+## Centralize other datapoints
+
+Under **Reconfigure**, choose **Add multi-source datapoint**. Select the quantity, name,
+output unit where applicable, and up to three ordered sources. An optional
+attribute selects a public field from a source entity instead of its state.
+The sources must belong to the same proven physical Ecobee thermostat or remote
+sensor, or be native Ecobee weather aliases of the same station feed.
+Confirm they represent the same quantity; similar values or names are
+insufficient. Save the staged changes to reload the entry.
+
+Keep measured humidity (`current_humidity`) and humidity targets (`humidity`)
+in separate datapoints. Confirmation cannot override a known difference in
+observation role. A saved mapping that mixes recognized contradictory roles
+stays unavailable, including when a source is missing, unavailable or disabled
+but its registry role remains known. Reordering or enabling fallback cannot
+select through that contradiction. Existing history is retained unchanged;
+create separate mappings for the observations you need.
+
+Useful choices include paired room temperatures, humidity, occupancy, battery
+readings, current comfort-profile identity and configured comfort membership.
+Physical room temperature and thermostat control/display temperature are
+different choices. A thermostat display may incorporate participating rooms.
+Keep fast motion separate from held occupancy, and `in_use` separate from
+configured profile membership. Battery Notes mirrors a battery measurement; it
+does not independently confirm it. For current profile identity, use the
+HomeKit Current Mode state, Ecobee `climate_mode`, or Beestat `profile_ref` where
+their meanings match; Ecobee `preset_mode` can describe a hold/event instead.
+
+Fallback follows the configured order and can be disabled. Missing, unknown,
+unavailable, invalid or expired observations remain visibly qualified. A
+source-age cutoff needs a reporting cadence or a deliberate silent-source guard;
+leave it zero for healthy quiet event sources. A source-specific cutoff can
+override the datapoint default. Neither setting refreshes an upstream source.
+
+Interval observations require an observation timestamp attribute and interval
+length. They retain their interval meaning and never replace current equipment
+state. Minimum fan minutes per hour is a setting, with its own semantic choice,
+not elapsed runtime. Configured-membership outputs retain the selected source's
+exact labels in `members`, alongside the count and source; changing label
+decoration does not prove a different physical membership.
+Its `source_context` identifies the reported profile and timing basis. Beestat
+room-spread membership uses its metadata-sync time; an unchanged current-profile
+state cannot establish that the list is fresh. Missing metadata time remains
+explicitly unknown and cannot satisfy a positive age cutoff.
+
+For household weather, choose **Weather and daily forecast**, select the two
+native Ecobee weather entities, and leave unit, attribute and timestamp fields
+blank. This creates one weather entity with ordered source selection and daily
+forecasts. Both sources must report the same station through the same Ecobee
+connection. A different station or Ecobee connection requires a new datapoint. The weather
+provider's forecast time is retained separately from Home Assistant receipt;
+neither proves a new physical measurement. Forecast dates retain the native
+adapter's meaning. The aliases share one upstream feed and provide no
+independent weather confirmation.
+
+Use **Edit multi-source datapoint** to change a datapoint while preserving its
+meaning and stable output identity. Name, source priority, fallback, and freshness
+changes retain that identity. Normal source entity renames retain their registry
+references. Source reordering and compatible output-unit changes still require
+equivalence confirmation; confirmation does not permit a change of meaning.
+Replacing a typed source also requires proof that the old and new sources refer
+to the same physical item and native observation role. Measured humidity and
+target humidity are different roles. Matching units, values or device labels
+cannot establish that continuity. When the native role cannot be proven, keep
+the existing entity-and-attribute bindings or add a new datapoint.
+
+| Change | Required action |
+|---|---|
+| Quantity type or meaning, such as physical versus control temperature or elapsed duration versus a minimum fan setting | Use **Add multi-source datapoint** to create a new identity |
+| Physical item, shared weather feed, or observation role, such as measured versus target humidity | Use **Add multi-source datapoint** to create a new identity |
+| Current versus fixed-interval observations, or the duration of a fixed interval | Use **Add multi-source datapoint** to create a new identity |
+| Temperature output between °C, °F, and K, or duration output between s, min, h, and d | Edit the existing datapoint only when its meaning and time basis stay the same, then confirm equivalence |
+| Any other output-unit change, including **Other numeric quantity** | Use **Add multi-source datapoint** to create a new identity |
+| Source entity or value attribute for **Other numeric quantity** or **Text status** | Keep the same complete set of entity-and-attribute pairs when editing; pairs may be reordered. Adding, removing, or replacing a pair requires a new datapoint because these generic types do not establish a narrower meaning |
+
+Choose **Remove multi-source datapoint** only when you intend to remove the
+existing output. Editing or creating a datapoint does not automatically clear,
+relabel, delete, backfill, or merge its historical statistics. History remains
+with its existing owner. Before adopting a new output, review explicit
+references and dynamic labels so an aggregate includes each physical probe once.
+
+## Read daily historical families
+
+Under **Reconfigure**, choose **Add daily history mapping**. Select an existing
+sensor for the physical item, or a native Ecobee weather entity for an outdoor
+feed, then choose the quantity and one to three existing statistics in priority
+order. Supported quantities are physical temperature, humidity, battery,
+CO₂, AQI, VOC, outdoor temperature and outdoor humidity. Save changes to apply
+the staged mappings. This creates an on-demand read configuration; it does not
+create a measurement entity or merge stored series.
+
+The native registry and statistic metadata must match the declared quantity and
+current association. Confirm that association explicitly. Beestat's effective
+mapping can originate from automatic matching: it is an owner association,
+not independent hardware proof. Current bindings do not establish identity
+throughout the retained history. Native and mirrored histories can share one
+upstream; they are alternatives, not independent confirmations.
+
+A composed Unified humidity source or anchor must prove that all its bindings
+represent current measured humidity. Target, mixed, interval and unproven
+compositions cannot enter a measured-humidity history family. Confirmed opaque
+and target mappings can still be used as separate current datapoints. This
+admission check neither repairs old statistics nor proves past source continuity.
+
+**Fixed source** reads the first source and preserves its gaps. **Ordered daily**
+chooses the first eligible daily row. Accept differing aggregation
+methods explicitly before enabling selection across those methods. A selected
+row supplies all its values; the reader does not combine another source's
+maximum with its mean, fill absent days, or interpolate hourly values.
+
+When Beestat Statistics exposes `hourly_statistics.history_v3` in **Get
+configuration**, its declared measurement `statistic_id` can be selected
+explicitly. Unified checks the declared physical identity, legacy aliases,
+units and method against the current mapping. Existing legacy IDs keep their
+existing behavior. The v3 daily policy uses complete verified point hours,
+otherwise an eligible legacy daily value. Accept this method difference even
+for a fixed source; confirming the physical association is a separate choice.
+Temperature, indoor humidity, CO₂, air quality and outdoor temperature/humidity
+are supported. Runtime, degree days and VOC are not admitted through this adapter.
+
+Run **Ecobee Unified: Get historical configuration** in **Developer tools →
+Actions** to obtain the saved family IDs. Run **Get daily history** with the
+integration entry, an included start date and an excluded end date. Omit family
+IDs to read all configured families when there are at most 16; otherwise choose
+a subset. Each request supports at most 31 calendar days and 16 families. Older
+dates remain readable in bounded requests where Recorder retains data.
+
+Dates use Home Assistant's configured timezone, with actual 23/25-hour DST
+days. A timezone change requires explicit rebinding. Calendars whose midnight
+does not align with UTC hourly bins are rejected. Administrator access follows
+the same native authorization rules as `recorder.get_statistics`.
+
+For a reusable report, create a native script using
+[`ecobee_daily_history_report.yaml`](../examples/ecobee_daily_history_report.yaml).
+Call its named action directly to receive the response. Another script can set
+`response_variable` on that call; `script.turn_on` does not return the report.
+The example has no notification destination, scheduled acquisition or history
+write. Standard history and statistics cards do not consume this response;
+the configured family ID is not a Recorder statistic alias.
+
+The response preserves candidate values, native units, source and statistic
+IDs, aggregation methods, missing measures and coverage. Recorder hourly-bin
+coverage does not establish complete samples. Legacy Beestat daily aggregates
+remain labeled as daily values stored in an hourly table; one such row is not
+one hour of a 24-hour observation record. Provider window end, importer timing
+and response acquisition remain separate. Open dates and dates whose available
+provider watermark precedes their end are provisional and excluded by default.
+Absent settling evidence remains **unknown**, including for elapsed dates.
+
+For a v3 source, each candidate includes the producer's chosen `source_basis`,
+`method_basis`, reasons, eligible intervals and original qualified bucket.
+Point slot/hour counts remain point evidence even when a legacy day supplies
+the chosen value. A partial point mean stays inspectable but is never selected,
+including when provisional observations are requested. It is never added to a
+legacy value. Query summaries describe verified point hours and appear once in
+`producer_reads`; they do not summarize the selected legacy daily values.
+Pending, conflicting or unverified buckets remain ineligible. A fresh request
+can see newly committed proof without a source entity update.
+
+AQI uses two distinct calculations: a native raw daily aggregate can be scaled
+linearly by `100 / 350`; Beestat aggregates samples normalized and rounded
+before aggregation. The scaled daily mean does not reproduce those missing
+sample-level operations. Accepting fallback permits the documented method
+difference; it does not make the methods equal. VOC candidates retain their
+native declared units and values, but equivalent-source selection remains
+blocked until authoritative unit/calibration evidence resolves them.
+
+Metadata, identity, calendar or configuration changes during a read fail the
+request instead of relabeling the result. An unavailable native read service is
+a failed read, not a successful empty history. Only one read per entry runs at
+a time, with a timeout and no automatic retry. Beestat retains import and
+interval-repair ownership; this interface does not migrate legacy IDs or admit
+future successor series merely because their names have a particular suffix.
+
+The v3 reader uses only the producer's configuration and coverage actions,
+pins paginated responses to one view and rechecks that view before returning.
+Changed or unavailable views fail the request without an automatic import,
+refresh or retry. Each read supports up to 40 distinct v3 quantities per
+Beestat entry within the existing family/day limits. A saved v3 binding needs
+a compatible producer; losing that capability does not silently restore a
+legacy binding. To change the declared identity or aliases, explicitly rebind
+the source. Before adopting a new version, retain a restorable Home Assistant
+backup including configuration and Recorder; a code-only downgrade cannot undo
+configuration or history changes made by other integrations.
 
 ## Verify an installation before moving its consumers
 

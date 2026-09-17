@@ -149,6 +149,7 @@ class RawSource:
     attributes: Mapping[str, Any] = field(default_factory=dict)
     age_seconds: int | None = None
     health: SourceHealth = SourceHealth.MISSING
+    reported_at: str | None = None
 
     @property
     def usable(self) -> bool:
@@ -208,6 +209,11 @@ class NormalizedSnapshot:
     ecobee_preset_mode: str | None
     climate_mode: str | None
     equipment_running: str | None
+    equipment_stage: str | None
+    reported_equipment_stage: str | None
+    equipment_detail_status: str
+    action_reported_at: str | None
+    equipment_reported_at: str | None
     active_sensors: tuple[str, ...]
     minimum_fan_runtime: int | None
     air_quality_index: float | None
@@ -224,14 +230,19 @@ class NormalizedSnapshot:
 def degradation_advisories(snapshot: NormalizedSnapshot) -> tuple[str, ...]:
     """Return bounded degradation details that do not require intervention."""
 
+    result = tuple(
+        reason
+        for reason in snapshot.degradation
+        if reason in {"hvac_action_disagreement", "equipment_action_disagreement"}
+    )
     if (
         "homekit_preset_unknown" in snapshot.degradation
         and snapshot.source_health.get("homekit_preset") is SourceHealth.UNKNOWN
         and snapshot.homekit_preset_writable
         and snapshot.preset_modes
     ):
-        return ("homekit_preset_unknown",)
-    return ()
+        return (*result, "homekit_preset_unknown")
+    return result
 
 
 def degradation_problem_reasons(snapshot: NormalizedSnapshot) -> tuple[str, ...]:
@@ -249,6 +260,117 @@ STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("target_temperature_high", "target_temp_high", "temperature"),
     ("fan_mode", "fan_mode", "text"),
 )
+
+READ_POLICIES = frozenset(
+    {"homekit_first", "ecobee_first", "homekit_only", "ecobee_only"}
+)
+READ_POLICY_FIELDS = (
+    "hvac_mode",
+    "current_temperature",
+    *(item[0] for item in STANDARD_FIELDS),
+)
+
+EQUIPMENT_STAGES = {
+    "fan": "fan",
+    "compcool1": "cool_stage_1",
+    "compcool2": "cool_stage_2",
+    "heatpump": "heat_pump_stage_1",
+    "heatpump1": "heat_pump_stage_1",
+    "heatpump2": "heat_pump_stage_2",
+    "heatpump3": "heat_pump_stage_3",
+    "auxheat1": "aux_heat_stage_1",
+    "auxheat2": "aux_heat_stage_2",
+    "auxheat3": "aux_heat_stage_3",
+    "humidifier": "humidifying",
+    "dehumidifier": "dehumidifying",
+    "ventilator": "ventilating",
+    "economizer": "ventilating",
+}
+
+
+def equipment_stage(equipment_running: str | None) -> str | None:
+    """Interpret a reported equipment token set without inventing a stage."""
+    if equipment_running is None:
+        return None
+    tokens = {
+        token.strip().lower() for token in equipment_running.split(",") if token.strip()
+    }
+    if not tokens:
+        return "idle"
+    stages = {EQUIPMENT_STAGES[token] for token in tokens if token in EQUIPMENT_STAGES}
+    if "fan" in stages and len(stages) > 1:
+        stages.remove("fan")
+    if tokens.difference(EQUIPMENT_STAGES):
+        return "multiple" if stages else "unknown"
+    return next(iter(stages)) if len(stages) == 1 else "multiple"
+
+
+def coherent_equipment_stage(
+    action: str | None, reported: str | None
+) -> tuple[str | None, str]:
+    """Qualify detail against the selected action; preserve a conflicting report separately."""
+    if action is None:
+        return None, "action_unavailable"
+    expected = {
+        "idle": "idle",
+        "fan": "fan",
+        "ventilating": "fan",
+        "cool_stage_1": "cooling",
+        "cool_stage_2": "cooling",
+        "heat_pump_stage_1": "heating",
+        "heat_pump_stage_2": "heating",
+        "heat_pump_stage_3": "heating",
+        "aux_heat_stage_1": "heating",
+        "aux_heat_stage_2": "heating",
+        "aux_heat_stage_3": "heating",
+        "dehumidifying": "drying",
+    }.get(reported or "")
+    normalized_action = "idle" if action == "off" else action
+    if expected is not None and expected == normalized_action:
+        return reported, "matched"
+    if reported == "humidifying" and normalized_action == "idle":
+        return reported, "matched"
+    status = (
+        "unavailable"
+        if reported is None
+        else "ambiguous"
+        if expected is None
+        else "disagreement"
+    )
+    return normalized_action, status
+
+
+def _equipment_qualifiers(
+    homekit: RawSource,
+    ecobee: RawSource,
+    action: str | None,
+    reported: str | None,
+    provenance: dict[str, str],
+    degradation: set[str],
+) -> tuple[str | None, str]:
+    """Keep asynchronous source disagreements explicit and non-alarming."""
+    local_action = _usable_source_attribute(
+        homekit, "hvac_action", "hvac_action", source_name="homekit"
+    )
+    cloud_action = _usable_source_attribute(
+        ecobee, "hvac_action", "hvac_action", source_name="ecobee"
+    )
+    if (
+        local_action is not None
+        and cloud_action is not None
+        and local_action != cloud_action
+    ):
+        degradation.add("hvac_action_disagreement")
+    stage, detail_status = coherent_equipment_stage(action, reported)
+    if detail_status == "disagreement":
+        degradation.add("equipment_action_disagreement")
+    if stage is not None:
+        provenance["equipment_stage"] = (
+            "ecobee"
+            if detail_status == "matched"
+            else provenance.get("hvac_action", "none")
+        )
+    return stage, detail_status
 
 
 def build_snapshot(
@@ -268,6 +390,7 @@ def build_snapshot(
     homekit_temperature: RawSource | None = None,
     ecobee_notify_writable: bool = False,
     homekit_temperature_recovery_pending: bool = False,
+    read_policies: Mapping[str, str] | None = None,
 ) -> NormalizedSnapshot:
     """Normalize each selected source exactly once with deterministic ownership."""
 
@@ -280,6 +403,7 @@ def build_snapshot(
     values: dict[str, Any] = {}
     provenance: dict[str, str] = {}
     degradation = _invalid_climate_fields(homekit, ecobee)
+    policies = read_policies or {}
     if not physical_identity_proven:
         degradation.add(
             "physical_identity_mismatch"
@@ -287,21 +411,27 @@ def build_snapshot(
             else "physical_identity_unproven"
         )
 
-    hvac_mode, owner = _select_state(homekit, ecobee)
+    hvac_mode, owner = _select_state(
+        homekit, ecobee, policies.get("hvac_mode", "homekit_first")
+    )
     values["hvac_mode"] = hvac_mode
     if owner:
         provenance["hvac_mode"] = owner
-        if owner == "ecobee":
+        if (
+            owner == "ecobee"
+            and policies.get("hvac_mode", "homekit_first") == "homekit_first"
+        ):
             degradation.add("homekit_read_fallback")
     else:
         degradation.add("hvac_mode_unavailable")
 
     for target, attribute, value_type in STANDARD_FIELDS:
-        value, owner = _select_attribute(homekit, ecobee, attribute, value_type)
+        policy = policies.get(target, "homekit_first")
+        value, owner = _select_attribute(homekit, ecobee, attribute, value_type, policy)
         values[target] = value
         if owner:
             provenance[target] = owner
-            if owner == "ecobee":
+            if owner == "ecobee" and policy == "homekit_first":
                 degradation.add("homekit_read_fallback")
 
     current_temperature, temperature_owner, temperature_degradation = (
@@ -310,6 +440,7 @@ def build_snapshot(
             homekit,
             ecobee,
             recovery_pending=homekit_temperature_recovery_pending,
+            policy=policies.get("current_temperature", "homekit_first"),
         )
     )
     if temperature_owner:
@@ -375,6 +506,18 @@ def build_snapshot(
     if not available:
         degradation.add("required_climate_semantics_unavailable")
 
+    equipment_running = (
+        _bounded_equipment_running(ecobee.attributes.get("equipment_running"))
+        if ecobee.usable
+        else None
+    )
+    reported_stage = equipment_stage(equipment_running)
+    action = values["hvac_action"]
+    stage, detail_status = _equipment_qualifiers(
+        homekit, ecobee, action, reported_stage, provenance, degradation
+    )
+    action_source = homekit if provenance.get("hvac_action") == "homekit" else ecobee
+
     return NormalizedSnapshot(
         mapping_id=mapping_id,
         available=available,
@@ -418,10 +561,13 @@ def build_snapshot(
         climate_mode=_bounded_text(ecobee.attributes.get("climate_mode"))
         if ecobee.usable
         else None,
-        equipment_running=_bounded_equipment_running(
-            ecobee.attributes.get("equipment_running")
-        )
-        if ecobee.usable
+        equipment_running=equipment_running,
+        equipment_stage=stage,
+        reported_equipment_stage=reported_stage,
+        equipment_detail_status=detail_status,
+        action_reported_at=action_source.reported_at if action is not None else None,
+        equipment_reported_at=ecobee.reported_at
+        if equipment_running is not None
         else None,
         active_sensors=_bounded_strings(
             ecobee.attributes.get("active_sensors")
@@ -477,10 +623,21 @@ def _select_current_temperature(
     ecobee: RawSource,
     *,
     recovery_pending: bool = False,
+    policy: str = "homekit_first",
 ) -> tuple[float | None, str | None, set[str]]:
     """Use local precision only while the local climate proves its semantics."""
 
     degradation: set[str] = set()
+    if policy in {"ecobee_first", "ecobee_only"}:
+        cloud_value = _usable_source_attribute(
+            ecobee, "current_temperature", "temperature", source_name="ecobee"
+        )
+        if cloud_value is not None:
+            return cloud_value, "ecobee", degradation
+        if policy == "ecobee_only":
+            return None, None, {"current_temperature_unavailable"}
+    elif policy not in READ_POLICIES:
+        return None, None, {"current_temperature_unavailable"}
     precise_value = _optional_source_temperature(homekit_temperature, homekit)
     agrees = homekit_temperature_agrees(homekit_temperature, homekit)
     if recovery_pending:
@@ -502,7 +659,7 @@ def _select_current_temperature(
         )
 
     value, owner = _select_attribute(
-        homekit, ecobee, "current_temperature", "temperature"
+        homekit, ecobee, "current_temperature", "temperature", policy
     )
     if owner == "ecobee":
         degradation.add("homekit_read_fallback")
@@ -726,22 +883,38 @@ def _source_metadata_attribute(source: RawSource, key: str, value_type: str) -> 
     )
 
 
+def _source_order(
+    homekit: RawSource, ecobee: RawSource, policy: str
+) -> tuple[tuple[str, RawSource], ...]:
+    """A configured read policy never changes a command writer."""
+    sources = {"homekit": homekit, "ecobee": ecobee}
+    orders = {
+        "homekit_first": ("homekit", "ecobee"),
+        "ecobee_first": ("ecobee", "homekit"),
+        "homekit_only": ("homekit",),
+        "ecobee_only": ("ecobee",),
+    }
+    return tuple((name, sources[name]) for name in orders.get(policy, ()))
+
+
 def _select_state(
-    primary: RawSource, fallback: RawSource
+    primary: RawSource, fallback: RawSource, policy: str = "homekit_first"
 ) -> tuple[str | None, str | None]:
-    primary_value = _hvac_mode(primary.state) if primary.usable else None
-    if primary_value is not None:
-        return primary_value, "homekit"
-    fallback_value = _hvac_mode(fallback.state) if fallback.usable else None
-    if fallback_value is not None:
-        return fallback_value, "ecobee"
+    for name, source in _source_order(primary, fallback, policy):
+        value = _hvac_mode(source.state) if source.usable else None
+        if value is not None:
+            return value, name
     return None, None
 
 
 def _select_attribute(
-    primary: RawSource, fallback: RawSource, key: str, value_type: str
+    primary: RawSource,
+    fallback: RawSource,
+    key: str,
+    value_type: str,
+    policy: str = "homekit_first",
 ) -> tuple[Any, str | None]:
-    for source_name, source in (("homekit", primary), ("ecobee", fallback)):
+    for source_name, source in _source_order(primary, fallback, policy):
         value = _usable_source_attribute(
             source, key, value_type, source_name=source_name
         )

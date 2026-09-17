@@ -9,11 +9,10 @@ from pathlib import Path
 from homeassistant.components.sensor import SensorDeviceClass
 
 from custom_components.ecobee_unified.const import SUFFIX_EQUIPMENT_STAGE
+from custom_components.ecobee_unified.models import EQUIPMENT_STAGES, equipment_stage
 from custom_components.ecobee_unified.sensor import (
-    _EQUIPMENT_STAGES,
     EQUIPMENT_STAGE_OPTIONS,
     PROJECTIONS,
-    equipment_stage,
 )
 
 
@@ -41,7 +40,17 @@ class EquipmentStageTests(unittest.TestCase):
         )
         self.assertEqual(
             set(EQUIPMENT_STAGE_OPTIONS),
-            {*_EQUIPMENT_STAGES.values(), "idle", "multiple", "unknown"},
+            {
+                *EQUIPMENT_STAGES.values(),
+                "idle",
+                "multiple",
+                "unknown",
+                "cooling",
+                "heating",
+                "drying",
+                "defrosting",
+                "preheating",
+            },
         )
 
     def test_every_enum_option_has_a_translation(self) -> None:

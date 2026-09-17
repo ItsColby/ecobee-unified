@@ -1,0 +1,41 @@
+alias: Ecobee daily history report
+description: Read selected daily histories and return their values, provenance, and coverage.
+mode: single
+fields:
+  config_entry_id:
+    name: Integration entry
+    required: true
+    selector:
+      config_entry:
+        integration: ecobee_unified
+  family_ids:
+    name: Historical family IDs
+    description: Optional list from a previous report. Omit to read all configured families.
+    selector:
+      object:
+  start_date:
+    name: Start date (included)
+    required: true
+    selector:
+      date:
+  end_date:
+    name: End date (excluded)
+    required: true
+    selector:
+      date:
+  include_provisional:
+    name: Include provisional days
+    default: false
+    selector:
+      boolean:
+sequence:
+  - action: ecobee_unified.get_daily_history
+    data: >-
+      {{ dict(config_entry_id=config_entry_id,
+              start_date=start_date,
+              end_date=end_date,
+              include_provisional=include_provisional | default(false),
+              **({'family_ids': family_ids} if family_ids | default([]) else {})) }}
+    response_variable: daily_history
+  - stop: Daily history ready
+    response_variable: daily_history

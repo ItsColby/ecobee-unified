@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from asyncio import CancelledError
 from copy import deepcopy
 from typing import Any
@@ -25,9 +26,14 @@ from .const import (
     SUFFIX_SOURCE_DEGRADED,
     SUFFIX_VOC,
 )
+from .datapoints import BINARY_KINDS, DatapointConfig, DatapointManager
+from .historical import HistoricalFamily, HistoricalManager
+from .history_service import async_register_history_service
 from .manager import MappingManager
 from .models import MappingConfig, merge_mapping_data
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
+
+_LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -35,6 +41,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the integration package without external I/O."""
 
+    async_register_history_service(hass)
     return True
 
 
@@ -47,14 +54,42 @@ async def async_setup_entry(
         MappingConfig.from_dict(item) for item in entry.data[CONF_MAPPINGS]
     )
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
-    entry.runtime_data = EcobeeUnifiedRuntime(manager)
-    _remove_orphaned_entities(hass, entry, mappings)
-    platforms = _platforms_for_mappings(mappings)
+    datapoint_configs = tuple(
+        DatapointConfig.from_dict(item) for item in entry.data.get("datapoints", [])
+    )
+    datapoints = (
+        DatapointManager(hass, entry.entry_id, datapoint_configs)
+        if datapoint_configs
+        else None
+    )
+    historical_families = tuple(
+        HistoricalFamily.from_dict(item)
+        for item in entry.data.get("historical_families", [])
+    )
+    history = (
+        HistoricalManager(hass, entry, historical_families)
+        if historical_families
+        else None
+    )
+    entry.runtime_data = EcobeeUnifiedRuntime(manager, datapoints, history)
+    _remove_orphaned_entities(hass, entry, mappings, datapoint_configs)
+    platforms = _platforms_for_mappings(mappings, datapoint_configs)
     try:
         await manager.async_start()
+        if datapoints is not None:
+            await datapoints.async_start()
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
     except Exception, CancelledError:
-        await manager.async_stop()
+        try:
+            await hass.config_entries.async_unload_platforms(entry, platforms)
+        except Exception, CancelledError:
+            _LOGGER.exception("Error unloading platforms after setup failure")
+        finally:
+            await manager.async_stop()
+            if datapoints is not None:
+                await datapoints.async_stop()
+            if history is not None:
+                await history.async_stop()
         raise
     return True
 
@@ -65,17 +100,27 @@ async def async_unload_entry(
     """Unload entities before releasing manager subscriptions."""
 
     if not await hass.config_entries.async_unload_platforms(
-        entry, _platforms_for_mappings(entry.runtime_data.manager.mappings)
+        entry,
+        _platforms_for_mappings(
+            entry.runtime_data.manager.mappings,
+            entry.runtime_data.datapoints.configs
+            if entry.runtime_data.datapoints is not None
+            else (),
+        ),
     ):
         return False
     await entry.runtime_data.manager.async_stop()
+    if entry.runtime_data.datapoints is not None:
+        await entry.runtime_data.datapoints.async_stop()
+    if entry.runtime_data.history is not None:
+        await entry.runtime_data.history.async_stop()
     return True
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Normalize supported schema revisions without guessing source identity."""
 
-    if entry.version != 1 or entry.minor_version > 3:
+    if entry.version != 1 or entry.minor_version > 4:
         return False
     normalized = [
         merge_mapping_data(item, MappingConfig.from_dict(item).as_dict())
@@ -93,7 +138,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data=updated_data,
         options=updated_options,
         version=1,
-        minor_version=3,
+        minor_version=4,
     )
     return True
 
@@ -107,12 +152,15 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")
 
 
-def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
+def _platforms_for_mappings(
+    mappings: tuple[MappingConfig, ...], datapoints: tuple[DatapointConfig, ...] = ()
+) -> list[str]:
     """Load optional platforms only when a mapping exposes their capability."""
 
     enabled_optional_platforms = {
         "button": any(mapping.homekit_clear_hold_entity for mapping in mappings),
         "notify": any(mapping.ecobee_notify_entity for mapping in mappings),
+        "weather": any(config.kind == "weather" for config in datapoints),
     }
     return [
         platform
@@ -125,10 +173,22 @@ def _remove_orphaned_entities(
     hass: HomeAssistant,
     entry: ConfigEntry,
     mappings: tuple[MappingConfig, ...],
+    datapoints: tuple[DatapointConfig, ...] = (),
 ) -> None:
     """Remove only entities this entry no longer declares after reconfigure."""
 
     expected: set[tuple[str, str]] = set()
+    expected.update(
+        (
+            "binary_sensor"
+            if item.kind in BINARY_KINDS
+            else "weather"
+            if item.kind == "weather"
+            else "sensor",
+            f"{entry.entry_id}_datapoint_{item.datapoint_id}",
+        )
+        for item in datapoints
+    )
     for mapping in mappings:
         expected.update(
             {

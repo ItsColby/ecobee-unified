@@ -8,6 +8,16 @@ A mapping creates a Unified climate on the HomeKit thermostat device. It also
 provides equipment stage, minimum fan runtime, and source-health information.
 You can opt into Current Mode presets, Clear Hold, a finer temperature source,
 air-quality readings, and display messages when the source entities exist.
+You can also centralize equivalent room-sensor and contextual readings through
+explicit datapoint mappings, with ordered sources, optional fallback, and source
+and observation-time information. Thermostat read preferences are configurable
+per field and per mapping.
+Native Ecobee weather aliases can share one weather entity, including daily
+forecasts, while keeping their station, units and report timing explicit.
+Configured historical families provide an on-demand daily report from existing
+Recorder statistics, with explicit source policy, aggregation methods and
+coverage. A [native script](examples/ecobee_daily_history_report.yaml) returns
+the same response for use by other scripts.
 
 ## Is it suitable for my installation?
 
@@ -21,9 +31,11 @@ supported vendor settings and actions. Read fallback can keep information
 visible, but it never changes that assignment. A successful service call is not
 always enough to confirm its effect.
 
-Beestat is optional and independent: its cloud history and derived context stay
-with that integration. Unified has no Beestat input, history importer, or second
-cloud client. Household schedules and cross-service automations stay in your
+Beestat is optional and independent: Unified can select its existing Home
+Assistant entities as read-only datapoint sources. Beestat keeps acquisition,
+history, statistics imports and forecasts. Battery Notes can supply an
+equivalent battery reading on the same sensor; a mirror is not an independent
+measurement. Household schedules and cross-service automations stay in your
 Home Assistant configuration.
 
 ## Start here

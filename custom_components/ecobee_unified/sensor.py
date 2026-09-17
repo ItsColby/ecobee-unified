@@ -24,6 +24,8 @@ from .const import (
     SUFFIX_EQUIPMENT_STAGE,
     SUFFIX_VOC,
 )
+from .datapoint_entity import UnifiedDatapointSensor
+from .datapoints import BINARY_KINDS
 from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
 from .models import MappingConfig, NormalizedSnapshot
@@ -46,6 +48,11 @@ class Projection:
 EQUIPMENT_STAGE_OPTIONS = (
     "idle",
     "fan",
+    "cooling",
+    "heating",
+    "drying",
+    "defrosting",
+    "preheating",
     "cool_stage_1",
     "cool_stage_2",
     "heat_pump_stage_1",
@@ -66,7 +73,7 @@ PROJECTIONS = {
     SUFFIX_EQUIPMENT_STAGE: Projection(
         suffix=SUFFIX_EQUIPMENT_STAGE,
         translation_key="equipment_stage",
-        value=lambda snapshot: equipment_stage(snapshot.equipment_running),
+        value=lambda snapshot: snapshot.equipment_stage,
         device_class=SensorDeviceClass.ENUM,
         options=EQUIPMENT_STAGE_OPTIONS,
     ),
@@ -104,7 +111,7 @@ async def async_setup_entry(
     """Set up only justified, non-duplicate cloud projections."""
 
     manager = entry.runtime_data.manager
-    entities: list[EcobeeCloudSensor] = []
+    entities: list[SensorEntity] = []
     for mapping in manager.mappings:
         suffixes = [SUFFIX_EQUIPMENT_STAGE]
         if mapping.ecobee_aqi_entity:
@@ -117,11 +124,20 @@ async def async_setup_entry(
             EcobeeCloudSensor(manager, mapping, PROJECTIONS[suffix])
             for suffix in suffixes
         )
+    datapoints = entry.runtime_data.datapoints
+    if datapoints is not None:
+        entities.extend(
+            UnifiedDatapointSensor(datapoints, config)
+            for config in datapoints.configs
+            if config.kind not in BINARY_KINDS and config.kind != "weather"
+        )
     async_add_entities(entities)
 
 
 class EcobeeCloudSensor(EcobeeUnifiedEntity, SensorEntity):
     """One no-I/O projection from the mapping snapshot."""
+
+    _unrecorded_attributes = frozenset({"action_reported_at", "equipment_reported_at"})
 
     def __init__(
         self, manager: MappingManager, mapping: MappingConfig, projection: Projection
@@ -145,43 +161,18 @@ class EcobeeCloudSensor(EcobeeUnifiedEntity, SensorEntity):
     def native_value(self) -> str | float | None:
         return self._projection.value(self._snapshot)
 
-
-def equipment_stage(equipment_running: str | None) -> str | None:
-    """Normalize Ecobee equipment tokens into a small Recorder-safe state set."""
-
-    if equipment_running is None:
-        return None
-    tokens = {
-        token.strip().lower() for token in equipment_running.split(",") if token.strip()
-    }
-    if not tokens:
-        return "idle"
-    stages = {
-        stage for token in tokens if (stage := _EQUIPMENT_STAGES.get(token)) is not None
-    }
-    if "fan" in stages and len(stages) > 1:
-        stages.remove("fan")
-    unknown = tokens.difference(_EQUIPMENT_STAGES)
-    if unknown:
-        return "multiple" if stages else "unknown"
-    if len(stages) > 1:
-        return "multiple"
-    if stages:
-        return next(iter(stages))
-    return "unknown"
-
-
-_EQUIPMENT_STAGES = {
-    "fan": "fan",
-    "compcool1": "cool_stage_1",
-    "compcool2": "cool_stage_2",
-    "heatpump1": "heat_pump_stage_1",
-    "heatpump2": "heat_pump_stage_2",
-    "heatpump3": "heat_pump_stage_3",
-    "auxheat1": "aux_heat_stage_1",
-    "auxheat2": "aux_heat_stage_2",
-    "auxheat3": "aux_heat_stage_3",
-    "humidifier": "humidifying",
-    "dehumidifier": "dehumidifying",
-    "ventilator": "ventilating",
-}
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, object] | None:
+        if self._projection.suffix != SUFFIX_EQUIPMENT_STAGE:
+            return None
+        snapshot = self._snapshot
+        return {
+            "selected_source": snapshot.provenance.get("equipment_stage"),
+            "action_source": snapshot.provenance.get("hvac_action"),
+            "detail_status": snapshot.equipment_detail_status,
+            "reported_equipment_stage": snapshot.reported_equipment_stage,
+            "action_reported_at": snapshot.action_reported_at,
+            "equipment_reported_at": snapshot.equipment_reported_at,
+            "time_basis": "current_action_with_qualified_reported_detail",
+        }

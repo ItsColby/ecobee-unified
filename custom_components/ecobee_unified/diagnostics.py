@@ -53,7 +53,7 @@ async def async_get_config_entry_diagnostics(
                     "thermostat_notification": snapshot.ecobee_notify_writable,
                     "vendor_context": snapshot.ecobee_preset_mode is not None
                     or snapshot.climate_mode is not None,
-                    "equipment_stage": snapshot.equipment_running is not None,
+                    "equipment_stage": snapshot.equipment_stage is not None,
                     "air_quality_index": snapshot.air_quality_index is not None,
                     "co2": snapshot.co2 is not None,
                     "voc": snapshot.voc is not None,
@@ -66,11 +66,48 @@ async def async_get_config_entry_diagnostics(
                 },
             }
         )
+    datapoints: list[dict[str, Any]] = []
+    if entry.runtime_data.datapoints is not None:
+        for index, config in enumerate(entry.runtime_data.datapoints.configs, start=1):
+            point = entry.runtime_data.datapoints.snapshot(config.datapoint_id)
+            datapoints.append(
+                {
+                    "datapoint": f"datapoint_{index}",
+                    "kind": config.kind,
+                    "time_basis": config.time_basis,
+                    "source_count": len(config.sources),
+                    "available": point.available,
+                    "quality": point.status,
+                    "fallback_used": point.fallback_used,
+                    "source_statuses": [item.status for item in point.source_statuses],
+                }
+            )
+    historical_families = (
+        [
+            {
+                "family": f"family_{index}",
+                "quantity": family.quantity,
+                "policy": family.policy,
+                "source_count": len(family.sources),
+                "equivalent_selection": (
+                    "blocked_voc_units" if family.quantity == "voc" else "configured"
+                ),
+                "historical_identity_continuity": "unknown",
+            }
+            for index, family in enumerate(entry.runtime_data.history.families, start=1)
+        ]
+        if entry.runtime_data.history is not None
+        else []
+    )
     return {
         "entry": {
             "version": entry.version,
             "minor_version": entry.minor_version,
             "mapping_count": len(mappings),
+            "datapoint_count": len(datapoints),
+            "historical_family_count": len(historical_families),
         },
         "mappings": mappings,
+        "datapoints": datapoints,
+        "historical_families": historical_families,
     }

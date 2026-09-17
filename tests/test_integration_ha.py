@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from homeassistant import config_entries
@@ -18,7 +20,10 @@ from homeassistant.helpers import (
     issue_registry as ir,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed_exact,
+)
 
 from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.const import (
@@ -106,7 +111,10 @@ async def test_config_flow_rejects_wrong_platform_and_duplicates(
 
 async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
     hass: HomeAssistant,
+    freezer: Any,
 ) -> None:
+    now = datetime(2026, 9, 1, tzinfo=UTC)
+    freezer.move_to(now)
     hk_a = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
     ec_a = _register_source(hass, "ecobee", "ec_a", with_device=True)
     hk_b = _register_source(hass, "homekit_controller", "hk_b", with_device=True)
@@ -147,6 +155,19 @@ async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
         assert registry.async_get(unified_a).device_id == hk_a.device_id
         assert registry.async_get(unified_b).device_id == hk_b.device_id
         assert sorted(added) == sorted([unified_a, unified_b])
+
+        last_reported = {
+            entity_id: hass.states.get(entity_id).last_reported
+            for entity_id in (unified_a, unified_b)
+        }
+        quiet_time = now + timedelta(seconds=61)
+        freezer.move_to(quiet_time)
+        async_fire_time_changed_exact(hass, quiet_time)
+        await hass.async_block_till_done()
+        assert {
+            entity_id: hass.states.get(entity_id).last_reported
+            for entity_id in (unified_a, unified_b)
+        } == last_reported
 
         writes.clear()
         async_dispatcher_send(hass, f"{SIGNAL_SNAPSHOT_UPDATED}_mapping_a")

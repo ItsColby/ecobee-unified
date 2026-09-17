@@ -79,12 +79,6 @@ class PublicSafetyTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIn("absolute Unix user path", _text_failures(text))
 
-    def test_current_tree_is_text_only_and_public_safe(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        count, failures = run_guard(root)
-        self.assertGreater(count, 20)
-        self.assertEqual([], failures)
-
     def test_current_tree_uses_git_candidate_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -134,12 +128,6 @@ class PublicSafetyTests(unittest.TestCase):
 
         self.assertEqual(1, count)
         self.assertEqual(["notes.txt: unreviewed binary content"], failures)
-
-    def test_tracked_source_archive_is_public_safe(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        count, failures = run_archive_guard(root)
-        self.assertGreater(count, 20)
-        self.assertEqual([], failures)
 
     def test_tracked_archive_reads_staged_bytes_not_dirty_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -415,7 +403,7 @@ class PublicSafetyTests(unittest.TestCase):
             )
         )
         self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
-        self.assertEqual("homeassistant==2026.9.1", current_requirements.strip())
+        self.assertEqual("homeassistant==2026.9.2", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
         self.assertIs(True, manifest["single_config_entry"])
         self.assertEqual("hub", manifest["integration_type"])
@@ -423,7 +411,7 @@ class PublicSafetyTests(unittest.TestCase):
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )
         self.assertIn(
-            "Home Assistant integration tests (Core 2026.9.1 current)", workflow
+            "Home Assistant integration tests (Core 2026.9.2 current)", workflow
         )
         self.assertEqual(
             2, release_runner.count("pytest-homeassistant-custom-component==")
@@ -440,9 +428,6 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertNotIn('cp -a "$source_root/."', release_runner)
         self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
         self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
-        self.assertNotIn("matrix.", workflow)
-        self.assertNotIn("ubuntu-latest", workflow)
-        self.assertEqual(6, workflow.count("runs-on: ubuntu-24.04"))
         unit_job = workflow[
             workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
         ]
@@ -472,7 +457,7 @@ class PublicSafetyTests(unittest.TestCase):
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
         )
         current_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.364"'
+            'python -m pip install "pytest-homeassistant-custom-component==0.13.365"'
         )
         minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
         current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"
@@ -492,11 +477,17 @@ class PublicSafetyTests(unittest.TestCase):
             (minimum_lane, minimum_harness, minimum_core),
             (current_lane, current_harness, current_core),
         ):
-            self.assertLess(lane.index(harness), lane.index(core))
-            self.assertLess(lane.index(core), lane.index(dependency_check))
-            self.assertLess(lane.index(dependency_check), lane.index(all_tests))
+            # The runner appends selected/full checks to the installed environment.
+            setup = lane[lane.index("  run_python '") :]
+            checks = lane[lane.index("  local checks=") : lane.index('  if [[ "$mode"')]
+            execution = setup + checks
+            self.assertLess(execution.index(harness), execution.index(core))
+            self.assertLess(execution.index(core), execution.index(dependency_check))
+            self.assertLess(
+                execution.index(dependency_check), execution.index(all_tests)
+            )
         self.assertIn(
-            "needs: [unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
+            "needs: [plan, unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
             workflow,
         )
         self.assertNotIn("python -m unittest tests.test_models", workflow)

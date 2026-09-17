@@ -190,7 +190,7 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
             "fan_modes": ["auto", "on"],
             "supported_features": 385,
             "fan_min_on_time": 15,
-            "equipment_running": "compCool1,fan",
+            "equipment_running": "auxHeat1,fan",
             "min_temp": 7.0,
             "max_temp": 35.0,
             "target_temp_step": 0.5,

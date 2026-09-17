@@ -1,3 +1,50 @@
+get_historical_configuration:
+  name: Get historical configuration
+  description: "List the configured family IDs, names, quantities and selection policies for daily reads. Administrator access is required. This does not query Recorder or a provider."
+  fields:
+    config_entry_id:
+      name: Integration entry
+      description: "Ecobee Unified entry containing the historical families."
+      required: true
+      selector:
+        config_entry:
+          integration: ecobee_unified
+
+get_daily_history:
+  name: Get daily history
+  description: "Read configured historical families through Recorder. Administrator access is required. Returns one qualified source per calendar day, plus candidate provenance and coverage. No history is written. End date is exclusive; at most 31 days and 16 families are allowed."
+  fields:
+    config_entry_id:
+      name: Integration entry
+      description: "Ecobee Unified entry containing the historical families."
+      required: true
+      selector:
+        config_entry:
+          integration: ecobee_unified
+    family_ids:
+      name: Historical families
+      description: "Optional list of stable family IDs returned by this action. Omit to read all configured families."
+      selector:
+        object:
+    start_date:
+      name: Start date
+      description: "First included calendar date in Home Assistant's configured timezone."
+      required: true
+      selector:
+        date:
+    end_date:
+      name: End date
+      description: "First excluded calendar date."
+      required: true
+      selector:
+        date:
+    include_provisional:
+      name: Include provisional days
+      description: "Include open days and days that the available provider watermark has not settled. Unknown sample coverage remains unknown."
+      default: false
+      selector:
+        boolean:
+
 resume_program:
   name: Resume program
   description: "Request schedule resumption by pressing the mapped HomeKit Clear Hold button once. The button must belong to the HomeKit thermostat and pass role checks; verify its actual purpose when mapping it. A successful service return records submitted, without proving that a hold ended or which schedule resumed. After an error or interrupted call, inspect the thermostat before repeating the request."

@@ -1,8 +1,11 @@
 {
   "config": {
     "abort": {
-      "configuration_changed": "The saved mappings changed while this form was open. Reopen Reconfigure to work from the current configuration.",
-      "one_mapping_required": "This integration needs at least one thermostat mapping. Keep one mapping, or remove the integration entry to remove them all."
+      "configuration_changed": "The saved configuration changed while this form was open. Reopen Reconfigure to work from the current configuration.",
+      "one_mapping_required": "This integration needs at least one thermostat mapping. Keep one mapping, or remove the integration entry to remove them all.",
+      "invalid_datapoint_identity": "This datapoint identity is missing or repeated in the saved configuration. No changes were saved. Restore one distinct stable identity per datapoint before editing.",
+      "datapoint_source_limit": "This saved datapoint has more than three sources. This form supports up to three and cannot edit it without losing sources. No changes were saved.",
+      "datapoint_not_supported": "This saved datapoint uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available."
     },
     "error": {
       "confirmation_required": "Review this source change or mapping removal, then select the confirmation checkbox to continue.",
@@ -21,7 +24,83 @@
       "invalid_homekit_temperature_source": "Select a temperature sensor on the mapped HomeKit thermostat with temperature device class and °C, °F, or K units. A present reading must be a finite number; conflicting live metadata must be corrected at the source.",
       "invalid_name": "Enter a mapping name containing 1–64 characters after surrounding spaces are removed.",
       "physical_device_identity_unproven": "The device records do not establish that these climates represent the same thermostat. Check that HomeKit Device exposes its serial number and Ecobee exposes one thermostat identifier, then select the matching pair.",
-      "physical_device_mismatch": "The HomeKit device serial number differs from the Ecobee thermostat identifier. Select both climates for the same physical thermostat."
+      "physical_device_mismatch": "The HomeKit device serial number differs from the Ecobee thermostat identifier. Select both climates for the same physical thermostat.",
+      "invalid_datapoint_id": "The datapoint needs a distinct stable identity. Reopen Reconfigure before continuing.",
+      "invalid_datapoint_name": "Enter a datapoint name containing 1–64 characters after surrounding spaces are removed.",
+      "invalid_datapoint_kind": "Choose one of the supported quantity types.",
+      "invalid_source_count": "Select two or three sources for this datapoint.",
+      "duplicate_datapoint_source": "Each source entity and attribute combination may appear only once in this datapoint.",
+      "invalid_time_basis": "Choose current observation or fixed observation interval. Configured sensor membership and minimum fan runtime per hour settings must use current observation.",
+      "invalid_interval": "Enter a positive whole-number interval length in seconds.",
+      "invalid_max_age": "Enter a whole-number maximum report age of zero or more seconds.",
+      "invalid_fallback": "Choose whether fallback to the other selected sources is allowed.",
+      "invalid_semantic": "Choose the quantity meaning that all selected sources actually represent.",
+      "invalid_unit": "Choose a supported unit for this quantity; use the exact Home Assistant unit spelling.",
+      "unexpected_interval": "Clear the interval length for a current observation datapoint.",
+      "unexpected_unit": "Clear the unit for a quantity that does not use numeric units.",
+      "interval_timestamp_required": "Every interval source needs an observation timestamp attribute. A Home Assistant report time does not establish an interval.",
+      "temperature_semantic_required": "Choose physical temperature or control temperature for a temperature datapoint.",
+      "source_missing": "A selected source is missing or disabled. Restore it or select an existing enabled entity.",
+      "source_attribute_missing": "A selected attribute is not present on its source. Check the exact attribute name.",
+      "source_timestamp_missing": "A selected timestamp attribute is missing or invalid. Use an observation timestamp supplied by that source.",
+      "unsupported_source_platform": "Select sources from HomeKit Device, Ecobee, Beestat Statistics, or Battery Notes with proven Ecobee device identity.",
+      "source_identity_unproven": "The device records do not establish the same physical item for these sources. Restore their source device identities; matching names are not proof.",
+      "source_identity_mismatch": "These sources identify different physical items. Select the same thermostat or the same remote sensor in every source.",
+      "invalid_source_domain": "Select a sensor, binary sensor, climate, select, or number source with a compatible quantity.",
+      "source_device_class_mismatch": "A selected source reports a device class incompatible with this quantity.",
+      "source_attribute_semantic_mismatch": "A selected attribute has a different meaning from this quantity. Select equivalent readings.",
+      "temperature_semantic_mismatch": "These sources mix control temperature and physical temperature. Configure these meanings as separate datapoints.",
+      "temperature_semantic_unproven": "The source metadata does not establish whether this reading is physical or control temperature. Select a source with supported semantics.",
+      "source_attribute_unit_required": "Declare the numeric unit for an attribute whose source does not expose its unit.",
+      "source_unit_assertion_mismatch": "A declared source unit contradicts the source metadata. Correct or clear the declaration.",
+      "source_unit_mismatch": "The source units cannot be converted to the selected output unit.",
+      "datapoint_source_missing": "Select an existing registered source entity for every required source.",
+      "datapoint_equivalence_required": "Confirm that the selected inputs measure the same quantity for the same physical item and time basis. A matching serial number does not establish equivalent meaning.",
+      "datapoint_invalid_timing": "Use whole seconds: zero or more for maximum age, and greater than zero for a fixed interval.",
+      "duplicate_datapoint_name": "Another datapoint already uses this name, ignoring letter case and surrounding spaces. Choose a distinct name.",
+      "invalid_datapoint_identity": "This datapoint identity is missing or repeated in the saved configuration. No changes were saved. Restore one distinct stable identity per datapoint before editing.",
+      "invalid_source_reference": "Select an existing registered source entity.",
+      "invalid_source_binding": "Use nonblank attribute names and units no longer than 255 characters, or clear optional fields.",
+      "invalid_temperature_unit": "Use °C, °F, or K for a temperature output.",
+      "invalid_percentage_unit": "Use % for humidity and battery level.",
+      "invalid_duration_unit": "Use s, min, h, or d for the numeric duration output.",
+      "duration_semantic_required": "Choose elapsed duration or minimum fan runtime per hour for a duration datapoint.",
+      "duration_semantic_mismatch": "A minimum fan runtime setting is not measured elapsed runtime. Select sources with the same duration meaning.",
+      "invalid_fan_runtime": "A minimum fan runtime per hour setting must represent between 0 and 60 minutes per hour.",
+      "membership_attribute_required": "For configured membership, select Ecobee climate.active_sensors or Beestat Statistics sensor.profile_sensors or sensor.configured_sensor_names. Occupancy, Follow Me, and momentary in_use values have different meanings.",
+      "invalid_membership": "Configured membership must be a list of at most 32 distinct, nonblank source labels. An empty list is valid and means zero configured members.",
+      "invalid_source_max_age": "Enter a source maximum age of zero or more seconds, or leave blank to inherit the datapoint default. Zero explicitly disables age expiry for this source.",
+      "invalid_profile_source": "Select HomeKit Current Mode, Ecobee climate_mode, or the Beestat current comfort profile state or profile_ref. A schedule, next profile or hold preset is a different quantity.",
+      "invalid_boolean": "The selected occupancy or motion source must report on or off.",
+      "invalid_text": "The selected text value must be nonblank and at most 255 characters.",
+      "unknown": "The selected value is unknown. Wait for a usable source observation before configuring it.",
+      "invalid_number": "The selected source must report a finite numeric value.",
+      "invalid_temperature": "The selected temperature must be finite and no lower than absolute zero.",
+      "invalid_percentage": "The selected humidity or battery value must be between 0 and 100 percent.",
+      "invalid_duration": "The selected duration must be finite and zero or greater.",
+      "invalid_timestamp": "Use a source timestamp with a date, time and explicit time zone.",
+      "future_timestamp": "The source timestamp is more than one minute in the future. Correct the source clock before selecting it.",
+      "weather_sources_required": "Select only native Ecobee weather entities for a shared weather feed.",
+      "weather_identity_required": "Select weather aliases with a supported station identifier and one Ecobee account connection.",
+      "weather_source_invalid": "Select an enabled native Ecobee weather entity with a usable report.",
+      "weather_source_duplicate": "Select distinct weather entities for the ordered sources.",
+      "weather_station_unknown": "The weather source does not identify its provider station. Wait for a complete source report.",
+      "weather_station_mismatch": "The weather sources report different stations. Select aliases of the same feed, or explicitly confirm a changed station.",
+      "weather_config_entry_mismatch": "The weather sources must use the same Ecobee account connection.",
+      "weather_device_identity_mismatch": "The native weather entity no longer matches its source thermostat device. Restore the source association.",
+      "weather_attribution_invalid": "The native weather attribution does not contain a supported station and provider timestamp.",
+      "weather_timestamp_invalid": "The native weather provider timestamp is invalid. Restore the source report.",
+      "weather_timestamp_future": "The weather provider timestamp is more than one minute in the future. Check its source clock.",
+      "weather_unit_invalid": "A native weather unit is missing or unsupported for this quantity.",
+      "weather_unit_mismatch": "The selected output or declared source unit does not match a supported weather conversion.",
+      "weather_value_invalid": "A selected weather value is invalid for its quantity.",
+      "weather_value_missing": "The selected current weather field is missing. Choose a supplied field or wait for source recovery.",
+      "invalid_weather_role": "Select the same supported weather field in every source. Whole weather mappings need blank attribute, unit, and timestamp fields.",
+      "membership_profile_context_missing": "The member list is missing its associated comfort-profile context. Select a source that reports the list and profile together.",
+      "membership_profile_context_invalid": "The member list has invalid comfort-profile context. Check the source report.",
+      "membership_timestamp_invalid": "Use the source-owned metadata timestamp for configured membership. Another timestamp cannot establish freshness of the member list.",
+      "metadata_time_unknown": "The source supplies no membership metadata time, so a maximum age cannot establish freshness. Select a source with metadata timing or leave age expiry disabled.",
+      "source_disabled": "The source entity or its device is disabled. Restore it in its native integration."
     },
     "step": {
       "user": {
@@ -58,14 +137,17 @@
         "title": "Thermostat mapping"
       },
       "reconfigure": {
-        "description": "Add, edit, or remove mappings, then choose Save mapping changes to apply the complete set. Saving changes reloads the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained.",
+        "description": "Add, edit, or remove thermostat mappings and read-only datapoints, then choose Save changes to apply the complete set. Saving reloads the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained.",
         "menu_options": {
           "reconfigure_add": "Add thermostat mapping",
           "reconfigure_edit": "Edit thermostat mapping",
           "reconfigure_remove": "Remove thermostat mapping",
-          "reconfigure_finish": "Save mapping changes"
+          "reconfigure_finish": "Save changes",
+          "datapoint_add": "Add multi-source datapoint",
+          "datapoint_edit": "Edit multi-source datapoint",
+          "datapoint_remove": "Remove multi-source datapoint"
         },
-        "title": "Reconfigure thermostat mappings"
+        "title": "Reconfigure unified sources"
       },
       "reconfigure_add": {
         "data": {
@@ -149,6 +231,146 @@
           "confirm_change": "Confirm removal of this mapping and its unified entities when you save the mapping changes. The HomeKit Device and Ecobee source integrations remain available."
         },
         "title": "Remove thermostat mapping"
+      },
+      "datapoint_add": {
+        "title": "Add multi-source datapoint",
+        "description": "Select equivalent observations in preferred source order. Use one physical Ecobee item, or native weather aliases of the same station feed. These outputs are read-only. Changes are staged until Save changes.",
+        "data": {
+          "name": "Datapoint name",
+          "kind": "Quantity type",
+          "semantic": "Quantity meaning (temperature and duration)",
+          "unit": "Output unit (numeric quantities)",
+          "time_basis": "Time basis",
+          "interval_seconds": "Fixed observation interval (seconds)",
+          "max_age_seconds": "Default maximum report age (seconds; 0 disables expiry)",
+          "fallback": "Allow fallback in source order",
+          "confirm_equivalence": "Confirm these sources represent the same quantity, item, and time basis",
+          "primary_entity": "First source",
+          "primary_attribute": "First source value attribute (optional)",
+          "primary_timestamp_attribute": "First source observation timestamp attribute (optional)",
+          "primary_unit": "First source unit (if needed)",
+          "secondary_entity": "Second source",
+          "secondary_attribute": "Second source value attribute (optional)",
+          "secondary_timestamp_attribute": "Second source observation timestamp attribute (optional)",
+          "secondary_unit": "Second source unit (if needed)",
+          "tertiary_entity": "Third (optional) source",
+          "tertiary_attribute": "Third (optional) source value attribute (optional)",
+          "tertiary_timestamp_attribute": "Third (optional) source observation timestamp attribute (optional)",
+          "tertiary_unit": "Third (optional) source unit (if needed)",
+          "primary_max_age_seconds": "First source maximum age (seconds; optional)",
+          "secondary_max_age_seconds": "Second source maximum age (seconds; optional)",
+          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)"
+        },
+        "data_description": {
+          "name": "Use a distinct name up to 64 characters. Editing the name preserves this datapoint’s stable identity.",
+          "kind": "Select the quantity to centralize. Weather creates one native weather entity with current conditions and the selected source’s daily forecast. Configured membership keeps the complete source-local list and its profile/time context; it does not prove physical-set agreement, occupancy or Follow Me weighting.",
+          "semantic": "For temperature, distinguish physical room, thermostat control/display and outdoor weather readings. For duration, distinguish elapsed time from minimum fan runtime per hour. Other quantities ignore this choice.",
+          "unit": "Use the exact Home Assistant output unit for numeric quantities. Supported units are converted, never relabeled. Leave blank for whole weather, text, profile and configured membership.",
+          "time_basis": "Current uses the latest eligible source report. Fixed interval requires source observation timestamps and the same explicit interval. Weather, membership and minimum fan runtime settings require Current.",
+          "interval_seconds": "Required only for fixed interval. The selected source values must already represent this interval. Ecobee Unified does not aggregate or infer a daily runtime total.",
+          "max_age_seconds": "Default maximum age for sources without an override. Zero keeps quiet event sources usable. Membership uses its source metadata clock where supplied; weather uses its provider forecast timestamp. A receipt or provider report is not proof of a new physical measurement.",
+          "fallback": "Use the first usable source, then the second and optional third if enabled. Disabling fallback uses only the first source. This affects reads only and never changes thermostat command writers.",
+          "confirm_equivalence": "Required for a new datapoint or changes to quantity, meaning, source selection, units, timestamps, or interval. Matching physical identity alone cannot prove equivalent meaning. Unchanged-source name or read-policy edits do not need reconfirmation.",
+          "primary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "primary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "primary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "primary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "secondary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "secondary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "secondary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "secondary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "tertiary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "tertiary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "tertiary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "tertiary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "primary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "secondary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically."
+        }
+      },
+      "datapoint_edit_confirm": {
+        "title": "Edit multi-source datapoint",
+        "description": "Select equivalent observations in preferred source order. Use one physical Ecobee item, or native weather aliases of the same station feed. These outputs are read-only. Changes are staged until Save changes.",
+        "data": {
+          "name": "Datapoint name",
+          "kind": "Quantity type",
+          "semantic": "Quantity meaning (temperature and duration)",
+          "unit": "Output unit (numeric quantities)",
+          "time_basis": "Time basis",
+          "interval_seconds": "Fixed observation interval (seconds)",
+          "max_age_seconds": "Default maximum report age (seconds; 0 disables expiry)",
+          "fallback": "Allow fallback in source order",
+          "confirm_equivalence": "Confirm these sources represent the same quantity, item, and time basis",
+          "primary_entity": "First source",
+          "primary_attribute": "First source value attribute (optional)",
+          "primary_timestamp_attribute": "First source observation timestamp attribute (optional)",
+          "primary_unit": "First source unit (if needed)",
+          "secondary_entity": "Second source",
+          "secondary_attribute": "Second source value attribute (optional)",
+          "secondary_timestamp_attribute": "Second source observation timestamp attribute (optional)",
+          "secondary_unit": "Second source unit (if needed)",
+          "tertiary_entity": "Third (optional) source",
+          "tertiary_attribute": "Third (optional) source value attribute (optional)",
+          "tertiary_timestamp_attribute": "Third (optional) source observation timestamp attribute (optional)",
+          "tertiary_unit": "Third (optional) source unit (if needed)",
+          "primary_max_age_seconds": "First source maximum age (seconds; optional)",
+          "secondary_max_age_seconds": "Second source maximum age (seconds; optional)",
+          "tertiary_max_age_seconds": "Third source maximum age (seconds; optional)"
+        },
+        "data_description": {
+          "name": "Use a distinct name up to 64 characters. Editing the name preserves this datapoint’s stable identity.",
+          "kind": "Select the quantity to centralize. Weather creates one native weather entity with current conditions and the selected source’s daily forecast. Configured membership keeps the complete source-local list and its profile/time context; it does not prove physical-set agreement, occupancy or Follow Me weighting.",
+          "semantic": "For temperature, distinguish physical room, thermostat control/display and outdoor weather readings. For duration, distinguish elapsed time from minimum fan runtime per hour. Other quantities ignore this choice.",
+          "unit": "Use the exact Home Assistant output unit for numeric quantities. Supported units are converted, never relabeled. Leave blank for whole weather, text, profile and configured membership.",
+          "time_basis": "Current uses the latest eligible source report. Fixed interval requires source observation timestamps and the same explicit interval. Weather, membership and minimum fan runtime settings require Current.",
+          "interval_seconds": "Required only for fixed interval. The selected source values must already represent this interval. Ecobee Unified does not aggregate or infer a daily runtime total.",
+          "max_age_seconds": "Default maximum age for sources without an override. Zero keeps quiet event sources usable. Membership uses its source metadata clock where supplied; weather uses its provider forecast timestamp. A receipt or provider report is not proof of a new physical measurement.",
+          "fallback": "Use the first usable source, then the second and optional third if enabled. Disabling fallback uses only the first source. This affects reads only and never changes thermostat command writers.",
+          "confirm_equivalence": "Required for a new datapoint or changes to quantity, meaning, source selection, units, timestamps, or interval. Matching physical identity alone cannot prove equivalent meaning. Unchanged-source name or read-policy edits do not need reconfirmation.",
+          "primary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "primary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "primary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "primary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "secondary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "secondary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "secondary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "secondary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "tertiary_entity": "Select the same physical thermostat or remote sensor, or weather aliases of the same native Ecobee station feed. Registry references survive renames; a station change requires confirmation.",
+          "tertiary_attribute": "Leave blank for entity state or whole weather. For membership select active_sensors, profile_sensors or configured_sensor_names on a supported source. For a scalar weather reading, select the exact current field, such as temperature or humidity.",
+          "tertiary_timestamp_attribute": "Required for ordinary interval values. Leave blank for weather, whose provider timestamp is read natively, and for membership using its native metadata clock. A current-profile state change does not establish member-list freshness.",
+          "tertiary_unit": "Declare the unit only when the source attribute lacks unit metadata. A declaration cannot override contradictory native units.",
+          "primary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "secondary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically.",
+          "tertiary_max_age_seconds": "Leave blank to inherit the datapoint default. Zero explicitly disables age expiry; a positive value expires this source after that many seconds. Set a cutoff for a cloud source with a known reporting cadence while leaving a quiet local push source at zero. Native unavailable states still apply. Cadence is never inferred automatically."
+        }
+      },
+      "datapoint_edit": {
+        "title": "Choose datapoint to edit",
+        "data": {
+          "datapoint_id": "Datapoint"
+        },
+        "data_description": {
+          "datapoint_id": "Choose the existing datapoint to edit. Thermostat mappings are separate."
+        }
+      },
+      "datapoint_remove": {
+        "title": "Choose datapoint to remove",
+        "data": {
+          "datapoint_id": "Datapoint"
+        },
+        "data_description": {
+          "datapoint_id": "Choose the existing datapoint to remove. Thermostat mappings are separate."
+        }
+      },
+      "datapoint_remove_confirm": {
+        "title": "Remove multi-source datapoint",
+        "description": "Remove {name} from Ecobee Unified when you choose Save changes. The selected native source entities remain in their integrations.",
+        "data": {
+          "confirm_change": "Confirm removal of this datapoint"
+        },
+        "data_description": {
+          "confirm_change": "Confirm removal of this one canonical datapoint. No native source or thermostat mapping is removed. Apply with Save changes."
+        }
       }
     }
   },
@@ -202,7 +424,12 @@
           "dehumidifying": "Dehumidifying",
           "ventilating": "Ventilating",
           "multiple": "Multiple",
-          "unknown": "Unknown"
+          "unknown": "Unknown",
+          "cooling": "Cooling (stage unavailable)",
+          "heating": "Heating (stage unavailable)",
+          "drying": "Drying",
+          "defrosting": "Defrosting",
+          "preheating": "Preheating"
         }
       },
       "voc": {
@@ -289,24 +516,103 @@
   },
   "options": {
     "error": {
-      "invalid_timing": "Use whole seconds: 300–7200 in 60-second steps for Ecobee freshness, and 300–1800 in 30-second steps for confirmation."
+      "invalid_timing": "Use whole seconds: 300–7200 in 60-second steps for Ecobee freshness, and 300–1800 in 30-second steps for confirmation.",
+      "invalid_read_policy": "Choose one of the supported source policies for each field."
     },
     "step": {
       "init": {
         "data": {
           "confirmation_seconds": "Command confirmation window (seconds)",
-          "ecobee_stale_seconds": "Ecobee stale after (seconds)"
+          "ecobee_stale_seconds": "Ecobee stale after (seconds)",
+          "configure_read_policy": "Configure per-thermostat read sources"
         },
         "data_description": {
           "confirmation_seconds": "After a source call returns successfully, wait this long for matching reports: default 1800 seconds; range 300–1800 in 30-second steps. A match confirms reported settings, not room conditions or equipment performance. Expiry records unconfirmed without retrying. Resume, vacation, occupancy, and comfort-sensor actions record submission only; notifications do not use the tracker.",
-          "ecobee_stale_seconds": "Exclude Ecobee climate and air-quality sources once their last Home Assistant report exceeds this age: default 1800 seconds; range 300–7200 in 60-second steps. Stale climate data cannot support reads or climate-based vendor actions. An unchanged report resets age without proving a new physical measurement. HomeKit sources have no age limit from this setting."
+          "ecobee_stale_seconds": "Exclude Ecobee climate and air-quality sources once their last Home Assistant report exceeds this age: default 1800 seconds; range 300–7200 in 60-second steps. Stale climate data cannot support reads or climate-based vendor actions. An unchanged report resets age without proving a new physical measurement. HomeKit sources have no age limit from this setting.",
+          "configure_read_policy": "Continue to choose a thermostat and set source precedence for each reading. Timing changes and read policies are saved together after the final form. Command writers remain unchanged."
         },
         "description": "These settings control how Ecobee Unified interprets Home Assistant reports. They do not change source polling, thermostat schedules, or the source service-call timeout. Saving reloads the integration; cancellation or unload can end observation while an already-dispatched action still takes effect.",
         "title": "Freshness and command confirmation"
+      },
+      "read_policy_mapping": {
+        "title": "Choose thermostat read sources",
+        "data": {
+          "mapping_id": "Thermostat mapping"
+        },
+        "data_description": {
+          "mapping_id": "The same field policies are available independently for every thermostat mapping."
+        }
+      },
+      "read_policy": {
+        "title": "Thermostat read policy",
+        "description": "Choose source precedence for each reading. Normal thermostat commands still use their existing HomeKit writer; Ecobee-specific actions keep their existing writer. Source selection does not change schedules or polling.",
+        "data": {
+          "hvac_mode": "HVAC mode",
+          "hvac_action": "Current HVAC action",
+          "current_temperature": "Current control temperature",
+          "current_humidity": "Current relative humidity",
+          "target_temperature": "Single temperature target",
+          "target_temperature_low": "Heating temperature target",
+          "target_temperature_high": "Cooling temperature target",
+          "fan_mode": "Fan mode",
+          "configure_another": "Configure another thermostat before saving"
+        },
+        "data_description": {
+          "hvac_mode": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "hvac_action": "Choose which source owns the canonical action (heating, cooling, idle, or off). Detailed vendor equipment stages remain separate observations and may disagree due to source lag; read precedence does not reconcile their timestamps.",
+          "current_temperature": "Choose the control-temperature source. HomeKit precision pairing remains subject to its agreement checks; a separate physical temperature measurement is not a substitute.",
+          "current_humidity": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "target_temperature": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "target_temperature_low": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "target_temperature_high": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "fan_mode": "Prefer the chosen source when its value is usable; the fallback choices use the other source only when needed. Source availability, freshness, units, and validity still apply.",
+          "configure_another": "Stage these choices and select another thermostat. All timing and policy changes save together when this option is cleared."
+        }
       }
     },
     "abort": {
-      "configuration_changed": "The saved options changed while this form was open. Reopen the options to review the current values before saving."
+      "configuration_changed": "The saved configuration or options changed while this form was open. Reopen options to work from the current values.",
+      "invalid_mapping_identity": "The selected thermostat mapping is missing or repeated. No options were saved. Restore distinct mapping identities before continuing."
+    }
+  },
+  "selector": {
+    "datapoint_kind": {
+      "options": {
+        "temperature": "Temperature",
+        "humidity": "Relative humidity",
+        "occupancy": "Occupancy",
+        "motion": "Motion",
+        "battery": "Battery level",
+        "profile": "Comfort profile",
+        "duration": "Reported duration",
+        "number": "Other numeric quantity",
+        "text": "Text status",
+        "configured_membership": "Configured comfort sensor membership",
+        "weather": "Weather and daily forecast"
+      }
+    },
+    "time_basis": {
+      "options": {
+        "current": "Current observation",
+        "interval": "Fixed observation interval"
+      }
+    },
+    "read_policy": {
+      "options": {
+        "homekit_first": "HomeKit first; Ecobee fallback",
+        "ecobee_first": "Ecobee first; HomeKit fallback",
+        "homekit_only": "HomeKit only",
+        "ecobee_only": "Ecobee only"
+      }
+    },
+    "datapoint_semantic": {
+      "options": {
+        "physical_temperature": "Physical temperature",
+        "control_temperature": "Control temperature",
+        "elapsed_duration": "Measured elapsed duration",
+        "minimum_fan_runtime_per_hour": "Minimum fan runtime per hour (setting)",
+        "weather_temperature": "Outdoor weather temperature"
+      }
     }
   }
 }

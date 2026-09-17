@@ -175,6 +175,8 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             "configured_comfort_sensors",
             "command_confirmation",
             "problem_reasons",
+            "action_reported_at",
+            "equipment_reported_at",
         }
     )
 
@@ -352,6 +354,11 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             "advisories": list(degradation_advisories(snapshot)),
             "ecobee_preset_mode": snapshot.ecobee_preset_mode,
             "ecobee_climate_mode": snapshot.climate_mode,
+            "equipment_stage": snapshot.equipment_stage,
+            "equipment_detail_status": snapshot.equipment_detail_status,
+            "reported_equipment_stage": snapshot.reported_equipment_stage,
+            "action_reported_at": snapshot.action_reported_at,
+            "equipment_reported_at": snapshot.equipment_reported_at,
             "active_comfort_sensors": list(snapshot.active_sensors),
             "configured_comfort_sensors": list(snapshot.active_sensors),
             "command_confirmation": {

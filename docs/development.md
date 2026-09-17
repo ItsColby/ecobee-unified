@@ -106,7 +106,7 @@ The supported test environments are deliberately paired:
 | Lane | Home Assistant Core | `pytest-homeassistant-custom-component` | Core requirements |
 | --- | --- | --- | --- |
 | Minimum | `2026.8.0` | `0.13.354` | [`requirements-ha-test.txt`](../requirements-ha-test.txt) |
-| Current | `2026.9.1` | `0.13.364` | [`requirements-ha-current.txt`](../requirements-ha-current.txt) |
+| Current | `2026.9.2` | `0.13.365` | [`requirements-ha-current.txt`](../requirements-ha-current.txt) |
 
 For a focused edit, create a Python 3.14 environment on Linux or inside WSL. This
 example installs the current pair in the same order as the runner:
@@ -114,7 +114,7 @@ example installs the current pair in the same order as the runner:
 ```bash
 python3.14 -m venv .venv
 source .venv/bin/activate
-python -m pip install "pytest-homeassistant-custom-component==0.13.364"
+python -m pip install "pytest-homeassistant-custom-component==0.13.365"
 python -m pip install --upgrade -r requirements-ha-current.txt
 python -m pip install "ruff==0.16.1" "mypy==2.3.0"
 python -m pip check
@@ -132,6 +132,9 @@ Choose regression coverage by the contract being changed:
 | --- | --- | --- |
 | Values, units, fallback, or precision | [`test_models.py`](../tests/test_models.py), [`test_numeric_validity.py`](../tests/test_numeric_validity.py), [`test_temperature_quality.py`](../tests/test_temperature_quality.py) | Malformed and impossible values, source ownership, serialization tolerance, and recovery from rejected temperature evidence. |
 | Equipment-stage projection | [`test_sensor.py`](../tests/test_sensor.py) | Bounded native enum values, mixed or unknown equipment signals, subordinate fan activity, and complete translations. |
+| Read policies and action/stage coherence | [`test_operating_state.py`](../tests/test_operating_state.py) | Paired mappings, source disagreement, unavailable action, fallback, and unchanged command authority. |
+| Datapoint composition and configuration | [`test_datapoints.py`](../tests/test_datapoints.py), [`test_datapoint_config.py`](../tests/test_datapoint_config.py) | Physical identity, semantic distinctions, metadata timing, source recovery, stable IDs, and concurrent configuration changes. |
+| Native weather aliases and daily forecasts | [`test_weather_source.py`](../tests/test_weather_source.py), [`test_weather.py`](../tests/test_weather.py) | Station drift, provider age, unit conversion, changes during awaited reads, source subscriptions, and unload. |
 | Mapping validation or source identity | [`test_configuration_source_contracts.py`](../tests/test_configuration_source_contracts.py), [`test_homekit_action_roles.py`](../tests/test_homekit_action_roles.py), [`test_source_device_identity.py`](../tests/test_source_device_identity.py) | Live metadata, missing saved references, device association, role drift, and recovery. |
 | Writer routing or command state | [`test_commands.py`](../tests/test_commands.py), [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py) | Exact target and call count, observations before acceptance, superseded revisions, cancellation, and unload. |
 | Core APIs, configuration flows, or entity behavior | [`test_runtime_core_api.py`](../tests/test_runtime_core_api.py), [`test_integration_ha.py`](../tests/test_integration_ha.py), [`test_setup_lifecycle.py`](../tests/test_setup_lifecycle.py) | Native registry, state, service, setup, reload, repair, and serialized entity behavior. |

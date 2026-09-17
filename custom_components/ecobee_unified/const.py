@@ -13,6 +13,7 @@ PLATFORMS: Final = [
     "notify",
     "number",
     "sensor",
+    "weather",
 ]
 
 CONF_MAPPINGS: Final = "mappings"
@@ -34,6 +35,9 @@ RECONFIGURE_MENU_OPTIONS: Final = (
     "reconfigure_add",
     "reconfigure_edit",
     "reconfigure_remove",
+    "datapoint_add",
+    "datapoint_edit",
+    "datapoint_remove",
     "reconfigure_finish",
 )
 

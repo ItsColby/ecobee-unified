@@ -91,11 +91,14 @@ data:
 ```
 
 Alongside the climate, **Minimum fan runtime** sets Ecobee's minimum fan minutes
-per hour, from 0 to 60 in five-minute increments. **Equipment stage** reduces
-Ecobee equipment tokens to a bounded state such as idle, fan, or a heating or
-cooling stage. An empty usable report means idle; absent data does not. Multiple
-or unrecognized tokens can yield `multiple` or `unknown`. This state is neither
-electrical metering nor a measurement of equipment performance.
+per hour, from 0 to 60 in five-minute increments. **Equipment stage** follows
+the selected current action and adds a reported stage when the cloud detail
+agrees. Cooling without compatible stage evidence displays **Cooling (stage
+unavailable)**. Idle cannot simultaneously display a canonical cooling stage.
+The separate `reported_equipment_stage` attribute preserves cloud detail,
+including ambiguous reports; `detail_status` explains whether it agrees.
+Report timestamps describe HA receipt, not exact equipment transitions.
+This state is neither electrical metering nor a measurement of performance.
 
 Mapped air-quality entities display the source's values with their source
 measurement or estimate semantics. Unified does not calculate a new AQI, infer
@@ -196,7 +199,13 @@ them explicitly. The integration does not pick a similarly named substitute.
 If another configuration session saves first, reopen the flow to work from its
 saved state. Accepted changes reload this entry without a Home Assistant restart.
 
-**Configure** opens two local timing settings. Both default to 1800 seconds:
+**Configure** opens two local timing settings and an optional **Configure
+thermostat read preferences** choice. Select a thermostat to set HomeKit-first,
+Ecobee-first, HomeKit-only or Ecobee-only reads separately for mode, current
+action, display temperature, humidity, targets and fan mode. HomeKit-first is
+the default. An only-source policy makes the field unavailable when that source
+cannot provide it. These settings never move the command writer. The two timing
+settings default to 1800 seconds:
 
 | Setting | Allowed whole seconds | What changes |
 |---|---|---|
@@ -206,6 +215,60 @@ saved state. Accepted changes reload this entry without a Home Assistant restart
 These options do not set polling cadence, refresh a source, change a hold's
 duration, or schedule another write. Choose them from observed reporting
 behavior. HomeKit event silence is not a staleness timeout.
+
+## Centralize other datapoints
+
+Under **Reconfigure**, choose **Add datapoint**. Select the quantity, name,
+output unit where applicable, and up to three ordered sources. An optional
+attribute selects a public field from a source entity instead of its state.
+The sources must belong to the same proven physical Ecobee thermostat or remote
+sensor, or be native Ecobee weather aliases of the same station feed.
+Confirm they represent the same quantity; similar values or names are
+insufficient. Save the staged changes to reload the entry.
+
+Useful choices include paired room temperatures, humidity, occupancy, battery
+readings, current comfort-profile identity and configured comfort membership.
+Physical room temperature and thermostat control/display temperature are
+different choices. A thermostat display may incorporate participating rooms.
+Keep fast motion separate from held occupancy, and `in_use` separate from
+configured profile membership. Battery Notes mirrors a battery measurement; it
+does not independently confirm it. For current profile identity, use the
+HomeKit Current Mode state, Ecobee `climate_mode`, or Beestat `profile_ref` where
+their meanings match; Ecobee `preset_mode` can describe a hold/event instead.
+
+Fallback follows the configured order and can be disabled. Missing, unknown,
+unavailable, invalid or expired observations remain visibly qualified. A
+source-age cutoff needs a reporting cadence or a deliberate silent-source guard;
+leave it zero for healthy quiet event sources. A source-specific cutoff can
+override the datapoint default. Neither setting refreshes an upstream source.
+
+Interval observations require an observation timestamp attribute and interval
+length. They retain their interval meaning and never replace current equipment
+state. Minimum fan minutes per hour is a setting, with its own semantic choice,
+not elapsed runtime. Configured-membership outputs retain the selected source's
+exact labels in `members`, alongside the count and source; changing label
+decoration does not prove a different physical membership.
+Its `source_context` identifies the reported profile and timing basis. Beestat
+room-spread membership uses its metadata-sync time; an unchanged current-profile
+state cannot establish that the list is fresh. Missing metadata time remains
+explicitly unknown and cannot satisfy a positive age cutoff.
+
+For household weather, choose **Weather and daily forecast**, select the two
+native Ecobee weather entities, and leave unit, attribute and timestamp fields
+blank. This creates one weather entity with ordered source selection and daily
+forecasts. Both sources must report the same station through the same Ecobee
+connection. A changed station requires renewed confirmation. The weather
+provider's forecast time is retained separately from Home Assistant receipt;
+neither proves a new physical measurement. Forecast dates retain the native
+adapter's meaning. The aliases share one upstream feed and provide no
+independent weather confirmation.
+
+Use **Edit datapoint** or **Remove datapoint** to change the composition. Source
+registry references and output identities survive normal entity renames.
+Changing a source or its meaning requires renewed equivalence confirmation.
+Before adopting a new output, review explicit references and dynamic labels so
+an aggregate includes each physical probe once. Historical statistics stay with
+their existing owner; creating a datapoint does not backfill or merge history.
 
 ## Verify an installation before moving its consumers
 

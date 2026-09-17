@@ -101,6 +101,7 @@ from custom_components.ecobee_unified.const import (
     SUFFIX_EQUIPMENT_STAGE,
     SUFFIX_SOURCE_DEGRADED,
 )
+from custom_components.ecobee_unified.datapoints import DatapointConfig, SourceBinding
 from custom_components.ecobee_unified.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -136,9 +137,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(
             frozenset(
                 {
+                    "action_reported_at",
                     "active_comfort_sensors",
                     "advisories",
                     "configured_comfort_sensors",
+                    "equipment_reported_at",
                     "command_confirmation",
                     "problem_reasons",
                 }
@@ -485,6 +488,200 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 "binary_sensor", DOMAIN, f"mapping_a_{SUFFIX_SOURCE_DEGRADED}"
             ),
         )
+
+    async def test_native_datapoints_setup_reload_unload_and_diagnostics_privacy(
+        self,
+    ) -> None:
+        """Real platform wiring retains declared rows and removes only omitted outputs."""
+        await self.manager.async_stop()
+        registry = er.async_get(self.hass)
+        occupancy_sources = []
+        for source in (self.homekit, self.ecobee):
+            source_entry = self.hass.config_entries.async_get_entry(
+                source.config_entry_id
+            )
+            assert source_entry is not None
+            occupancy = registry.async_get_or_create(
+                "binary_sensor",
+                source.platform,
+                f"{source.unique_id}_occupancy",
+                config_entry=source_entry,
+                device_id=source.device_id,
+                original_device_class="occupancy",
+            )
+            self.hass.states.async_set(
+                occupancy.entity_id, "on", {"device_class": "occupancy"}
+            )
+            occupancy_sources.append(occupancy)
+            state = self.hass.states.get(source.entity_id)
+            assert state is not None
+            self.hass.states.async_set(
+                source.entity_id,
+                state.state,
+                dict(state.attributes) | {"current_humidity": 42},
+            )
+
+        private_members = ["Private study member", "Private bedroom member"]
+        cloud = self.hass.states.get(self.ecobee.entity_id)
+        assert cloud is not None
+        self.hass.states.async_set(
+            self.ecobee.entity_id,
+            cloud.state,
+            dict(cloud.attributes) | {"active_sensors": private_members},
+        )
+        beestat_entry = MockConfigEntry(domain="beestat_statistics")
+        beestat_entry.add_to_hass(self.hass)
+        beestat_device = dr.async_get(self.hass).async_get_or_create(
+            config_entry_id=beestat_entry.entry_id,
+            identifiers={("beestat_statistics", "private_beestat_thermostat")},
+            manufacturer="ecobee",
+            serial_number="thermostat_a",
+        )
+        profile = registry.async_get_or_create(
+            "sensor",
+            "beestat_statistics",
+            "private_profile_source",
+            config_entry=beestat_entry,
+            device_id=beestat_device.id,
+        )
+        self.hass.states.async_set(
+            profile.entity_id,
+            "Home",
+            {"profile_sensors": private_members, "profile_ref": "home"},
+        )
+        configs = (
+            DatapointConfig(
+                "humidity_identity",
+                "Private humidity name",
+                "humidity",
+                (
+                    SourceBinding(self.homekit.id, "current_humidity"),
+                    SourceBinding(self.ecobee.id, "current_humidity"),
+                ),
+                unit="%",
+                max_age_seconds=600,
+            ),
+            DatapointConfig(
+                "occupancy_identity",
+                "Private occupancy name",
+                "occupancy",
+                tuple(SourceBinding(source.id) for source in occupancy_sources),
+            ),
+            DatapointConfig(
+                "membership_identity",
+                "Private membership name",
+                "configured_membership",
+                (
+                    SourceBinding(self.ecobee.id, "active_sensors"),
+                    SourceBinding(profile.id, "profile_sensors"),
+                ),
+            ),
+        )
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=DOMAIN,
+            version=1,
+            minor_version=4,
+            data={
+                CONF_MAPPINGS: [self.mapping.as_dict()],
+                "datapoints": [point.as_dict() for point in configs],
+            },
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        manager = entry.runtime_data.datapoints
+        assert manager is not None
+        entity_ids = [
+            registry.async_get_entity_id(
+                domain, DOMAIN, manager.unique_id(point.datapoint_id)
+            )
+            for domain, point in zip(
+                ("sensor", "binary_sensor", "sensor"), configs, strict=True
+            )
+        ]
+        humidity_id, occupancy_id, membership_id = entity_ids
+        assert (
+            humidity_id is not None
+            and occupancy_id is not None
+            and membership_id is not None
+        )
+        humidity = self.hass.states.get(humidity_id)
+        occupancy = self.hass.states.get(occupancy_id)
+        membership = self.hass.states.get(membership_id)
+        assert humidity is not None and occupancy is not None and membership is not None
+        self.assertEqual("42.0", humidity.state)
+        self.assertEqual("%", humidity.attributes[ATTR_UNIT_OF_MEASUREMENT])
+        self.assertEqual("on", occupancy.state)
+        self.assertEqual("occupancy", occupancy.attributes[ATTR_DEVICE_CLASS])
+        self.assertEqual("2", membership.state)
+        self.assertEqual(sorted(private_members), membership.attributes["members"])
+        self.assertIsNotNone(manager._timer)
+
+        diagnostics = await async_get_config_entry_diagnostics(self.hass, entry)
+        self.assertEqual(3, diagnostics["entry"]["datapoint_count"])
+        self.assertEqual(
+            ["humidity", "occupancy", "configured_membership"],
+            [point["kind"] for point in diagnostics["datapoints"]],
+        )
+        self.assertTrue(all(point["available"] for point in diagnostics["datapoints"]))
+        rendered = repr(diagnostics)
+        for private in (
+            *private_members,
+            *(point.name for point in configs),
+            *(point.datapoint_id for point in configs),
+            self.homekit.id,
+            self.homekit.entity_id,
+            self.ecobee.id,
+            self.ecobee.entity_id,
+            profile.id,
+            profile.entity_id,
+        ):
+            self.assertNotIn(private, rendered)
+
+        self.hass.states.async_set(
+            occupancy_sources[0].entity_id, "off", {"device_class": "occupancy"}
+        )
+        await self.hass.async_block_till_done()
+        self.assertEqual("off", self.hass.states.get(occupancy_id).state)
+        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+        self.assertFalse(manager._running)
+        self.assertEqual([], manager._unsub)
+        self.assertEqual([], manager._state_unsub)
+        self.assertIsNone(manager._timer)
+        self.assertTrue(
+            all(registry.async_get(entity_id) is not None for entity_id in entity_ids)
+        )
+
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        self.assertEqual(
+            entity_ids,
+            [
+                registry.async_get_entity_id(
+                    domain, DOMAIN, manager.unique_id(point.datapoint_id)
+                )
+                for domain, point in zip(
+                    ("sensor", "binary_sensor", "sensor"), configs, strict=True
+                )
+            ],
+        )
+        self.hass.config_entries.async_update_entry(
+            entry,
+            data=dict(entry.data)
+            | {
+                "datapoints": [point.as_dict() for point in configs[1:]],
+            },
+        )
+        self.assertTrue(await self.hass.config_entries.async_reload(entry.entry_id))
+        await self.hass.async_block_till_done()
+        self.assertIsNone(registry.async_get(humidity_id))
+        self.assertIsNotNone(registry.async_get(occupancy_id))
+        self.assertIsNotNone(registry.async_get(membership_id))
+        self.assertIsNotNone(registry.async_get(self.homekit.entity_id))
+        self.assertIsNotNone(registry.async_get(self.ecobee.entity_id))
+        self.assertIsNotNone(registry.async_get(profile.entity_id))
+        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
 
     async def test_setup_failure_and_entry_removal_release_owned_state(self) -> None:
         entry = MockConfigEntry(
@@ -1637,6 +1834,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
 
         self.hass.config.units = US_CUSTOMARY_SYSTEM
         homekit_attributes = self._attributes(77.0) | {
+            "hvac_action": "idle",
             "target_temp_low": 71.0,
             "target_temp_high": 74.0,
             "min_temp": 45.0,
@@ -1651,6 +1849,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             homekit_attributes,
         )
         ecobee_attributes = self._attributes(76.8) | {
+            "hvac_action": "idle",
             "target_temp_low": 71.0,
             "target_temp_high": 74.0,
             "min_temp": 44.6,
@@ -2129,7 +2328,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             context={"source": "reconfigure", "entry_id": entry.entry_id},
         )
         self.assertIs(FlowResultType.MENU, result["type"])
-        self.assertEqual(RECONFIGURE_MENU_OPTIONS, tuple(result["menu_options"]))
+        self.assertEqual(
+            tuple(
+                option
+                for option in RECONFIGURE_MENU_OPTIONS
+                if option not in {"datapoint_edit", "datapoint_remove"}
+            ),
+            tuple(result["menu_options"]),
+        )
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_edit"}
         )
@@ -2577,7 +2783,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ),
         )
         serialized = serialize_schema(schema, custom_serializer=cv.custom_serializer)
-        self.assertEqual(2, len(serialized))
+        self.assertEqual(3, len(serialized))
+        self.assertEqual("configure_read_policy", serialized[2]["name"])
+        self.assertEqual({"boolean": {}}, serialized[2]["selector"])
+        self.assertFalse(serialized[2]["required"])
         self.assertEqual(
             {"min": 300.0, "max": 7200.0, "step": 60.0, "mode": "box"},
             serialized[0]["selector"]["number"],
@@ -2677,7 +2886,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(externally_updated, entry.options)
 
     async def test_minor_schema_migration_normalizes_mapping_data(self) -> None:
-        self.assertEqual(3, EcobeeUnifiedConfigFlow.MINOR_VERSION)
+        self.assertEqual(4, EcobeeUnifiedConfigFlow.MINOR_VERSION)
         legacy = self.mapping.as_dict() | {
             "scheduled_profile_entity": "",
             "next_transition_entity": "",
@@ -2698,7 +2907,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(3, entry.minor_version)
+        self.assertEqual(4, entry.minor_version)
         self.assertEqual(
             [self.mapping.as_dict() | {"future_mapping_field": {"opaque": "preserve"}}],
             entry.data[CONF_MAPPINGS],

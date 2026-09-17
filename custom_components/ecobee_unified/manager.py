@@ -344,6 +344,7 @@ class MappingManager:
             homekit_preset=homekit_preset,
             homekit_temperature=homekit_temperature,
             homekit_temperature_recovery_pending=temperature_recovery_pending,
+            read_policies=self._options.get("read_policies", {}).get(mapping_id, {}),
             air_quality_index=cloud_sensors[0],
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
@@ -1348,6 +1349,7 @@ class MappingManager:
             },
             age_seconds=source.age_seconds,
             health=source.health,
+            reported_at=source.reported_at,
         )
 
     def _air_quality_raw_source(
@@ -1414,6 +1416,7 @@ class MappingManager:
                 source.attributes,
                 age_seconds=source.age_seconds,
                 health=source.health,
+                reported_at=source.reported_at,
             )
         source_unit = temperature_source_unit(self.hass, entity_reference)
         target_unit = homekit.attributes.get(
@@ -1442,6 +1445,7 @@ class MappingManager:
             source.attributes,
             age_seconds=source.age_seconds,
             health=source.health,
+            reported_at=source.reported_at,
         )
 
     def _raw_source(
@@ -1494,6 +1498,7 @@ class MappingManager:
             state.attributes,
             age_seconds=age,
             health=health,
+            reported_at=observed_at.isoformat(),
         )
 
     @staticmethod
@@ -1503,6 +1508,7 @@ class MappingManager:
             source.attributes,
             age_seconds=source.age_seconds,
             health=SourceHealth.UNAVAILABLE,
+            reported_at=source.reported_at,
         )
 
     @staticmethod

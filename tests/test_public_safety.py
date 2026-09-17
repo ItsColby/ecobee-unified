@@ -403,7 +403,7 @@ class PublicSafetyTests(unittest.TestCase):
             )
         )
         self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
-        self.assertEqual("homeassistant==2026.9.1", current_requirements.strip())
+        self.assertEqual("homeassistant==2026.9.2", current_requirements.strip())
         self.assertEqual("2026.8.0", hacs["homeassistant"])
         self.assertIs(True, manifest["single_config_entry"])
         self.assertEqual("hub", manifest["integration_type"])
@@ -411,7 +411,7 @@ class PublicSafetyTests(unittest.TestCase):
             "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
         )
         self.assertIn(
-            "Home Assistant integration tests (Core 2026.9.1 current)", workflow
+            "Home Assistant integration tests (Core 2026.9.2 current)", workflow
         )
         self.assertEqual(
             2, release_runner.count("pytest-homeassistant-custom-component==")
@@ -457,7 +457,7 @@ class PublicSafetyTests(unittest.TestCase):
             'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
         )
         current_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.364"'
+            'python -m pip install "pytest-homeassistant-custom-component==0.13.365"'
         )
         minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
         current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"

@@ -1,6 +1,6 @@
 # Runtime architecture
 
-Ecobee Unified presents a mapped thermostat through one Home Assistant climate entity and a small set of related entities. It consumes the states and services of installed HomeKit Device (`homekit_controller`) and Ecobee integrations. It does not acquire thermostat data directly or take over either integration's connection. The central contract is that **the source selected for a displayed value, the source allowed to write a control, and the source allowed to confirm that write are separate decisions**.
+Ecobee Unified presents a mapped thermostat through one Home Assistant climate entity and a small set of related entities. It consumes the states and services of installed HomeKit Device (`homekit_controller`) and Ecobee integrations, plus explicitly selected read-only datapoints from compatible existing integrations. It does not acquire thermostat data directly or take over a source integration's connection. The central contract is that **the source selected for a displayed value, the source allowed to write a control, and the source allowed to confirm that write are separate decisions**.
 
 This reference describes those decisions and their limits. The invariants below are enforced within Unified's runtime; they are not guarantees about network delivery, upstream retries, thermostat firmware, or the causal origin of a source report. The runtime boundary is visible in [the manager](../custom_components/ecobee_unified/manager.py) and exercised through [native Home Assistant integration tests](../tests/test_integration_ha.py).
 
@@ -48,6 +48,7 @@ The implementation responsibilities are deliberately small:
 | [`config_flow.py`](../custom_components/ecobee_unified/config_flow.py) and [`source_contracts.py`](../custom_components/ecobee_unified/source_contracts.py) | Admit explicit mappings; validate registry identity, optional roles, and sensor semantics. |
 | [`manager.py`](../custom_components/ecobee_unified/manager.py) | Subscribe to relevant events, resolve references, build eligible inputs, convert precise temperature, manage deadlines and Repairs, and dispatch services. |
 | [`models.py`](../custom_components/ecobee_unified/models.py) | Pure normalization, field selection, provenance, degradation, and confirmation comparison. |
+| [`datapoints.py`](../custom_components/ecobee_unified/datapoints.py) and [`datapoint_entity.py`](../custom_components/ecobee_unified/datapoint_entity.py) | Ordered, typed read-only datapoints; source identity and time semantics; state/registry/deadline subscriptions and native projections. |
 | [`temperature_quality.py`](../custom_components/ecobee_unified/temperature_quality.py) | Retain rejected temperature evidence for the same source association until recovery. |
 | [`commands.py`](../custom_components/ecobee_unified/commands.py) | Track the latest command revision and bounded result for each mapping. |
 | [`entity.py`](../custom_components/ecobee_unified/entity.py) and platform modules | Project the cached snapshot and expose validated action entry points. |
@@ -79,9 +80,9 @@ A `RawSource` is usable only when its effective health is `healthy` and it has a
 
 | Published semantic | Selection rule |
 | --- | --- |
-| HVAC mode | Valid HomeKit climate state, then valid Ecobee climate state. |
-| HVAC action, current humidity, target temperature, low/high targets, fan mode | Valid HomeKit attribute, then the corresponding Ecobee attribute independently. Targets map to `temperature`, `target_temp_low`, and `target_temp_high`; no target is reconstructed from the HVAC mode. |
-| Current temperature | Eligible, agreeing explicit HomeKit temperature sensor; otherwise HomeKit climate `current_temperature`; otherwise Ecobee climate `current_temperature`. The precise path is detailed below. |
+| HVAC mode | Configurable HomeKit-first, Ecobee-first, HomeKit-only or Ecobee-only state selection; default HomeKit-first. |
+| HVAC action, current humidity, target temperature, low/high targets, fan mode | The same four read policies, independently configured for each field and mapping. Targets map to `temperature`, `target_temp_low`, and `target_temp_high`; no target is reconstructed from mode. |
+| Current temperature | Configurable source policy. When HomeKit is selected, an eligible agreeing explicit sensor refines the local climate reading. Cloud preference never changes that local agreement check. |
 | HVAC/fan choices and ordinary feature bits | Usable HomeKit climate metadata only. Ecobee read fallback does not supply HomeKit control authority. |
 | Temperature unit and setpoint bounds | Valid, ordered HomeKit climate bounds in its serialized unit. Ecobee bounds are retained separately for Ecobee vacation validation. |
 | Target-temperature step | Valid positive HomeKit step; only when omitted, the narrowly permitted same-device Ecobee metadata fusion described below. |
@@ -92,6 +93,102 @@ A `RawSource` is usable only when its effective health is `healthy` and it has a
 
 The climate is available exactly when a valid HVAC mode and current temperature can be projected. Other fields can be missing while it remains available. Conversely, a readable climate can expose no ordinary controls because its current values came from fallback. [Snapshot construction](../custom_components/ecobee_unified/models.py), [fallback and capability tests](../tests/test_models.py).
 
+### Keep current action and reported stage coherent
+
+The operational projection uses the selected `hvac_action` as its current
+coarse state. An Ecobee equipment report adds a precise stage only when its
+interpreted action agrees. If HomeKit reports idle while Ecobee reports cooling
+stage 1, the canonical stage is idle and the cloud report remains separately
+available as `reported_equipment_stage`, with `detail_status=disagreement`.
+If HomeKit reports cooling while cloud detail is absent, ambiguous or conflicts,
+the stage is `cooling`, explicitly without an inferred stage number. No action
+means no canonical stage. Source disagreement is advisory evidence, not a
+diagnosis of HVAC failure. A cloud-first action policy can instead select the
+cloud report coherently, subject to cloud availability and report timing. A
+disagreement alone does not identify which source reflects physical operation.
+
+The climate and equipment sensor consume the same normalized snapshot. Both
+expose report provenance; the sensor exposes `action_source`, `selected_source`,
+`detail_status`, `action_reported_at`, and `equipment_reported_at`. These times
+are HA receipt times, not physical transition timestamps. They are excluded from
+Recorder attributes to avoid recording heartbeat-only changes. Recorder retains
+actual canonical state changes; earlier history is not rewritten. Stage and
+runtime remain reported thermostat evidence, not measured electrical operation.
+[Operational projection and both-zone regression cases](../tests/test_operating_state.py).
+
+### Compose other equivalent datapoints
+
+The same config entry stores explicit `DatapointConfig` records with stable IDs,
+ordered registry-backed source bindings, quantity, output unit, time basis and
+fallback policy. An independent read-only `DatapointManager` normalizes these
+into sensor, binary-sensor or weather entities. It has no command writer. Sources may be
+HomeKit, Ecobee, Beestat Statistics or Battery Notes entities proven to refer to
+the same Ecobee hardware. A common device or matching native serial can prove
+hardware association; the user still confirms that the chosen fields describe
+the same quantity. Unified outputs cannot be inputs, preventing composition loops.
+
+Physical temperature and thermostat control/display temperature are separate
+semantics. Occupancy is not motion. Profile identity is not a hold/event preset;
+configured membership is not `in_use` or Follow Me weighting. Minimum fan minutes
+per hour is not elapsed runtime. Native units and device classes constrain
+selection; missing and malformed observations do not become zero or a retained
+last-known value. Compatible temperature and duration units may be converted;
+unrelated concentration units cannot be relabeled.
+
+Configured membership preserves the selected source's exact bounded member
+labels in an attribute and publishes its count. It neither merges lists nor
+infers that differently named members share an identity. Empty reported lists
+are valid; missing lists are unavailable. Changes of source retain provenance,
+so consumers must not compare source-specific names as stable probe identifiers.
+The same limit applies to profile values: native options, display labels and
+profile references retain their selected representation. Composition does not
+prove a temporary hold matches the reported program profile or its member set.
+The selected membership context retains that distinction: native Ecobee preset
+and program labels remain separate, while Beestat supplies its program-profile
+reference and label. Beestat room-spread membership freshness uses
+`metadata_synced_at`; the current-profile sensor's unchanged state cannot
+establish member-list freshness. A list without metadata timing is explicitly
+qualified and cannot satisfy a positive metadata-age limit.
+
+Current observations and interval observations remain distinct. Interval inputs
+require a source observation timestamp and explicit interval length; HA receipt
+time never substitutes for interval end. Report timestamps remain separate from
+observation timestamps. A configurable age cutoff evaluates its source timestamp
+without acquiring data; zero preserves quiet event sources. Per-source cutoffs
+allow a cadence-backed cloud input to expire while a quiet local input remains
+eligible. One lifecycle-owned deadline handles elapsed-time transitions and
+unchanged-report recovery. Registry changes recheck identity and relink the
+owned projection; source loss never substitutes another entity with the same name.
+
+This composes existing HA observations. Beestat retains historical acquisition,
+external statistics, imports, forecasts and gaps; Recorder retains storage.
+Long-term statistics are not silently converted into current sensor inputs.
+These mappings do not provide historical source selection or reconcile the
+aggregation and coverage of separately stored statistics.
+Each optional output is adopted by consumers explicitly, avoiding duplicate
+physical probes in label-based aggregates. [Datapoint engine](../custom_components/ecobee_unified/datapoints.py),
+[native projections](../custom_components/ecobee_unified/datapoint_entity.py),
+[behavioral tests](../tests/test_datapoints.py), [configuration tests](../tests/test_datapoint_config.py).
+
+Native Ecobee weather aliases use a separate station-feed contract. Each source
+must retain its own native thermostat identity, while the group shares one
+Ecobee config entry and one explicit station identifier parsed from the pinned
+native attribution format. The saved station is checked on every read; source
+or station drift cannot silently select a different feed. This proves a common
+provider feed, not independent measurements or permanent geographic identity.
+Weather outputs do not attach the shared feed to either thermostat device.
+
+A whole-weather mapping publishes one coherent selected report and forwards its
+supported daily forecast through the native `weather.get_forecasts` response
+service. It preserves source units and request-generated forecast dates, and
+rejects a response when source, station, provider generation or units change
+during the read. Native forecast subscriptions follow listeners and unload with
+the entity. There is no independent provider connection, polling or forecast cache.
+Seven scalar current-weather roles are also available where a single value is
+useful. Weather age uses the provider forecast timestamp; that timestamp remains
+separate from HA receipt and physical measurement time. [Weather source contract](../custom_components/ecobee_unified/weather_source.py),
+[native forecast projection](../custom_components/ecobee_unified/weather.py).
+
 ### Preserve units, reject impossible shapes, and bound derived meaning
 
 Home Assistant serializes climate temperatures in its configured temperature unit. The manager supplies that unit to both climate inputs; it does not interpret their numbers as accessory-native temperatures. An explicit precise sensor is converted from its validated sensor unit with Home Assistant's `TemperatureConverter`, then validated again in the climate unit. Conversion does not mutate the source state. Climate display precision is tenths when the selected current-temperature provenance is the precise sensor or Ecobee, preserving fractional readings through climate serialization. [Conversion](../custom_components/ecobee_unified/manager.py), [projection precision](../custom_components/ecobee_unified/climate.py), [serialization and configured-unit tests](../tests/test_runtime_core_api.py).
@@ -100,7 +197,7 @@ Numbers must be finite; booleans, overflow, and unsupported shapes do not count 
 
 The only cross-integration capability fusion is the omitted target step. It requires proven physical identity, the manager's explicit HomeKit writer-granularity compatibility assumption, matching units, and a positive Ecobee step no greater than the HomeKit bound span. Stable step metadata may come from a stale Ecobee input, but not an unavailable one. A present invalid HomeKit step is rejected rather than replaced. Missing step does not itself remove temperature control; missing or invalid writer bounds/unit removes the affected temperature feature bits. This exception fills a known adapter metadata gap without importing cloud write capability. [Step selection](../custom_components/ecobee_unified/models.py), [compatibility assumption](../custom_components/ecobee_unified/manager.py), [fusion tests](../tests/test_models.py), [invalid-step tests](../tests/test_numeric_validity.py).
 
-Equipment stage is a bounded interpretation of the Ecobee equipment report, not a measurement of output, power, or efficiency. The normalizer splits comma-separated tokens, trims and lowercases them, and maps recognized tokens to cooling stages 1–2, heat-pump or auxiliary stages 1–3, fan, humidifying, dehumidifying, or ventilating. A fan accompanying another recognized stage is subordinate. Multiple remaining stages, or a mixture of recognized and unknown tokens, produce `multiple`; only unknown tokens produce `unknown`. An empty report means `idle`; a missing report means unavailable. [Equipment calculation](../custom_components/ecobee_unified/sensor.py), [enum tests](../tests/test_sensor.py).
+The separate reported equipment stage is a bounded interpretation of the Ecobee equipment report, not a measurement of output, power, or efficiency. The normalizer splits comma-separated tokens, trims and lowercases them, and maps recognized tokens to cooling stages 1–2, heat-pump or auxiliary stages 1–3, fan, humidifying, dehumidifying, or ventilating. A fan accompanying another recognized stage is subordinate. Multiple remaining stages, or a mixture of recognized and unknown tokens, produce `multiple`; only unknown tokens produce `unknown`. An empty report means reported `idle`; a missing report means unavailable. The canonical stage then qualifies that detail against the selected current action as described above. [Equipment calculation](../custom_components/ecobee_unified/models.py), [enum tests](../tests/test_sensor.py).
 
 Vendor text is truncated to 64 characters, and text lists retain at most eight distinct nonempty items. `active_comfort_sensors` and `configured_comfort_sensors` on the climate currently expose the same bounded source list; they do not prove present occupancy, actual participation, an average-temperature calculation, or distinct configured-versus-active sets. [Bounded projections](../custom_components/ecobee_unified/models.py), [climate attributes](../custom_components/ecobee_unified/climate.py).
 
@@ -171,7 +268,7 @@ The native flow owns one config entry with a nonempty mapping collection. Reconf
 
 Editing can preserve an unchanged saved reference that is temporarily missing, and can retain an unchanged climate pairing whose identity is temporarily unproven. That allowance preserves intent; it does not validate a new source or restore runtime eligibility. An absent parent cannot establish the association of a newly selected optional source, and an explicit identity mismatch remains invalid. Accepted unknown data is preserved rather than silently erased. [Preservation boundaries](../custom_components/ecobee_unified/config_flow.py), [mapping merge](../custom_components/ecobee_unified/models.py), [missing-parent tests](../tests/test_configuration_source_contracts.py).
 
-Schema migration accepts major version 1 through minor version 3, normalizes existing mappings without inventing identity, and removes named retired mapping fields and timing options. It preserves other entry data and options, and fails closed for unsupported future versions or an empty mapping collection. [Migration](../custom_components/ecobee_unified/__init__.py), [schema tests](../tests/test_runtime_core_api.py).
+Schema migration accepts major version 1 through minor version 4, normalizes existing mappings without inventing identity, and removes named retired mapping fields and timing options. It preserves other entry data and options, and fails closed for unsupported future versions or an empty mapping collection. Datapoints and read preferences are optional; migration does not create either. [Migration](../custom_components/ecobee_unified/__init__.py), [schema tests](../tests/test_runtime_core_api.py).
 
 Setup installs the typed runtime, removes only this entry's Unified registry entities no longer declared by the mapping collection, starts subscriptions and snapshots, then forwards enabled platforms. A setup exception or cancellation stops the manager. Unload first asks Home Assistant to unload platforms; only success stops the manager. Each subsequent setup creates a new manager, so command history and temperature-recovery evidence do not persist across reload. Registry listeners rebuild relevant subscriptions, recheck identity, and relink Unified entities when the HomeKit source device association changes. They do not create a replacement physical device. [Entry lifecycle and owned cleanup](../custom_components/ecobee_unified/__init__.py), [device relinking](../custom_components/ecobee_unified/manager.py), [setup tests](../tests/test_setup_lifecycle.py), [device identity tests](../tests/test_source_device_identity.py).
 

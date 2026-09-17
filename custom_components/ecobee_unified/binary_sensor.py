@@ -13,6 +13,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import SUFFIX_SOURCE_DEGRADED
+from .datapoint_entity import UnifiedDatapointBinarySensor
+from .datapoints import BINARY_KINDS
 from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
 from .models import (
@@ -31,10 +33,18 @@ async def async_setup_entry(
     """Set up one mapping-health problem entity per thermostat."""
 
     manager = entry.runtime_data.manager
-    async_add_entities(
+    entities: list[BinarySensorEntity] = [
         EcobeeSourceDegradedBinarySensor(manager, mapping)
         for mapping in manager.mappings
-    )
+    ]
+    datapoints = entry.runtime_data.datapoints
+    if datapoints is not None:
+        entities.extend(
+            UnifiedDatapointBinarySensor(datapoints, config)
+            for config in datapoints.configs
+            if config.kind in BINARY_KINDS
+        )
+    async_add_entities(entities)
 
 
 class EcobeeSourceDegradedBinarySensor(EcobeeUnifiedEntity, BinarySensorEntity):

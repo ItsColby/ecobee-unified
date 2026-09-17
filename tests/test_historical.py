@@ -22,6 +22,7 @@ from custom_components.ecobee_unified.historical import (
     HistoricalManager,
 )
 
+from . import test_beestat_history as producer
 from .runtime_fixture import CoreRuntimeTestCase
 
 
@@ -687,3 +688,152 @@ class HistoricalReadTests(CoreRuntimeTestCase):
         self.assertIsNot(
             calls[0].kwargs["validation_cache"], calls[2].kwargs["validation_cache"]
         )
+
+    async def _producer_source(self) -> dict[str, Any]:
+        await self.hass.config.async_set_time_zone("UTC")
+        source = _source(
+            producer.descriptor()["statistic_id"],
+            unit="°F",
+            method="beestat_history_v3_complete_points_else_legacy_day",
+        )
+        source.update(timezone="UTC", beestat_history_v3=producer.contract())
+        return source
+
+    async def _producer_read(self, manager: HistoricalManager, **kwargs: Any) -> dict:
+        return await self._read(
+            manager, start_date="2026-09-10", end_date="2026-09-11", **kwargs
+        )
+
+    async def test_producer_fixed_policy_requires_explicit_method_acceptance(
+        self,
+    ) -> None:
+        source = await self._producer_source()
+        with self.assertRaisesRegex(ValueError, "historical_cross_method_required"):
+            _family([source], timezone="UTC")
+        family = _family([source], timezone="UTC", accept_cross_method=True)
+        self.assertEqual(family.policy, "fixed_source")
+
+    async def test_producer_point_and_legacy_days_keep_separate_proof(self) -> None:
+        source = await self._producer_source()
+        context = Context()
+        for reason in ("ready", "legacy_day"):
+            with self.subTest(reason=reason):
+                values = producer.bucket(reason=reason)
+                if reason == "legacy_day":
+                    # Unsettled point hours do not invalidate independently eligible
+                    # native legacy daily evidence for this closed day.
+                    values["coverage_reasons"] = {"ready": 1, "provisional": 23}
+                data = producer.response([values])
+                calls = producer.register(self.hass, data)
+                manager = self._manager(
+                    _family([source], timezone="UTC", accept_cross_method=True)
+                )
+                result = await self._producer_read(manager, context=context)
+                selected = result["families"][0]["rows"][0]["selected"]
+                self.assertEqual(result["schema_version"], 1)
+                self.assertEqual(result["native_reads"], [])
+                self.assertEqual(
+                    result["snapshot_consistency"], "producer_qualified_reads"
+                )
+                self.assertEqual(selected["values"]["mean"], 70)
+                self.assertEqual(selected["method"], values["method_basis"])
+                self.assertEqual(selected["producer_bucket"], values)
+                self.assertEqual(len(selected["coverage"]["eligible_intervals"]), 24)
+                self.assertEqual(
+                    selected["coverage"]["native_bins_present"],
+                    values["verified_hours"],
+                )
+                self.assertEqual(len(calls), 2)
+                self.assertTrue(all(call.context is context for call in calls))
+                self.assertEqual(calls[-1].data["view_token"], data["view_token"])
+                self.assertEqual(
+                    result["producer_reads"][0]["summaries"][source["statistic_id"]],
+                    data["series"][0]["summary"],
+                )
+                self.assertFalse(self.reads)
+
+    async def test_producer_partial_stays_ineligible_and_native_alternative_recovers(
+        self,
+    ) -> None:
+        source = await self._producer_source()
+        native = _source()
+        native["timezone"] = "UTC"
+        self._row(start=producer.START.isoformat(), hours=24)
+        data = producer.response([producer.bucket(reason="partial")])
+        calls = producer.register(self.hass, data)
+        family = _family(
+            [source, native],
+            timezone="UTC",
+            policy="ordered_daily",
+            accept_cross_method=True,
+        )
+        manager = self._manager(family)
+        result = await self._producer_read(manager, include_provisional=True)
+        row = result["families"][0]["rows"][0]
+        self.assertEqual(row["selected"]["statistic_id"], native["statistic_id"])
+        self.assertEqual(row["candidates"][0]["status"], "producer_partial")
+        self.assertEqual(row["candidates"][0]["values"]["mean"], 70)
+        self.assertEqual(
+            result["snapshot_consistency"], "separate_native_and_producer_reads"
+        )
+        self.assertTrue(
+            all(
+                call.data["statistic_ids"] == [native["statistic_id"]]
+                for call in self.reads
+            )
+        )
+        # No entity/source event or configuration change is needed to see fresh proof.
+        data.update(producer.response([producer.bucket()]))
+        result = await self._producer_read(manager)
+        self.assertEqual(
+            result["families"][0]["rows"][0]["selected"]["statistic_id"],
+            source["statistic_id"],
+        )
+        self.assertEqual(len(calls), 4)
+
+    async def test_producer_late_revision_change_rejects_then_fresh_read_recovers(
+        self,
+    ) -> None:
+        source = await self._producer_source()
+        native = _source()
+        native["timezone"] = "UTC"
+        data = producer.response([producer.bucket()])
+        producer.register(self.hass, data)
+        manager = self._manager(
+            _family([source, native], timezone="UTC", accept_cross_method=True)
+        )
+
+        async def change_revision(call: ServiceCall) -> None:
+            data["root_revision"] = 9
+            data["operation"]["root_revision"] = 9
+            data["view_token"] = "a" * 64
+
+        self.read_effect = change_revision
+        with self.assertRaisesRegex(
+            ServiceValidationError, "historical_source_changed"
+        ):
+            await self._producer_read(manager)
+        self.read_effect = None
+        result = await self._producer_read(manager)
+        self.assertEqual(result["producer_reads"][0]["root_revision"], 9)
+        self.assertIsNotNone(result["families"][0]["rows"][0]["selected"])
+
+    async def test_unavailable_producer_does_not_become_empty_or_native_success(
+        self,
+    ) -> None:
+        source = await self._producer_source()
+        native = _source()
+        native["timezone"] = "UTC"
+        manager = self._manager(
+            _family(
+                [source, native],
+                timezone="UTC",
+                policy="ordered_daily",
+                accept_cross_method=True,
+            )
+        )
+        with self.assertRaisesRegex(
+            ServiceValidationError, "historical_beestat_unavailable"
+        ):
+            await self._producer_read(manager)
+        self.assertFalse(self.reads)

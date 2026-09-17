@@ -22,6 +22,8 @@ from custom_components.ecobee_unified.history_source import (
 )
 
 from .runtime_fixture import CoreRuntimeTestCase
+from .test_beestat_history import capability as history_capability
+from .test_beestat_history import descriptor as history_descriptor
 
 
 class HistorySourceTests(CoreRuntimeTestCase):
@@ -830,3 +832,242 @@ class HistorySourceTests(CoreRuntimeTestCase):
                 validation_cache={},
             )
         self.assertEqual(len(self.calls), 2)
+
+    def _history_v3(
+        self, quantity: str = "temperature", *, alias: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Bind a public synthetic declaration to this native test configuration."""
+        specifications = {
+            "temperature": ("temperature", "°F", "temperature", 202),
+            "humidity": ("indoor_humidity", "%", "unitless", None),
+            "co2": ("co2_concentration", "ppm", "unitless", 202),
+            "aqi": ("air_quality", "%", "unitless", 202),
+            "weather_temperature": ("outdoor_temperature", "°F", "temperature", None),
+            "weather_humidity": ("outdoor_humidity", "%", "unitless", None),
+            "voc": ("voc_concentration", "ppb", "unitless", 202),
+        }
+        semantic, unit, unit_class, sensor = specifications[quantity]
+        declaration = history_descriptor()
+        owner = "thermostat:101" if sensor is None else f"sensor:{sensor}"
+        declaration.update(
+            quantity_id=f"{owner}:{semantic}",
+            sensor_id=sensor,
+            quantity=semantic,
+            logical_unit=unit,
+            statistic_id=f"beestat:declared_{semantic}_hourly_v3",
+            legacy_statistic_ids=[alias or f"beestat:zone_a_{semantic}"],
+        )
+        declaration["representation"].update(
+            unit_of_measurement=unit,
+            unit_class=unit_class,
+            v2_statistic_id=f"beestat:zone_a_{semantic}_hourly_v2",
+        )
+        capability = history_capability()
+        capability["identity"]["entry_id"] = self.beestat.entry_id
+        capability["quantities"] = [declaration]
+        self.response["hourly_statistics"] = {"history_v3": capability}
+        return capability, declaration
+
+    async def test_v3_declared_measurements_capture_without_native_metadata(
+        self,
+    ) -> None:
+        assert self.ecobee.device_id
+        weather = self._weather("thermostat_a", self.ecobee.device_id)
+        for quantity, anchor in (
+            ("temperature", self.temperature),
+            ("humidity", self.humidity),
+            ("co2", self.co2),
+            ("aqi", self.aqi),
+            ("weather_temperature", weather),
+            ("weather_humidity", weather),
+        ):
+            with self.subTest(quantity=quantity):
+                _capability, declaration = self._history_v3(quantity)
+                self.metadata_mock.reset_mock()
+                context = Context()
+                source = await async_capture_source(
+                    self.hass,
+                    declaration["statistic_id"],
+                    quantity,
+                    anchor.id,
+                    context=context,
+                )
+                self.metadata_mock.assert_not_awaited()
+                self.assertEqual(
+                    source["metadata_basis"], "producer_declared_representation"
+                )
+                self.assertEqual(
+                    source["method"],
+                    "beestat_history_v3_complete_points_else_legacy_day",
+                )
+                self.assertEqual(source["native_unit"], declaration["logical_unit"])
+                captured = source["beestat_history_v3"]
+                self.assertEqual(
+                    captured["descriptor"]["quantity_id"], declaration["quantity_id"]
+                )
+                self.assertEqual(
+                    captured["descriptor"]["sensor_id"], declaration["sensor_id"]
+                )
+                self.assertEqual(captured["descriptor"]["thermostat_id"], 101)
+                self.assertNotIn("admission", captured["descriptor"])
+                self.assertNotIn("writer_status", captured["descriptor"])
+                self.assertNotIn("root_revision", captured)
+                self.assertEqual(
+                    source["identity_evidence"]["provider_serial_identity"], "unproven"
+                )
+                self.assertIs(self.calls[-1].context, context)
+                self.assertNotIn("must_not_be_returned", str(source))
+
+    async def test_v3_declared_alias_not_destination_suffix_proves_native_mapping(
+        self,
+    ) -> None:
+        self.response["effective_configuration"]["sensors"][0]["slug"] = "renamed_probe"
+        _capability, declaration = self._history_v3(
+            alias="beestat:renamed_probe_temperature"
+        )
+        source = await async_capture_source(
+            self.hass, declaration["statistic_id"], "temperature", self.temperature.id
+        )
+        self.assertEqual(
+            source["beestat_history_v3"]["descriptor"]["legacy_statistic_ids"],
+            ["beestat:renamed_probe_temperature"],
+        )
+        declaration["legacy_statistic_ids"] = ["beestat:zone_a_temperature"]
+        with self.assertRaisesRegex(ValueError, "historical_beestat_mapping_ambiguous"):
+            await async_capture_source(
+                self.hass,
+                declaration["statistic_id"],
+                "temperature",
+                self.temperature.id,
+            )
+
+    async def test_v3_wrong_declared_sensor_or_parent_is_rejected(self) -> None:
+        for change in ("sensor", "parent"):
+            with self.subTest(change=change):
+                _capability, declaration = self._history_v3()
+                if change == "sensor":
+                    declaration.update(
+                        sensor_id=999, quantity_id="sensor:999:temperature"
+                    )
+                else:
+                    declaration["thermostat_id"] = 999
+                with self.assertRaisesRegex(
+                    ValueError, "historical_source_identity_mismatch"
+                ):
+                    await async_capture_source(
+                        self.hass,
+                        declaration["statistic_id"],
+                        "temperature",
+                        self.temperature.id,
+                    )
+
+    async def test_v3_dynamic_progress_refresh_does_not_change_saved_identity(
+        self,
+    ) -> None:
+        capability, declaration = self._history_v3()
+        source = await async_capture_source(
+            self.hass, declaration["statistic_id"], "temperature", self.temperature.id
+        )
+        source["source_id"] = "selected_v3_source"
+        capability.update(
+            root_revision=9, coverage_revision=3, source_revision="9" * 64
+        )
+        capability["operation"].update(
+            root_revision=9, status="in_progress", has_pending=True
+        )
+        declaration["writer_status"] = "reserved"
+        refreshed = await async_validate_source(
+            self.hass, source, "temperature", self.temperature.id
+        )
+        self.assertEqual(refreshed["beestat_history_v3"], source["beestat_history_v3"])
+        self.assertEqual(refreshed["source_id"], "selected_v3_source")
+        declaration.update(
+            admission="blocked", blocked_reason="source_evidence_invalid"
+        )
+        with self.assertRaisesRegex(ValueError, "historical_unsupported_source"):
+            await async_validate_source(
+                self.hass, source, "temperature", self.temperature.id
+            )
+
+    async def test_v3_saved_descriptor_alias_and_method_drift_are_rejected(
+        self,
+    ) -> None:
+        for change in ("alias", "lineage", "method"):
+            with self.subTest(change=change):
+                _capability, declaration = self._history_v3()
+                source = await async_capture_source(
+                    self.hass,
+                    declaration["statistic_id"],
+                    "temperature",
+                    self.temperature.id,
+                )
+                if change == "alias":
+                    declaration["legacy_statistic_ids"].append(
+                        "beestat:former_probe_temperature"
+                    )
+                elif change == "lineage":
+                    declaration["representation"]["v2_statistic_id"] = (
+                        "beestat:other_temperature_hourly_v2"
+                    )
+                else:
+                    declaration["method_version"] = "unsupported_future_method"
+                expected = (
+                    "historical_unsupported_source"
+                    if change == "method"
+                    else "historical_source_changed"
+                )
+                with self.assertRaisesRegex(ValueError, expected):
+                    await async_validate_source(
+                        self.hass, source, "temperature", self.temperature.id
+                    )
+
+    async def test_v3_voc_is_blocked_without_affecting_legacy_voc(self) -> None:
+        _capability, declaration = self._history_v3("voc")
+        declaration.update(admission="blocked", blocked_reason="voc_unit_unresolved")
+        with self.assertRaisesRegex(ValueError, "historical_unsupported_source"):
+            await async_capture_source(
+                self.hass, declaration["statistic_id"], "voc", self.voc.id
+            )
+        legacy = self._statistic("beestat:zone_a_voc_concentration", "ppb")
+        source = await async_capture_source(self.hass, legacy, "voc", self.voc.id)
+        self.assertEqual(source["method"], "beestat_legacy_daily_sample_mean")
+        self.assertNotIn("beestat_history_v3", source)
+
+    async def test_optional_v3_capability_never_upgrades_or_breaks_legacy(self) -> None:
+        legacy = self._statistic("beestat:zone_a_temperature", "°F", "temperature")
+        baseline = await async_capture_source(
+            self.hass, legacy, "temperature", self.temperature.id
+        )
+        _capability, declaration = self._history_v3()
+        declared = await async_capture_source(
+            self.hass, legacy, "temperature", self.temperature.id
+        )
+        self.assertEqual(declared, baseline)
+        successor = declaration["statistic_id"]
+        for invalid in (None, {}, {"contract_version": 99}, "malformed"):
+            with self.subTest(capability=invalid):
+                self.response["hourly_statistics"] = {"history_v3": invalid}
+                current = await async_validate_source(
+                    self.hass, baseline, "temperature", self.temperature.id
+                )
+                self.assertEqual(current, baseline)
+                with self.assertRaisesRegex(
+                    ValueError, "historical_unsupported_source"
+                ):
+                    await async_capture_source(
+                        self.hass, successor, "temperature", self.temperature.id
+                    )
+
+    async def test_malformed_optional_descriptor_does_not_break_legacy(self) -> None:
+        legacy = self._statistic("beestat:zone_a_temperature", "°F", "temperature")
+        baseline = await async_capture_source(
+            self.hass, legacy, "temperature", self.temperature.id
+        )
+        for field in ("kind", "admission", "writer_status"):
+            with self.subTest(field=field):
+                _capability, declaration = self._history_v3()
+                declaration[field] = []
+                current = await async_validate_source(
+                    self.hass, baseline, "temperature", self.temperature.id
+                )
+                self.assertEqual(current, baseline)

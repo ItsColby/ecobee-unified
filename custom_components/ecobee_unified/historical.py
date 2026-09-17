@@ -19,6 +19,8 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .beestat_history import HistoryRead, async_read_history, async_validate_read
+
 MAX_DAYS = 31
 MAX_FAMILIES = 16
 READ_TIMEOUT_SECONDS = 30
@@ -136,7 +138,12 @@ def _validate_methods(
         )
         for row in sources
     }
-    if policy == "ordered_daily" and len(methods) > 1 and not accepted:
+    if not accepted and (
+        (policy == "ordered_daily" and len(methods) > 1)
+        or any("beestat_history_v3" in row for row in sources)
+    ):
+        # The producer's declared daily policy itself switches between complete
+        # point evidence and a qualified legacy day, even for one fixed source.
         raise ValueError("historical_cross_method_required")
 
 
@@ -352,6 +359,21 @@ class HistoricalManager:
         daily: dict[str, _NativeRows] = {}
         hourly: dict[str, _NativeRows] = {}
         reads: list[dict[str, Any]] = []
+        producer_reads: list[HistoryRead] = []
+        producer_buckets: dict[str, list[dict[str, Any]]] = {}
+        for contracts in _producer_groups(sources):
+            self._guard(revision, window)
+            read = await async_read_history(
+                self.hass,
+                contracts=contracts,
+                start=window.start_utc,
+                end=window.end_utc,
+                timezone=window.timezone,
+                context=context,
+            )
+            self._guard(revision, window)
+            producer_reads.append(read)
+            producer_buckets.update(read.buckets)
         for ids, units in _read_groups(sources):
             for period, destination in (("day", daily), ("hour", hourly)):
                 self._guard(revision, window)
@@ -391,6 +413,9 @@ class HistoricalManager:
         # Recheck identity/metadata. Keep the timing captured before acquisition:
         # a later advancing watermark cannot settle an earlier values response.
         await self._validate(families, context)
+        for read in producer_reads:
+            self._guard(revision, window)
+            await async_validate_read(self.hass, read, context=context)
         self._guard(revision, window)
         acquired_end = dt_util.utcnow()
         return {
@@ -403,8 +428,24 @@ class HistoricalManager:
             "include_provisional": include_provisional,
             "acquired_start": acquired_start.isoformat(),
             "acquired_end": acquired_end.isoformat(),
-            "snapshot_consistency": "separate_native_reads",
+            "snapshot_consistency": (
+                "separate_native_and_producer_reads"
+                if producer_reads and reads
+                else "producer_qualified_reads"
+                if producer_reads
+                else "separate_native_reads"
+            ),
             "native_reads": reads,
+            **(
+                {
+                    "producer_reads": [
+                        read.provenance | {"summaries": deepcopy(read.summaries)}
+                        for read in producer_reads
+                    ]
+                }
+                if producer_reads
+                else {}
+            ),
             "families": [
                 _family_result(
                     family,
@@ -414,6 +455,7 @@ class HistoricalManager:
                     hourly,
                     include_provisional,
                     acquired_start,
+                    producer_buckets,
                 )
                 for family in families
             ],
@@ -427,6 +469,8 @@ def _read_groups(
     contracts: dict[str, tuple[str | None, str | None]] = {}
     for sources in families.values():
         for source in sources:
+            if "beestat_history_v3" in source:
+                continue
             metadata = source["metadata"]
             unit_class, unit = metadata.get("unit_class"), source["native_unit"]
             key = (unit_class, unit)
@@ -442,6 +486,23 @@ def _read_groups(
         (ids, {kind: unit} if kind is not None and unit is not None else {})
         for (kind, unit), ids in groups.items()
     ]
+
+
+def _producer_groups(
+    families: dict[str, tuple[dict[str, Any], ...]],
+) -> list[list[dict[str, Any]]]:
+    groups: dict[str, dict[str, dict[str, Any]]] = {}
+    for sources in families.values():
+        for source in sources:
+            contract = source.get("beestat_history_v3")
+            if contract is None:
+                continue
+            identifier = source["statistic_id"]
+            group = groups.setdefault(contract["entry_id"], {})
+            if identifier in group and group[identifier] != contract:
+                raise ValueError("historical_source_contract_changed")
+            group[identifier] = contract
+    return [list(group.values()) for group in groups.values()]
 
 
 def _statistics(response: Any, identifiers: list[str]) -> dict[str, _NativeRows]:
@@ -626,6 +687,93 @@ def _candidate(
     }
 
 
+def _producer_candidate(
+    family: HistoricalFamily,
+    source: dict[str, Any],
+    buckets: list[dict[str, Any]],
+    start: datetime,
+    end: datetime,
+    now: datetime,
+) -> dict[str, Any]:
+    """Preserve the producer's chosen daily basis and its eligibility proof."""
+    bucket = _day_row(buckets, start, end)
+    if bucket is None:
+        raise ValueError("historical_response_invalid")
+    native_values = _values(
+        {"mean": bucket["value"], "min": bucket["min"], "max": bucket["max"]}
+    )
+    reason = bucket["reason"]
+    status = (
+        "eligible"
+        if reason in {"ready", "legacy_day"} and native_values["mean"] is not None
+        else f"producer_{reason}"
+    )
+    reasons = []
+    if end > now:
+        reasons.append("open_calendar_day")
+    if bucket["source_basis"] == "points" and bucket["coverage_reasons"].get(
+        "provisional", 0
+    ):
+        reasons.append("producer_provisional_hours")
+    # Inclusion may disclose provisional observations; it cannot grant missing
+    # producer eligibility or combine a partial subtotal with a legacy day.
+    if status == "eligible" and (reasons or not bucket["eligible_intervals"]):
+        raise ValueError("historical_response_invalid")
+    return {
+        "source_id": source["source_id"],
+        "statistic_id": source["statistic_id"],
+        "status": status,
+        "native_response": {"producer": "qualified_day_returned"},
+        "native_values": native_values,
+        "native_unit": source["native_unit"],
+        "values": _transformed(family, source, native_values),
+        "unit": family.unit,
+        "missing_measures": {
+            measure: "unsupported_or_missing_measure"
+            for measure, value in native_values.items()
+            if value is None
+        },
+        "aggregate_interval": "day",
+        "method": bucket["method_basis"],
+        "source_method": source["method"],
+        "transformation": source.get("transformation", "identity"),
+        "rounding": "producer_method_preserved",
+        "identity_evidence": deepcopy(source.get("identity_evidence", {})),
+        "historical_identity_continuity": "unknown",
+        "coverage": {
+            "native_period": "producer_qualified_day",
+            "native_bins_present": bucket["verified_hours"],
+            "native_bins_expected": bucket["expected_hours"],
+            "bin_coverage": (
+                "bins_complete"
+                if bucket["verified_hours"] == bucket["expected_hours"]
+                else "bins_partial"
+            ),
+            "sample_count": None,
+            "sample_coverage": "qualified_producer_evidence",
+            "point_valid_slots": bucket["valid_slots"],
+            "point_expected_slots": bucket["expected_slots"],
+            "source_basis": bucket["source_basis"],
+            "method_basis": bucket["method_basis"],
+            "eligible_intervals": deepcopy(bucket["eligible_intervals"]),
+            "observed_intervals": deepcopy(bucket["observed_intervals"]),
+            "coverage_reasons": deepcopy(bucket["coverage_reasons"]),
+            "confidence": list(bucket["confidence"]),
+            "source_ids": list(bucket["source_ids"]),
+        },
+        "producer_bucket": deepcopy(bucket),
+        "provisional": bool(reasons),
+        "provisional_reasons": reasons,
+        "settlement": "unknown",
+        "provider_thermostat_data_end": None,
+        "provider_window_begin": None,
+        "import_completed_at": None,
+        "sensor_observed_through": None,
+        "statistic_imported_through": None,
+        "provider_data_through_ref": None,
+    }
+
+
 def _family_result(
     family: HistoricalFamily,
     sources: tuple[dict[str, Any], ...],
@@ -634,13 +782,23 @@ def _family_result(
     hourly: dict[str, _NativeRows],
     include_provisional: bool,
     now: datetime,
+    producer_buckets: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     rows = []
     for offset, (start, end) in enumerate(
         zip(window.boundaries[:-1], window.boundaries[1:], strict=True)
     ):
         candidates = [
-            _candidate(
+            _producer_candidate(
+                family,
+                source,
+                producer_buckets[source["statistic_id"]],
+                start,
+                end,
+                now,
+            )
+            if "beestat_history_v3" in source
+            else _candidate(
                 family,
                 source,
                 daily[source["statistic_id"]],

@@ -20,6 +20,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
+from .beestat_history import capture_descriptor, project_capability
 from .const import DOMAIN
 from .datapoints import DatapointConfig, datapoint_observation_role
 from .weather_source import validate_weather_feed
@@ -61,6 +62,8 @@ SOURCE_CONTRACT_FIELDS = frozenset(
         "anchor_ref",
         "timezone",
         "settlement_basis",
+        "beestat_history_v3",
+        "metadata_basis",
     }
 )
 
@@ -82,7 +85,32 @@ async def async_capture_source(
     anchor = _entry(hass, anchor_reference)
     _validate_role(hass, anchor, quantity)
     anchor_identity = _entity_identity(hass, anchor)
-    metadata = await _metadata(hass, statistic_id)
+    binding = (
+        await _beestat_source(
+            hass,
+            statistic_id,
+            quantity,
+            anchor_identity,
+            context=context,
+            validation_cache=validation_cache,
+        )
+        if statistic_id.startswith("beestat:")
+        else {}
+    )
+    contract = binding.get("beestat_history_v3")
+    if contract is not None:
+        # Discovery proves the representation contract even before adoption.
+        # Only the producer's fenced read can prove committed native values.
+        descriptor = contract["descriptor"]
+        metadata = {
+            "source": "beestat",
+            "unit": descriptor["logical_unit"],
+            "display_unit": descriptor["logical_unit"],
+            "unit_class": descriptor["representation"]["unit_class"],
+            "mean_type": int(StatisticMeanType.ARITHMETIC),
+        }
+    else:
+        metadata = await _metadata(hass, statistic_id)
     _validate_unit(metadata, quantity, beestat=statistic_id.startswith("beestat:"))
     result: dict[str, Any] = {
         "statistic_id": statistic_id,
@@ -93,16 +121,7 @@ async def async_capture_source(
         "settlement_basis": None,
     }
     if statistic_id.startswith("beestat:"):
-        result.update(
-            await _beestat_source(
-                hass,
-                statistic_id,
-                quantity,
-                anchor_identity,
-                context=context,
-                validation_cache=validation_cache,
-            )
-        )
+        result.update(binding)
     elif statistic_id.startswith("sensor.") and metadata["source"] == "recorder":
         source_entry = _entry(hass, statistic_id)
         _validate_role(hass, source_entry, quantity)
@@ -439,10 +458,19 @@ async def _beestat_source(
         response = await _configuration(
             hass, entry.entry_id, context=context, validation_cache=validation_cache
         )
-        for row, parent in _configured_matches(response, statistic_id, quantity):
+        legacy = _configured_matches(response, statistic_id, quantity)
+        for row, parent in legacy:
             matches.append(
                 _beestat_binding(hass, entry.entry_id, row, parent, quantity, anchor)
             )
+        # Existing legacy IDs never opt into a new policy or capability merely
+        # because the producer upgraded. New IDs resolve only by declaration.
+        if not legacy and (capability := response.get("history_v3")) is not None:
+            contract = capture_descriptor(capability, statistic_id, quantity)
+            if contract is not None:
+                matches.append(
+                    _beestat_history_binding(hass, response, contract, quantity, anchor)
+                )
     if len(matches) > 1:
         raise ValueError("historical_beestat_mapping_ambiguous")
     if not matches:
@@ -509,9 +537,52 @@ async def _configuration(
         projection["effective_configuration"][name] = [
             _project_row(row, fields) for row in _rows(effective.get(name))
         ]
+    hourly = response.get("hourly_statistics")
+    if isinstance(hourly, Mapping) and "history_v3" in hourly:
+        try:
+            projection["history_v3"] = project_capability(
+                hourly["history_v3"], entry_id
+            )
+        except ValueError:
+            # An unsupported optional capability cannot break the independent
+            # legacy reader, nor can it be used to admit a new source.
+            projection["history_v3"] = None
     if validation_cache is not None:
         validation_cache[key] = projection
     return projection
+
+
+def _beestat_history_binding(
+    hass: HomeAssistant,
+    response: Mapping[str, Any],
+    contract: dict[str, Any],
+    quantity: str,
+    anchor: dict[str, Any],
+) -> dict[str, Any]:
+    """Join declared successor identity to the existing native association."""
+    descriptor = contract["descriptor"]
+    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for alias in descriptor["legacy_statistic_ids"]:
+        for row, parent in _configured_matches(response, alias, quantity):
+            if (
+                parent.get("thermostat_id") != descriptor["thermostat_id"]
+                or row.get("sensor_id") != descriptor["sensor_id"]
+            ):
+                raise ValueError("historical_source_identity_mismatch")
+            if (row, parent) not in matches:
+                matches.append((row, parent))
+    if len(matches) != 1:
+        raise ValueError("historical_beestat_mapping_ambiguous")
+    row, parent = matches[0]
+    result = _beestat_binding(hass, contract["entry_id"], row, parent, quantity, anchor)
+    result.update(
+        {
+            "method": "beestat_history_v3_complete_points_else_legacy_day",
+            "metadata_basis": "producer_declared_representation",
+            "beestat_history_v3": contract,
+        }
+    )
+    return result
 
 
 def _project_row(row: dict[str, Any], fields: set[str]) -> dict[str, Any]:

@@ -22,6 +22,7 @@ from custom_components.ecobee_unified.const import (
 )
 
 from .runtime_fixture import CoreRuntimeTestCase
+from .test_beestat_history import contract as history_contract
 
 
 class HistoricalConfigurationTests(CoreRuntimeTestCase):
@@ -308,6 +309,44 @@ class HistoricalConfigurationTests(CoreRuntimeTestCase):
             "ordered_daily", entry.data[CONF_HISTORICAL_FAMILIES][0]["policy"]
         )
         self.assertTrue(entry.data[CONF_HISTORICAL_FAMILIES][0]["accept_cross_method"])
+
+    async def test_v3_fixed_binding_requires_method_and_association_consent(
+        self,
+    ) -> None:
+        entry = self._entry()
+        contract = history_contract()
+        self.method_override = "beestat_history_v3_complete_points_else_legacy_day"
+        self.timing = {
+            "beestat_history_v3": contract,
+            "metadata_basis": "producer_declared_representation",
+        }
+        values = self._values(primary_statistic=contract["descriptor"]["statistic_id"])
+        result = await self._next(await self._open(entry), "historical_add")
+        result = await self._submit(result, values)
+        self.assertEqual("historical_cross_method_required", result["errors"]["base"])
+        values |= {"accept_cross_method": True, "confirm_association": False}
+        result = await self._submit(result, values)
+        self.assertEqual("historical_confirmation_required", result["errors"]["base"])
+        result = await self._submit(result, values | {"confirm_association": True})
+        self.assertEqual(FlowResultType.MENU, result["type"], result)
+        await self._save(result)
+        row = deepcopy(entry.data[CONF_HISTORICAL_FAMILIES][0])
+        self.assertEqual(row["sources"][0]["beestat_history_v3"], contract)
+        self.assertEqual(row["policy"], "fixed_source")
+        # An explicit rebind to a legacy statistic removes the old owned contract.
+        self.method_override = None
+        self.timing = {}
+        result = await self._next(await self._open(entry), "historical_edit")
+        result = await self._submit(result, {"family_id": row["family_id"]})
+        result = await self._submit(
+            result, self._values(primary_statistic=self.secondary)
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result)
+        await self._save(result)
+        rebound = entry.data[CONF_HISTORICAL_FAMILIES][0]
+        self.assertEqual(rebound["family_id"], row["family_id"])
+        self.assertNotIn("beestat_history_v3", rebound["sources"][0])
+        self.assertNotIn("metadata_basis", rebound["sources"][0])
 
     async def test_stale_flow_never_overwrites_data_or_options(self) -> None:
         entry = self._entry()

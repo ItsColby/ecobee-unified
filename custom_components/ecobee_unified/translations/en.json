@@ -109,7 +109,7 @@
       "historical_quantity_invalid": "Choose temperature, relative humidity, battery level, carbon dioxide, air quality index, VOC, weather temperature, or weather humidity.",
       "historical_unit_invalid": "Choose a supported unit for this quantity. Temperature and weather temperature use °C or °F; humidity, weather humidity, and battery level use %; carbon dioxide uses ppm; normalized AQI uses 0–100; and VOC uses native source values without claiming equivalent units.",
       "historical_policy_invalid": "Choose one fixed source or ordered daily source selection.",
-      "historical_cross_method_required": "These sources use different aggregation methods. Review the method differences and explicitly accept them before allowing selection across methods.",
+      "historical_cross_method_required": "This source policy can select different aggregation methods. Review and explicitly accept those differences, including Beestat v3 point versus legacy daily values.",
       "historical_sources_invalid": "Select one to three distinct, supported statistic IDs for the same quantity and physical item or shared weather feed.",
       "historical_timezone_invalid": "Enter a valid time zone matching the current Home Assistant calendar. The time zone defines the days used for selection.",
       "historical_confirmation_required": "Confirm that the selected statistics belong to the same physical item or shared weather feed and quantity. This association does not prove identity continuity throughout their stored history.",
@@ -432,7 +432,7 @@
           "secondary_statistic": "Optional second statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when the first source cannot supply that day.",
           "tertiary_statistic": "Optional third statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when earlier sources cannot supply that day.",
           "policy": "Fixed source uses only the first statistic and leaves its gaps. Ordered daily selection chooses one whole eligible source for each day; it does not combine observations from different sources within a day.",
-          "accept_cross_method": "Required to use ordered daily selection when sources use different aggregation methods. Acceptance allows selection despite the stated differences; it does not make the methods equivalent or reconstruct missing samples.",
+          "accept_cross_method": "Required for ordered daily selection across different methods, and for Beestat v3 complete-point versus legacy-day selection even with a fixed source. Acceptance does not make the methods equivalent or reconstruct missing samples.",
           "confirm_association": "Confirm that every statistic belongs to the selected physical item or shared weather feed and quantity. A current mapping or matching label cannot establish historical identity continuity. This view reads existing daily history and does not import or rewrite it."
         }
       },
@@ -471,7 +471,7 @@
           "secondary_statistic": "Optional second statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when the first source cannot supply that day.",
           "tertiary_statistic": "Optional third statistic ID for the same physical item or shared weather feed and quantity. Ordered daily selection uses it only when earlier sources cannot supply that day.",
           "policy": "Fixed source uses only the first statistic and leaves its gaps. Ordered daily selection chooses one whole eligible source for each day; it does not combine observations from different sources within a day.",
-          "accept_cross_method": "Required to use ordered daily selection when sources use different aggregation methods. Acceptance allows selection despite the stated differences; it does not make the methods equivalent or reconstruct missing samples.",
+          "accept_cross_method": "Required for ordered daily selection across different methods, and for Beestat v3 complete-point versus legacy-day selection even with a fixed source. Acceptance does not make the methods equivalent or reconstruct missing samples.",
           "confirm_association": "Confirm that every statistic belongs to the selected physical item or shared weather feed and quantity. A current mapping or matching label cannot establish historical identity continuity. This view reads existing daily history and does not import or rewrite it."
         }
       },

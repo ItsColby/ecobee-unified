@@ -149,6 +149,31 @@ VOC native values remain inspectable while equivalent selection is blocked on
 the unresolved units. No provider polling, statistics import, historical
 measurement entity or database is added.
 
+Explicitly bound Beestat v3 measurements use the separate
+[qualified producer adapter](../custom_components/ecobee_unified/beestat_history.py).
+Discovery reads `hourly_statistics.history_v3`, captures the exact physical and
+representation contract, and resolves its declared legacy aliases through the
+existing association owner. Native Recorder metadata is not required before
+the producer adopts its declared destination. Existing legacy bindings retain
+their Recorder path. Runtime, degree-day and VOC descriptors are not admitted.
+
+The producer owns point reduction, native verification, correction and legacy
+day qualification. Unified consumes its daily buckets and preserves chosen
+basis, eligible intervals, point coverage and provenance separately. The
+`complete_points_else_legacy_day` policy requires explicit method acceptance,
+including for a fixed source. Partial observations cannot become eligible via
+the provisional-read option. Full-query summaries are retained once across
+pages and describe point evidence rather than selected legacy values.
+
+Configuration and coverage actions are read-only. Pagination pins a view token
+and evaluation time; a final page replay after native reads and source
+revalidation rejects stale proof. Root and coverage revisions remain distinct,
+and writer progress/confidence labels do not grant bucket eligibility. The
+schema-1 response retains native candidates and adds producer provenance only
+when requested. The entry's existing timeout, one-read limit, context and
+unload/configuration fences also govern producer reads. No persistent cache,
+polling, retry or write action is introduced.
+
 The [native script](../examples/ecobee_daily_history_report.yaml) consumes and
 returns the action response. Standard statistical cards retain their original
 statistic IDs; family IDs are not aliases in Recorder. See the

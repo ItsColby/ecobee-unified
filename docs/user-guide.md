@@ -326,6 +326,16 @@ methods explicitly before enabling selection across those methods. A selected
 row supplies all its values; the reader does not combine another source's
 maximum with its mean, fill absent days, or interpolate hourly values.
 
+When Beestat Statistics exposes `hourly_statistics.history_v3` in **Get
+configuration**, its declared measurement `statistic_id` can be selected
+explicitly. Unified checks the declared physical identity, legacy aliases,
+units and method against the current mapping. Existing legacy IDs keep their
+existing behavior. The v3 daily policy uses complete verified point hours,
+otherwise an eligible legacy daily value. Accept this method difference even
+for a fixed source; confirming the physical association is a separate choice.
+Temperature, indoor humidity, CO₂, air quality and outdoor temperature/humidity
+are supported. Runtime, degree days and VOC are not admitted through this adapter.
+
 Run **Ecobee Unified: Get historical configuration** in **Developer tools →
 Actions** to obtain the saved family IDs. Run **Get daily history** with the
 integration entry, an included start date and an excluded end date. Omit family
@@ -355,6 +365,16 @@ and response acquisition remain separate. Open dates and dates whose available
 provider watermark precedes their end are provisional and excluded by default.
 Absent settling evidence remains **unknown**, including for elapsed dates.
 
+For a v3 source, each candidate includes the producer's chosen `source_basis`,
+`method_basis`, reasons, eligible intervals and original qualified bucket.
+Point slot/hour counts remain point evidence even when a legacy day supplies
+the chosen value. A partial point mean stays inspectable but is never selected,
+including when provisional observations are requested. It is never added to a
+legacy value. Query summaries describe verified point hours and appear once in
+`producer_reads`; they do not summarize the selected legacy daily values.
+Pending, conflicting or unverified buckets remain ineligible. A fresh request
+can see newly committed proof without a source entity update.
+
 AQI uses two distinct calculations: a native raw daily aggregate can be scaled
 linearly by `100 / 350`; Beestat aggregates samples normalized and rounded
 before aggregation. The scaled daily mean does not reproduce those missing
@@ -369,6 +389,17 @@ a failed read, not a successful empty history. Only one read per entry runs at
 a time, with a timeout and no automatic retry. Beestat retains import and
 interval-repair ownership; this interface does not migrate legacy IDs or admit
 future successor series merely because their names have a particular suffix.
+
+The v3 reader uses only the producer's configuration and coverage actions,
+pins paginated responses to one view and rechecks that view before returning.
+Changed or unavailable views fail the request without an automatic import,
+refresh or retry. Each read supports up to 40 distinct v3 quantities per
+Beestat entry within the existing family/day limits. A saved v3 binding needs
+a compatible producer; losing that capability does not silently restore a
+legacy binding. To change the declared identity or aliases, explicitly rebind
+the source. Before adopting a new version, retain a restorable Home Assistant
+backup including configuration and Recorder; a code-only downgrade cannot undo
+configuration or history changes made by other integrations.
 
 ## Verify an installation before moving its consumers
 

@@ -235,12 +235,20 @@ run_release() {
 
 
 run_affected() {
-  local lane selected command
+  local lane selected command ha_matrix_done=false
   for lane in unit minimum current release; do
     [[ -z "$affected_only" || "$lane" == "$affected_only" ]] || continue
     selected="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["jobs"][sys.argv[1]]).lower())' "$lane")"
     if [[ "$selected" != true ]]; then
       if [[ -n "$affected_only" ]]; then echo "Plan did not select $lane" >&2; return 2; fi
+      continue
+    fi
+    # Reuse the isolated matrix only when this plan selects both HA lanes.
+    # Hosted --only and native runs retain their single-lane/sequential behavior.
+    if [[ "$lane" == minimum && "$backend" == container && -z "$affected_only" ]] &&
+       [[ "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["jobs"]["current"]).lower())')" == true ]]; then
+      run_ha_matrix
+      ha_matrix_done=true
       continue
     fi
     case "$lane" in
@@ -252,7 +260,9 @@ run_affected() {
         run_python "$command"
         ;;
       minimum) run_minimum ;;
-      current) run_current ;;
+      current)
+        if [[ "$ha_matrix_done" != true ]]; then run_current; fi
+        ;;
       release) run_release ;;
     esac
   done

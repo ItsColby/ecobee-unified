@@ -16,6 +16,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
+AFFECTED_PLANNER = r"""
+import json
+import os
+import sys
+
+if "--command" in sys.argv:
+    print(":")
+else:
+    selected = os.environ["MATRIX_PLAN_LANES"].split()
+    print(json.dumps({"jobs": {lane: lane in selected for lane in
+          ("unit", "minimum", "current", "release", "hacs")}, "workflow": True}))
+"""
+
 PODMAN_STAND_IN = r"""
 import json
 import os
@@ -27,12 +40,13 @@ from pathlib import Path
 args = sys.argv[1:]
 events = Path(os.environ["MATRIX_EVENTS"])
 failure = os.environ.get("MATRIX_FAIL")
+lanes = set(os.environ["MATRIX_LANES"].split())
 if any("actionlint@" in arg for arg in args):
     (events / "actionlint.done").touch()
     sys.exit(0)
 if any("hassfest@" in arg for arg in args):
-    assert (events / "minimum.done").exists()
-    assert (events / "current.done").exists()
+    for lane in lanes & {"minimum", "current"}:
+        assert (events / (lane + ".done")).exists()
     (events / "release.done").touch()
     sys.exit(0)
 lane = ("current" if "requirements-ha-current.txt" in args[-1] else
@@ -60,10 +74,11 @@ if lane == "unit":
         )
         sys.exit(result.returncode)
 else:
-    assert (events / "unit.done").exists()
+    if "unit" in lanes:
+        assert (events / "unit.done").exists()
     peer = "minimum" if lane == "current" else "current"
     deadline = time.monotonic() + 5
-    while not (events / (peer + ".started")).exists():
+    while peer in lanes and not (events / (peer + ".started")).exists():
         if time.monotonic() > deadline:
             raise SystemExit("The two HA lanes did not overlap")
         time.sleep(0.01)
@@ -74,7 +89,7 @@ else:
             time.sleep(0.01)
         time.sleep(0.1)
         assert Path(source).is_dir(), "Payload removed while interrupted lanes were active"
-    if failure == peer:
+    if peer in lanes and failure == peer:
         while not (events / (peer + ".done")).exists():
             if time.monotonic() > deadline:
                 raise SystemExit("The peer lane did not finish")
@@ -138,6 +153,18 @@ class NativeValidationTests(unittest.TestCase):
     ) -> tuple[subprocess.CompletedProcess[str], list[dict[str, object]], list[str]]:
         with tempfile.TemporaryDirectory(prefix="native validation ") as temporary:
             root = Path(temporary)
+            source = root / "source"
+            (source / "scripts").mkdir(parents=True)
+            runner = source / "scripts/verify-release-local.sh"
+            shutil.copyfile(ROOT / "scripts/verify-release-local.sh", runner)
+            # Native fixtures own their Git identity, independent of whether the
+            # caller's worktree metadata uses Windows or Linux paths.
+            subprocess.run(
+                [str(GIT), "-c", "init.templateDir=", "init", "-q", str(source)],
+                check=True,
+                capture_output=True,
+            )
+            self.native_source = str(source)
             events = root / "events"
             events.mkdir()
             binary = root / "bin"
@@ -153,7 +180,7 @@ class NativeValidationTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     str(BASH),
-                    str(ROOT / "scripts/verify-release-local.sh"),
+                    str(runner),
                     mode,
                     "native",
                 ],
@@ -193,7 +220,7 @@ class NativeValidationTests(unittest.TestCase):
                     self.assertEqual(kinds, expected[: expected.index(failure) + 1])
                 else:
                     self.assertEqual(kinds[:5], expected)
-                    self.assertEqual(events[3]["cwd"], str(ROOT))
+                    self.assertEqual(events[3]["cwd"], self.native_source)
                     self.assertEqual(
                         Path(str(events[4]["path"])).parent,
                         Path(str(events[3]["path"])).parent,
@@ -218,8 +245,10 @@ class NativeValidationTests(unittest.TestCase):
             in {Path(environment) / "bin" for environment in environments[1:]}
         ]
         self.assertTrue(lane_pips)
-        self.assertTrue(all(event["history"] == str(ROOT) for event in lane_pips))
-        self.assertTrue(all(event["cwd"] == str(ROOT) for event in lane_pips))
+        self.assertTrue(
+            all(event["history"] == self.native_source for event in lane_pips)
+        )
+        self.assertTrue(all(event["cwd"] == self.native_source for event in lane_pips))
         for environment in environments[1:]:
             self.assertTrue(
                 any(
@@ -265,6 +294,9 @@ class ParallelValidationTests(unittest.TestCase):
         *,
         interrupt: signal.Signals | None = None,
         commands: dict[str, list[str]] | None = None,
+        mode: str = "all",
+        lanes: tuple[str, ...] = ("unit", "minimum", "current", "release"),
+        only: str = "",
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
         with tempfile.TemporaryDirectory(prefix="parallel validation ") as temporary:
             root = Path(temporary)
@@ -272,6 +304,9 @@ class ParallelValidationTests(unittest.TestCase):
             (source / "scripts").mkdir(parents=True)
             runner = source / "scripts" / "verify-release-local.sh"
             shutil.copyfile(ROOT / "scripts/verify-release-local.sh", runner)
+            (source / "scripts/plan_validation.py").write_text(
+                AFFECTED_PLANNER, encoding="utf-8"
+            )
             if failure == "ignored_tracked":
                 shutil.copyfile(
                     ROOT / "scripts/check_public_safety.py",
@@ -293,7 +328,10 @@ class ParallelValidationTests(unittest.TestCase):
                 "GIT_CONFIG_GLOBAL": os.devnull,
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "MATRIX_EVENTS": str(events),
+                "MATRIX_PLAN_LANES": " ".join(lanes),
+                "MATRIX_LANES": only or " ".join(lanes),
                 "MATRIX_FAIL": failure,
+                "VALIDATION_PYTHON": sys.executable,
                 "MATRIX_INTERRUPT": "1" if interrupt else "",
             }
             for arguments in (
@@ -317,7 +355,14 @@ class ParallelValidationTests(unittest.TestCase):
                 for filename in ("README.md", "local-only.txt"):
                     (source / filename).write_text(private_content, encoding="utf-8")
             with subprocess.Popen(
-                [str(BASH), str(runner), "all", "container"],
+                [
+                    str(BASH),
+                    str(runner),
+                    mode,
+                    "container",
+                    "",
+                    *(["--only", only] if only else []),
+                ],
                 cwd=root,
                 env=env,
                 stdout=subprocess.PIPE,
@@ -401,6 +446,56 @@ apt-get() {
                 )
                 self.assertEqual(probe.returncode, expected_status, probe.stderr)
                 self.assertEqual(probe.stderr.splitlines(), expected_calls)
+
+    def test_affected_selection_preserves_order_overlap_and_exclusions(self) -> None:
+        for lanes, only in (
+            (("unit", "minimum", "current", "release"), ""),
+            (("minimum", "current"), ""),
+            (("unit",), ""),
+            (("minimum",), ""),
+            (("current",), ""),
+            (("release",), ""),
+            (("minimum", "current"), "current"),
+        ):
+            with self.subTest(lanes=lanes, only=only):
+                result, events, remaining = self.run_matrix(
+                    mode="affected", lanes=lanes, only=only
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected = set((only,) if only else lanes)
+                self.assertEqual(
+                    {
+                        name.removesuffix(".done")
+                        for name in events
+                        if name.endswith(".done") and name != "actionlint.done"
+                    },
+                    expected,
+                )
+                self.assertFalse(remaining)
+
+    def test_affected_failure_drains_selected_lanes_and_blocks_release(self) -> None:
+        for failure in ("unit", "minimum", "current"):
+            with self.subTest(failure=failure):
+                result, events, remaining = self.run_matrix(failure, mode="affected")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("release.done", events)
+                if failure == "unit":
+                    self.assertNotIn("minimum.started", events)
+                    self.assertNotIn("current.started", events)
+                else:
+                    self.assertTrue({"minimum.done", "current.done"} <= events)
+                self.assertFalse(remaining)
+
+    def test_affected_interrupt_drains_selected_lanes(self) -> None:
+        for interrupt in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(interrupt=interrupt):
+                result, events, remaining = self.run_matrix(
+                    mode="affected", interrupt=interrupt
+                )
+                self.assertEqual(result.returncode, 128 + interrupt)
+                self.assertTrue({"minimum.done", "current.done"} <= events)
+                self.assertNotIn("release.done", events)
+                self.assertFalse(remaining)
 
     def test_support_lanes_overlap_between_unit_and_release(self) -> None:
         result, events, remaining_payload = self.run_matrix()

@@ -21,12 +21,18 @@ import json
 import os
 import sys
 
+if "--snapshot-plan" in sys.argv and os.environ.get("MATRIX_MUTATE_SOURCE"):
+    from pathlib import Path
+    source = Path(os.environ["MATRIX_MUTATE_SOURCE"])
+    (source / "scripts/plan_validation.py").write_text("raise RuntimeError('changed original')")
 if "--command" in sys.argv:
-    print(":")
+    raise RuntimeError("Lane command must come from the captured plan")
 else:
     selected = os.environ["MATRIX_PLAN_LANES"].split()
     print(json.dumps({"jobs": {lane: lane in selected for lane in
-          ("unit", "minimum", "current", "release", "hacs")}, "workflow": True}))
+          ("unit", "minimum", "current", "release", "hacs")}, "workflow": True,
+          "safety": True, "paths": [], "base": "HEAD",
+          "commands": {lane: "echo snapshot-command" for lane in selected}}))
 """
 
 PODMAN_STAND_IN = r"""
@@ -49,6 +55,8 @@ if any("hassfest@" in arg for arg in args):
         assert (events / (lane + ".done")).exists()
     (events / "release.done").touch()
     sys.exit(0)
+if os.environ.get("MATRIX_MUTATE_SOURCE"):
+    assert "snapshot-command" in args[-1], "Commands did not come from captured plan"
 lane = ("current" if "requirements-ha-current.txt" in args[-1] else
         "minimum" if "requirements-ha-test.txt" in args[-1] else "unit")
 (events / (lane + ".command")).write_text(json.dumps(args))
@@ -297,6 +305,8 @@ class ParallelValidationTests(unittest.TestCase):
         mode: str = "all",
         lanes: tuple[str, ...] = ("unit", "minimum", "current", "release"),
         only: str = "",
+        mutate_source: bool = False,
+        shallow: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
         with tempfile.TemporaryDirectory(prefix="parallel validation ") as temporary:
             root = Path(temporary)
@@ -333,6 +343,7 @@ class ParallelValidationTests(unittest.TestCase):
                 "MATRIX_FAIL": failure,
                 "VALIDATION_PYTHON": sys.executable,
                 "MATRIX_INTERRUPT": "1" if interrupt else "",
+                "MATRIX_MUTATE_SOURCE": str(source) if mutate_source else "",
             }
             for arguments in (
                 ("init", "-q"),
@@ -347,6 +358,13 @@ class ParallelValidationTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
+            if shallow:
+                head = subprocess.check_output(
+                    [str(GIT), "-C", str(source), "rev-parse", "HEAD"],
+                    env=env,
+                    text=True,
+                )
+                (source / ".git/shallow").write_text(head, encoding="utf-8")
             if failure == "ignored_tracked":
                 (source / ".gitignore").write_text(
                     "README.md\nlocal-only.txt\n", encoding="utf-8"
@@ -446,6 +464,51 @@ apt-get() {
                 )
                 self.assertEqual(probe.returncode, expected_status, probe.stderr)
                 self.assertEqual(probe.stderr.splitlines(), expected_calls)
+
+    def test_history_preparation_follows_the_selected_safety_consumer(self) -> None:
+        for mode, lanes, only in (
+            ("minimum", ("minimum",), ""),
+            ("current", ("current",), ""),
+            ("release", ("release",), ""),
+            ("affected", ("unit", "minimum", "current"), "current"),
+        ):
+            with self.subTest(mode=mode, only=only):
+                commands = {}
+                result, _, remaining = self.run_matrix(
+                    mode=mode,
+                    lanes=lanes,
+                    only=only,
+                    shallow=True,
+                    commands=commands,
+                )
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertFalse(remaining)
+                for command in commands.values():
+                    self.assertFalse(
+                        any("/source-history" in argument for argument in command)
+                    )
+        for mode in ("unit", "affected"):
+            with self.subTest(mode=mode):
+                result, events, remaining = self.run_matrix(
+                    mode=mode,
+                    lanes=("unit",),
+                    shallow=True,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "Complete original Git history is required", result.stderr
+                )
+                self.assertNotIn("unit.started", events)
+                self.assertFalse(remaining)
+
+    def test_captured_commands_survive_original_planner_changes(self) -> None:
+        result, events, remaining = self.run_matrix(
+            mode="affected",
+            mutate_source=True,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue({"unit.done", "minimum.done", "current.done"} <= events)
+        self.assertFalse(remaining)
 
     def test_affected_selection_preserves_order_overlap_and_exclusions(self) -> None:
         for lanes, only in (

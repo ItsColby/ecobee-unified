@@ -78,18 +78,7 @@ if [[ "$backend" == container ]]; then
   trap 'exit 130' INT
   trap 'exit 143' TERM
   repo_root="$temporary_root/payload"
-  history_root="$temporary_root/history.git"
   mkdir "$repo_root"
-  if [[ "$("${source_git[@]}" rev-parse --is-shallow-repository)" != false ]]; then
-    echo "Complete original Git history is required; source is unavailable or shallow." >&2
-    exit 1
-  fi
-  # Preserve every available original ref and detached candidate HEAD separately
-  # from the exact working-tree payload and its synthetic archive index.
-  source_head="$("${source_git[@]}" rev-parse --verify HEAD)"
-  "${source_git[@]}" bundle create "$temporary_root/history.bundle" --all HEAD
-  git clone --quiet --mirror "$temporary_root/history.bundle" "$history_root"
-  git -C "$history_root" update-ref --no-deref HEAD "$source_head"
   "${source_git[@]}" ls-files --cached --others --exclude-standard -z |
     while IFS= read -r -d '' path; do
       if [[ -e "$source_root/$path" || -L "$source_root/$path" ]]; then
@@ -113,6 +102,34 @@ elif [[ "$backend" != native ]]; then
   echo "Unknown backend: $backend" >&2
   exit 2
 fi
+if [[ "$mode" == affected && "$backend" == container ]]; then
+  planning_git_dir="$("${source_git[@]}" rev-parse --absolute-git-dir)"
+  affected_plan="$(printf '%s' "$affected_plan" |
+    "$validation_python" "$repo_root/scripts/plan_validation.py" --snapshot-plan --git-directory "$planning_git_dir")"
+fi
+
+# Original history is needed only when the selected unit safety scan runs.
+history_mount=()
+needs_history=false
+if [[ "$mode" == all || "$mode" == unit ]]; then
+  needs_history=true
+elif [[ "$mode" == affected && ( -z "$affected_only" || "$affected_only" == unit ) ]]; then
+  needs_history="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; p=json.load(sys.stdin); print(str(p["jobs"]["unit"] and p["safety"]).lower())')"
+fi
+if [[ "$backend" == container && "$needs_history" == true ]]; then
+  history_root="$temporary_root/history.git"
+  if [[ "$("${source_git[@]}" rev-parse --is-shallow-repository)" != false ]]; then
+    echo "Complete original Git history is required; source is unavailable or shallow." >&2
+    exit 1
+  fi
+  # Preserve original refs and detached HEAD independently of the source payload.
+  source_head="$("${source_git[@]}" rev-parse --verify HEAD)"
+  "${source_git[@]}" bundle create "$temporary_root/history.bundle" --all HEAD
+  git clone --quiet --mirror "$temporary_root/history.bundle" "$history_root"
+  git -C "$history_root" update-ref --no-deref HEAD "$source_head"
+  history_mount=(-e PUBLIC_SAFETY_HISTORY_REPOSITORY=/source-history -v "$history_root:/source-history:ro")
+fi
+
 python_image="docker.io/library/python@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc"
 actionlint_image="docker.io/rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667"
 hassfest_image="ghcr.io/home-assistant/hassfest@sha256:8cd7bdb8f82430c2c13703290b1fc38dcc99957dd76ad3f230035ecee70b672d"
@@ -135,8 +152,7 @@ run_python() (
       -e PYTHONPYCACHEPREFIX=/tmp/pycache -e XDG_CACHE_HOME=/tmp/cache \
       -e RUFF_CACHE_DIR=/tmp/ruff-cache -e MYPY_CACHE_DIR=/dev/null \
       -e 'PYTEST_ADDOPTS=-p no:cacheprovider' \
-      -e PUBLIC_SAFETY_HISTORY_REPOSITORY=/source-history \
-      -v "$history_root:/source-history:ro" \
+      "${history_mount[@]}" \
       -v "$repo_root:/workspace:ro" -w /workspace \
       --mount type=volume,source=ecobee-unified-validation-pip,target=/pip-cache \
       "$python_image" bash -lc \
@@ -186,7 +202,7 @@ run_minimum() {
     python -m mypy --strict custom_components/ecobee_unified &&
     pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py --ignore=tests/test_validation_selection.py'
   if [[ "$mode" == affected ]]; then
-    checks="$("$validation_python" "$source_root/scripts/plan_validation.py"  "${affected_args[@]}" --command minimum)"
+    checks="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' minimum)"
   fi
   run_python '
     python -m pip install "pytest-homeassistant-custom-component==0.13.354" || exit "$?"
@@ -200,7 +216,7 @@ run_current() {
     python -m mypy --strict custom_components/ecobee_unified &&
     pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py --ignore=tests/test_validation_selection.py'
   if [[ "$mode" == affected ]]; then
-    checks="$("$validation_python" "$source_root/scripts/plan_validation.py"  "${affected_args[@]}" --command current)"
+    checks="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' current)"
   fi
   run_python '
     python -m pip install "pytest-homeassistant-custom-component==0.13.366" || exit "$?"
@@ -256,7 +272,7 @@ run_affected() {
         if [[ "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["workflow"]).lower())')" == true ]]; then
           run_actionlint
         fi
-        command="$("$validation_python" "$source_root/scripts/plan_validation.py"  "${affected_args[@]}" --command unit)"
+        command="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' unit)"
         run_python "$command"
         ;;
       minimum) run_minimum ;;

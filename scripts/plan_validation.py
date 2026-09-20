@@ -588,9 +588,56 @@ def lane_command(plan: dict, lane: str) -> str:
     return " &&\n".join(commands) or ":"
 
 
+def _snapshot_selection(
+    args: argparse.Namespace,
+) -> tuple[str, str | None, list[str]]:
+    """Bind copied source to the preview's exact selection and Git baseline."""
+    if (
+        not args.git_directory
+        or args.full
+        or args.base
+        or args.head
+        or args.path is not None
+        or args.command
+        or args.github_output
+    ):
+        raise ValueError("Snapshot planning requires only original Git metadata")
+    selection = json.load(sys.stdin)
+    if (
+        not isinstance(selection, dict)
+        or not isinstance(selection.get("base"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", selection["base"])
+        or not isinstance(selection.get("paths"), list)
+        or not all(isinstance(path, str) for path in selection["paths"])
+    ):
+        raise ValueError("Snapshot planning requires a pinned base and path list")
+    base_oid = _git(
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        f"{selection['base']}^{{commit}}",
+        git_directory=args.git_directory,
+    ).strip()
+    paths = changed_paths(None, None, selection["paths"], args.git_directory)
+    head_oid = selection.get("head")
+    if head_oid is not None:
+        if not isinstance(head_oid, str) or not re.fullmatch(
+            r"[0-9a-f]{40}|[0-9a-f]{64}", head_oid
+        ):
+            raise ValueError("Snapshot comparison head must be pinned")
+        if paths != changed_paths(base_oid, head_oid, None, args.git_directory):
+            raise ValueError("Snapshot paths do not match the pinned comparison")
+    return base_oid, head_oid, paths
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--git-directory")
+    parser.add_argument(
+        "--snapshot-plan",
+        action="store_true",
+        help="Replan the stdin selection against copied source and original Git metadata",
+    )
     parser.add_argument("--base")
     parser.add_argument("--head")
     parser.add_argument("--path", action="append")
@@ -603,30 +650,51 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         _reject_git_overrides()
-        # Keep dependency-content reads on the same immutable base as the diff.
-        base_oid = (
-            None
-            if args.full
-            else _git(
-                "rev-parse",
-                "--verify",
-                "--end-of-options",
-                f"{args.base or 'HEAD'}^{{commit}}",
-                git_directory=args.git_directory,
-            ).strip()
-        )
+        # Snapshot planning retains the already-resolved comparison, but acquires
+        # source and execution commands only from the copied payload.
+        if args.snapshot_plan:
+            base_oid, head_oid, paths = _snapshot_selection(args)
+        else:
+            # Keep dependency-content reads on the same immutable base as the diff.
+            base_oid = (
+                None
+                if args.full
+                else _git(
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    f"{args.base or 'HEAD'}^{{commit}}",
+                    git_directory=args.git_directory,
+                ).strip()
+            )
+            head_oid = (
+                _git(
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    f"{args.head}^{{commit}}",
+                    git_directory=args.git_directory,
+                ).strip()
+                if args.head
+                else None
+            )
+            paths = (
+                []
+                if args.full
+                else changed_paths(
+                    base_oid if args.base else None,
+                    head_oid,
+                    args.path,
+                    args.git_directory,
+                )
+            )
         plan = build_plan(
-            []
-            if args.full
-            else changed_paths(
-                base_oid if args.base else None,
-                args.head,
-                args.path,
-                args.git_directory,
-            ),
+            paths,
             base=base_oid or "HEAD",
             git_directory=args.git_directory,
         )
+        plan["base"] = base_oid
+        plan["head"] = head_oid
         if args.full:
             if args.command or args.path is not None or args.base or args.head:
                 raise ValueError(
@@ -638,6 +706,12 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "Unresolved applicability: " + "; ".join(plan["unresolved"])
             )
+        if not args.full:
+            plan["commands"] = {
+                lane: lane_command(plan, lane)
+                for lane in ("unit", "minimum", "current")
+                if plan["jobs"][lane]
+            }
         if args.command:
             if not plan["jobs"][args.command]:
                 raise ValueError(f"The plan did not select {args.command}")

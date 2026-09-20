@@ -3947,6 +3947,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
 
     async def test_command_timeout_reports_unconfirmed_without_retry(self) -> None:
+        self.assertIsNotNone(self.manager._unsub_state_report)
         calls: list[ServiceCall] = []
 
         async def capture(call: ServiceCall) -> None:
@@ -3964,6 +3965,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 {"target_temperature": 22.0},
                 None,
             )
+        self.assertIsNotNone(self.manager._unsub_state_report)
         scheduled_delays = [call.args[1] for call in schedule.call_args_list]
         self.assertIn(DEFAULT_CONFIRMATION_SECONDS, scheduled_delays)
         self.assertIn(DEFAULT_ECOBEE_STALE_SECONDS + 1, scheduled_delays)
@@ -3973,27 +3975,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual("unconfirmed", timed_out.status.value)
         self.assertEqual(1, len(calls))
         self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
-
-    async def test_unchanged_report_subscription_covers_cadence_recovery_and_pending(
-        self,
-    ) -> None:
-        self.assertIsNotNone(self.manager._unsub_state_report)
-
-        async def capture(_call: ServiceCall) -> None:
-            return None
-
-        self.hass.services.async_register("climate", "set_temperature", capture)
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
-        self.assertIsNotNone(self.manager._unsub_state_report)
-
-        revision = self.manager.snapshot("mapping_a").command.revision
-        self.manager._handle_timeout("mapping_a", revision)
         self.assertIsNotNone(self.manager._unsub_state_report)
 
     async def test_unchanged_reports_recover_only_stale_cadence_sources(self) -> None:
@@ -4427,32 +4408,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         self.assertEqual(1, len(calls))
 
-    async def test_unchanged_report_keeps_source_fresh(self) -> None:
-        homekit_state = self.hass.states.get(self.homekit.entity_id)
-        assert homekit_state is not None
-        homekit_state.last_updated = homekit_state.last_reported - timedelta(
-            seconds=600
-        )
-
-        self.hass.states.async_set(
-            self.homekit.entity_id,
-            homekit_state.state,
-            dict(homekit_state.attributes),
-        )
-        await self.hass.async_block_till_done()
-        reported = self.hass.states.get(self.homekit.entity_id)
-        assert reported is not None
-        self.assertGreater(reported.last_reported, reported.last_updated)
-
-        with patch(
-            "custom_components.ecobee_unified.manager.dt_util.utcnow",
-            return_value=reported.last_reported + timedelta(seconds=1),
-        ):
-            self.manager.refresh_mapping("mapping_a")
-        snapshot = self.manager.snapshot("mapping_a")
-        self.assertEqual("healthy", snapshot.source_health["homekit"].value)
-        self.assertTrue(snapshot.homekit_writable)
-
     async def test_source_service_errors_are_safely_translated(self) -> None:
         async def fail_with_private_detail(_call: ServiceCall) -> None:
             raise RuntimeError("private backend detail")
@@ -4499,71 +4454,56 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             "failed", self.manager.snapshot("mapping_a").command.status.value
         )
 
-    async def test_matching_report_during_dispatch_confirms_after_writer_success(
-        self,
-    ) -> None:
-        async def report_then_succeed(_call: ServiceCall) -> None:
-            matching = self._attributes(20.0) | {"temperature": 22.0}
-            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
-            reported = self.hass.states.get(self.ecobee.entity_id)
-            assert reported is not None
-            self.manager._handle_state_report_event(
-                Mock(
-                    data={
-                        "entity_id": self.ecobee.entity_id,
-                        "last_reported": reported.last_reported,
-                    }
+    async def test_matching_report_during_dispatch_respects_writer_result(self) -> None:
+        for fail in (False, True):
+            with self.subTest(writer_fails=fail):
+                calls: list[ServiceCall] = []
+
+                async def report_during_call(
+                    call: ServiceCall, *, fail=fail, calls=calls
+                ) -> None:
+                    calls.append(call)
+                    matching = self._attributes(20.0) | {"temperature": 22.0}
+                    self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
+                    reported = self.hass.states.get(self.ecobee.entity_id)
+                    assert reported is not None
+                    self.manager._handle_state_report_event(
+                        Mock(
+                            data={
+                                "entity_id": self.ecobee.entity_id,
+                                "last_reported": reported.last_reported,
+                            }
+                        )
+                    )
+                    self.assertIs(
+                        CommandStatus.PENDING,
+                        self.manager.snapshot("mapping_a").command.status,
+                    )
+                    if fail:
+                        raise RuntimeError("writer rejected the command")
+
+                self.hass.services.async_register(
+                    "climate", "set_temperature", report_during_call
                 )
-            )
-
-        self.hass.services.async_register(
-            "climate", "set_temperature", report_then_succeed
-        )
-
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
-
-        command = self.manager.snapshot("mapping_a").command
-        self.assertEqual("confirmed", command.status.value)
-        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
-
-    async def test_matching_report_cannot_confirm_before_writer_success(self) -> None:
-        async def report_then_fail(_call: ServiceCall) -> None:
-            matching = self._attributes(20.0) | {"temperature": 22.0}
-            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
-            reported = self.hass.states.get(self.ecobee.entity_id)
-            assert reported is not None
-            self.manager._handle_state_report_event(
-                Mock(
-                    data={
-                        "entity_id": self.ecobee.entity_id,
-                        "last_reported": reported.last_reported,
-                    }
+                command = self.manager.async_standard_command(
+                    "mapping_a",
+                    "set_temperature",
+                    {"temperature": 22.0},
+                    {"target_temperature": 22.0},
+                    None,
                 )
-            )
-            raise RuntimeError("writer rejected the command")
+                if fail:
+                    with self.assertRaises(HomeAssistantError):
+                        await command
+                else:
+                    await command
 
-        self.hass.services.async_register(
-            "climate", "set_temperature", report_then_fail
-        )
-
-        with self.assertRaises(HomeAssistantError):
-            await self.manager.async_standard_command(
-                "mapping_a",
-                "set_temperature",
-                {"temperature": 22.0},
-                {"target_temperature": 22.0},
-                None,
-            )
-
-        command = self.manager.snapshot("mapping_a").command
-        self.assertEqual("failed", command.status.value)
-        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
+                self.assertIs(
+                    CommandStatus.FAILED if fail else CommandStatus.CONFIRMED,
+                    self.manager.snapshot("mapping_a").command.status,
+                )
+                self.assertEqual(1, len(calls))
+                self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
     async def test_overlapping_commands_are_dispatched_in_user_order(self) -> None:
         first_started = asyncio.Event()

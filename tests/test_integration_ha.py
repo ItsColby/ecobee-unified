@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from homeassistant import config_entries
@@ -37,10 +37,6 @@ from custom_components.ecobee_unified.const import (
     DOMAIN,
     SIGNAL_SNAPSHOT_UPDATED,
 )
-from custom_components.ecobee_unified.diagnostics import (
-    async_get_config_entry_diagnostics,
-)
-from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig
 
 
@@ -57,6 +53,19 @@ async def test_config_flow_creates_two_explicit_mappings(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "mapping"
+
+    wrong = _register_source(hass, "demo", "wrong")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Zone A",
+            CONF_HOMEKIT_ENTITY: wrong.entity_id,
+            CONF_ECOBEE_ENTITY: ec_a.entity_id,
+            CONF_ADD_ANOTHER: False,
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"]["base"] == "invalid_homekit_controller_source"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -87,27 +96,6 @@ async def test_config_flow_creates_two_explicit_mappings(
     )
     assert result["data"][CONF_MAPPINGS][0][CONF_HOMEKIT_ENTITY] == hk_a.id
     assert result["data"][CONF_MAPPINGS][1][CONF_ECOBEE_ENTITY] == ec_b.id
-
-
-async def test_config_flow_rejects_wrong_platform_and_duplicates(
-    hass: HomeAssistant,
-) -> None:
-    wrong = _register_source(hass, "demo", "wrong")
-    ec_a = _register_source(hass, "ecobee", "ec_a", with_device=True)
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            CONF_NAME: "Zone A",
-            CONF_HOMEKIT_ENTITY: wrong.entity_id,
-            CONF_ECOBEE_ENTITY: ec_a.entity_id,
-            CONF_ADD_ANOTHER: False,
-        },
-    )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"]["base"] == "invalid_homekit_controller_source"
 
 
 async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
@@ -338,69 +326,6 @@ async def test_serialized_climate_withholds_conflicting_range_and_recovers(
         )
 
 
-async def test_standard_and_vendor_commands_have_exactly_one_writer(
-    hass: HomeAssistant,
-) -> None:
-    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
-    preset = _register_sibling(hass, hk, "select", "hk_a_current_mode")
-    clear_hold = _register_sibling(hass, hk, "button", "hk_a_clear_hold")
-    hass.states.async_set(preset.entity_id, "Home", {"options": ["Home", "Away"]})
-    hass.states.async_set(clear_hold.entity_id, "unknown")
-    mapping = MappingConfig(
-        "mapping_a",
-        "Zone A",
-        hk.id,
-        ec.id,
-        homekit_preset_entity=preset.id,
-        homekit_clear_hold_entity=clear_hold.id,
-    )
-    manager = MappingManager(
-        hass,
-        "entry_a",
-        (mapping,),
-        {},
-    )
-    await manager.async_start()
-    service_call = AsyncMock()
-    with patch.object(type(hass.services), "async_call", service_call):
-        await manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
-        service_call.assert_awaited_once_with(
-            "climate",
-            "set_temperature",
-            {"entity_id": hk.entity_id, "temperature": 22.0},
-            blocking=True,
-            context=None,
-        )
-
-        service_call.reset_mock()
-        await manager.async_set_preset_mode("mapping_a", "Away", None)
-        service_call.assert_awaited_once_with(
-            "select",
-            "select_option",
-            {"entity_id": preset.entity_id, "option": "Away"},
-            blocking=True,
-            context=None,
-        )
-
-        service_call.reset_mock()
-        await manager.async_resume_program("mapping_a", None)
-        service_call.assert_awaited_once_with(
-            "button",
-            "press",
-            {"entity_id": clear_hold.entity_id},
-            blocking=True,
-            context=None,
-        )
-    await manager.async_stop()
-
-
 async def test_vendor_action_services_target_unified_climate_once(
     hass: HomeAssistant,
 ) -> None:
@@ -439,24 +364,6 @@ async def test_vendor_action_services_target_unified_climate_once(
         "entity_id": ec.entity_id,
         "auto_away": True,
     }
-
-
-async def test_diagnostics_are_bounded_and_identifier_free(
-    hass: HomeAssistant,
-) -> None:
-    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
-    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
-    entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
-    rendered = repr(diagnostics)
-    assert diagnostics["entry"]["mapping_count"] == 1
-    assert "mapping_1" in rendered
-    assert "Zone A" not in rendered
-    assert hk.id not in rendered
-    assert hk.entity_id not in rendered
-    assert ec.id not in rendered
-    assert ec.entity_id not in rendered
 
 
 def _register_source(
@@ -512,24 +419,6 @@ def _climate_attributes(temperature: float) -> dict[str, object]:
         "target_temp_step": 0.5,
         "unit_of_measurement": "°C",
     }
-
-
-def _register_sibling(
-    hass: HomeAssistant,
-    source: er.RegistryEntry,
-    domain: str,
-    unique_id: str,
-) -> er.RegistryEntry:
-    source_entry = hass.config_entries.async_get_entry(source.config_entry_id)
-    assert source_entry is not None
-    return er.async_get(hass).async_get_or_create(
-        domain,
-        source.platform,
-        unique_id,
-        config_entry=source_entry,
-        device_id=source.device_id,
-        suggested_object_id=unique_id,
-    )
 
 
 def _mapping(

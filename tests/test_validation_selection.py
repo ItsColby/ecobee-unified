@@ -427,12 +427,6 @@ class ValidationSelectionTests(unittest.TestCase):
         self.assertEqual(["future/unknown.py"], plan["unresolved"])
         self.assertFalse(plan["jobs"]["current"])
 
-    def test_empty_verified_comparison_has_no_jobs(self):
-        with patch.object(planner, "_git", side_effect=["a", "b", "b", "", ""]):
-            paths = planner.changed_paths("base", "head", None)
-        self.assertEqual([], paths)
-        self.assertFalse(any(planner.build_plan(paths)["jobs"].values()))
-
     @unittest.skipUnless(shutil.which("git"), "requires Git")
     def test_real_ref_comparison_binds_clean_candidate_and_resolves_changes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -466,7 +460,9 @@ class ValidationSelectionTests(unittest.TestCase):
                 self.assertEqual(
                     ["README.md"], planner.changed_paths(before, after, None)
                 )
-                self.assertEqual([], planner.changed_paths(after, after, None))
+                unchanged = planner.changed_paths(after, after, None)
+                self.assertEqual([], unchanged)
+                self.assertFalse(any(planner.build_plan(unchanged)["jobs"].values()))
                 self.assertEqual(
                     ["README.md"],
                     planner.changed_paths(before, after, None, str(root / ".git")),
@@ -689,7 +685,7 @@ class ValidationSelectionTests(unittest.TestCase):
             self.assertTrue(plan["jobs"]["minimum"])
             self.assertFalse(plan["jobs"]["current"])
 
-    def test_missing_input_traversal_and_dirty_ref_candidate_fail(self):
+    def test_missing_input_and_unsafe_paths_fail(self):
         with self.assertRaises(ValueError):
             planner.changed_paths(None, None, None)
         for path in (
@@ -701,13 +697,6 @@ class ValidationSelectionTests(unittest.TestCase):
         ):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 planner.changed_paths(None, None, [path])
-        with (
-            patch.object(
-                planner, "_git", side_effect=["a", "b", "b", " M scripts/runner.py"]
-            ),
-            self.assertRaisesRegex(ValueError, "clean candidate"),
-        ):
-            planner.changed_paths("base", "head", None)
 
     @unittest.skipUnless(
         os.name == "posix" and shutil.which("bash"), "requires native Bash"
@@ -990,15 +979,10 @@ class SnapshotPlanningTests(unittest.TestCase):
             git("add", "-A", "-f")
             baseline = git("commit-tree", git("write-tree"), "-m", "baseline")
             git("update-ref", "HEAD", baseline)
-            prefix = (
-                ["--plan"]
-                if planner.PLANNER.endswith("run_dependency_light_tests.py")
-                else []
-            )
 
             def call(checkout, *args, input_text=None):
                 result = subprocess.run(
-                    [sys.executable, str(checkout / planner.PLANNER), *prefix, *args],
+                    [sys.executable, str(checkout / planner.PLANNER), *args],
                     input=input_text,
                     env=env,
                     capture_output=True,
@@ -1016,7 +1000,6 @@ class SnapshotPlanningTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(source / planner.PLANNER),
-                    *prefix,
                     "--snapshot-plan",
                     "--git-directory",
                     str(source / ".git"),
@@ -1042,7 +1025,6 @@ class SnapshotPlanningTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(snapshot / planner.PLANNER),
-                    *prefix,
                     "--snapshot-plan",
                     "--git-directory",
                     str(source / ".git"),

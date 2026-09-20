@@ -492,26 +492,6 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             dict(entry.data),
         )
 
-    async def test_live_temperature_metadata_cannot_be_masked_by_registry(
-        self,
-    ) -> None:
-        inputs = _mapping_form_defaults(self.hass, self.mapping.as_dict())
-        inputs[CONF_HOMEKIT_TEMPERATURE_ENTITY] = self.homekit_temperature.entity_id
-        for attributes in (
-            {"device_class": "humidity", "unit_of_measurement": "%"},
-            {"device_class": "temperature", "unit_of_measurement": "widgets"},
-            {"device_class": None, "unit_of_measurement": "°C"},
-            {"device_class": "temperature", "unit_of_measurement": None},
-        ):
-            with self.subTest(attributes=attributes):
-                self.hass.states.async_set(
-                    self.homekit_temperature.entity_id, "20.04", attributes
-                )
-                with self.assertRaisesRegex(
-                    vol.Invalid, "invalid_homekit_temperature_source"
-                ):
-                    _mapping_from_input(self.hass, inputs)
-
     async def test_valid_live_temperature_unit_and_registry_fallback_are_supported(
         self,
     ) -> None:

@@ -218,7 +218,7 @@ Installation acceptance and consumer migration are covered in the
 
 Change each Core and harness pair together, verify dependency consistency, and rerun
 the changed support lane. Reuse unchanged sibling-lane evidence. A minimum-version change also affects [`hacs.json`](../hacs.json).
-Keep the runner, CI job labels, and assertions in `test_public_safety.py` aligned;
+Keep the runner, CI job labels, and distribution minimum aligned;
 review the external assumptions in [Upstream contracts](upstream-contracts.md).
 Tool versions and container digests are owned by
 [`verify-release-local.sh`](../scripts/verify-release-local.sh). Dependabot updates

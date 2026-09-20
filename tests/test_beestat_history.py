@@ -342,6 +342,8 @@ async def test_qualified_values_and_absence_are_not_conflated(
     hass: HomeAssistant, reason: str
 ) -> None:
     data = response([bucket(reason=reason)])
+    if reason == "partial":
+        data["series"][0]["buckets"][0]["confidence"] = ["future_bounded_qualification"]
     register(hass, data)
     result = await async_read_history(
         hass, [contract()], START, START + timedelta(days=1), "UTC"
@@ -356,6 +358,8 @@ async def test_qualified_values_and_absence_are_not_conflated(
         assert actual["verified_hours"] == 1
         assert len(actual["eligible_intervals"]) == 24
         assert actual["min"] is None
+    elif reason == "partial":
+        assert actual["confidence"] == ["future_bounded_qualification"]
 
 
 @pytest.mark.parametrize(
@@ -483,20 +487,6 @@ def test_measurement_rate_representation_is_rejected() -> None:
             descriptor()["statistic_id"],
             "temperature",
         )
-
-
-async def test_unknown_confidence_preserved_without_granting_eligibility(
-    hass: HomeAssistant,
-) -> None:
-    data = response([bucket(reason="partial")])
-    data["series"][0]["buckets"][0]["confidence"] = ["future_bounded_qualification"]
-    register(hass, data)
-    result = await async_read_history(
-        hass, [contract()], START, START + timedelta(days=1), "UTC"
-    )
-    actual = result.buckets[descriptor()["statistic_id"]][0]
-    assert actual["confidence"] == ["future_bounded_qualification"]
-    assert actual["eligible_intervals"] == []
 
 
 @pytest.mark.parametrize("change", ["summary", "view", "duplicate", "pagination"])

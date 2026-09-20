@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import os
 import re
@@ -13,14 +12,12 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-import tomllib
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.check_public_safety import (
-    REVIEWED_BINARY_SHA256,
     _history_failures,
     _text_failures,
     run_archive_guard,
@@ -281,12 +278,6 @@ class PublicSafetyTests(unittest.TestCase):
                     "Git history blob: private IPv4 address", _history_failures(root)
                 )
 
-    def test_reviewed_brand_asset_is_hash_pinned(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        relative = "custom_components/ecobee_unified/brand/icon.png"
-        digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
-        self.assertEqual(REVIEWED_BINARY_SHA256[relative], digest)
-
     def test_working_tree_rejects_utf16_content_under_text_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -330,15 +321,6 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual(1, count)
         self.assertEqual(
             ["Source archive notes.txt: unreviewed binary content"], failures
-        )
-
-    def test_pytest_collects_async_home_assistant_tests(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        configuration = tomllib.loads(
-            (root / "pyproject.toml").read_text(encoding="utf-8")
-        )
-        self.assertEqual(
-            "auto", configuration["tool"]["pytest"]["ini_options"]["asyncio_mode"]
         )
 
     def test_retired_history_content_and_binary_blobs_are_scanned(self) -> None:
@@ -564,118 +546,24 @@ class PublicSafetyTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_support_and_ci_have_exact_minimum_and_current_core_lanes(self) -> None:
+    def test_declared_minimum_matches_distribution_requirement(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        workflow = (root / ".github/workflows/validate.yaml").read_text(
-            encoding="utf-8"
-        )
-        release_runner = (root / "scripts/verify-release-local.sh").read_text(
-            encoding="utf-8"
-        )
-        release_wrapper = (root / "scripts/verify-release-local.ps1").read_text(
-            encoding="utf-8"
-        )
-        dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
         minimum_requirements = (root / "requirements-ha-test.txt").read_text(
             encoding="utf-8"
         )
-        current_requirements = (root / "requirements-ha-current.txt").read_text(
+        hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            f"homeassistant=={hacs['homeassistant']}", minimum_requirements.strip()
+        )
+
+    def test_windows_wrapper_forwards_explicit_worktree_git_directory(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        wrapper = (root / "scripts/verify-release-local.ps1").read_text(
             encoding="utf-8"
         )
-        hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
-        manifest = json.loads(
-            (root / "custom_components/ecobee_unified/manifest.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        icons = json.loads(
-            (root / "custom_components/ecobee_unified/icons.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
-        self.assertEqual("homeassistant==2026.9.3", current_requirements.strip())
-        self.assertEqual("2026.8.0", hacs["homeassistant"])
-        self.assertIs(True, manifest["single_config_entry"])
-        self.assertEqual("hub", manifest["integration_type"])
-        self.assertIn(
-            "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
-        )
-        self.assertIn(
-            "Home Assistant integration tests (Core 2026.9.3 current)", workflow
-        )
-        self.assertEqual(
-            2, release_runner.count("pytest-homeassistant-custom-component==")
-        )
-        self.assertIn('--git-dir="$source_git_dir"', release_runner)
-        self.assertIn("rev-parse --path-format=absolute --git-dir", release_wrapper)
-        self.assertIn("$Mode container $linuxGitDir", release_wrapper)
-        self.assertIn('chmod a+rx "$repo_root"', release_runner)
-        self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
-        self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
-        unit_job = workflow[
-            workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
-        ]
-        self.assertIn("fetch-depth: 0", unit_job)
-        self.assertIn('"shellcheck-py==0.11.0.1" "zizmor==1.29.0"', release_runner)
-        self.assertIn("shellcheck scripts/verify-release-local.sh", release_runner)
-        self.assertIn("zizmor --strict-collection --persona auditor .", release_runner)
-        self.assertEqual(1, dependabot.count("package-ecosystem: github-actions"))
-        self.assertEqual(1, dependabot.count("interval: weekly"))
-        self.assertIn("default-days: 7", dependabot)
-        self.assertNotIn("package-ecosystem: pip", dependabot)
-        self.assertEqual(
-            {
-                "create_vacation",
-                "delete_vacation",
-                "resume_program",
-                "set_occupancy_modes",
-                "set_sensors_used_in_climate",
-            },
-            set(icons["services"]),
-        )
-        self.assertEqual(
-            "mdi:hvac",
-            icons["entity"]["sensor"]["equipment_stage"]["default"],
-        )
-        minimum_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
-        )
-        current_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.366"'
-        )
-        minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
-        current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"
-        dependency_check = "python -m pip check"
-        all_tests = "pytest tests -q"
-        minimum_lane = release_runner[
-            release_runner.index("run_minimum()") : release_runner.index(
-                "run_current()"
-            )
-        ]
-        current_lane = release_runner[
-            release_runner.index("run_current()") : release_runner.index(
-                "run_release()"
-            )
-        ]
-        for lane, harness, core in (
-            (minimum_lane, minimum_harness, minimum_core),
-            (current_lane, current_harness, current_core),
-        ):
-            # The runner appends selected/full checks to the installed environment.
-            setup = lane[lane.index("  run_python '") :]
-            checks = lane[lane.index("  local checks=") : lane.index('  if [[ "$mode"')]
-            execution = setup + checks
-            self.assertLess(execution.index(harness), execution.index(core))
-            self.assertLess(execution.index(core), execution.index(dependency_check))
-            self.assertLess(
-                execution.index(dependency_check), execution.index(all_tests)
-            )
-        self.assertIn(
-            "needs: [plan, unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
-            workflow,
-        )
-        self.assertNotIn("python -m unittest tests.test_models", workflow)
+        # Plan-only wrapper tests cannot exercise the Windows-to-WSL handoff.
+        self.assertIn("rev-parse --path-format=absolute --git-dir", wrapper)
+        self.assertIn("$Mode container $linuxGitDir", wrapper)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (

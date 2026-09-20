@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from inspect import iscoroutine
 from unittest.mock import patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
@@ -135,18 +136,20 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
         active = asyncio.create_task(
             self.manager.async_send_notification("mapping_a", "Test message", None)
         )
-        await started.wait()
-        queued = asyncio.create_task(command)
-        await asyncio.sleep(0)
+        queued = None
         try:
+            await self._wait_for_fixture_event(active, started)
+            queued = asyncio.create_task(command)
+            await asyncio.sleep(0)
             self.assertFalse(queued.done())
             yield queued, calls, release
+            release.set()
+            await asyncio.wait_for(asyncio.shield(active), timeout=1)
         finally:
             release.set()
-            await active
-            if not queued.done():
-                queued.cancel()
-            await asyncio.gather(queued, return_exceptions=True)
+            if queued is None and iscoroutine(command):
+                command.close()
+            await self._settle_fixture_tasks(active, queued)
 
     async def test_queued_standard_commands_revalidate_current_writer_contracts(
         self,
@@ -226,7 +229,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                     )
                     release.set()
                     with self.assertRaises(ServiceValidationError) as raised:
-                        await queued
+                        await asyncio.wait_for(asyncio.shield(queued), timeout=1)
                     self.assertEqual(error, raised.exception.translation_key)
                     self.assertFalse(calls)
                     self.assertEqual(
@@ -269,7 +272,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                 mutate()
                 release.set()
                 with self.assertRaises(ServiceValidationError):
-                    await queued
+                    await asyncio.wait_for(asyncio.shield(queued), timeout=1)
                 self.assertFalse(calls)
                 self.assertEqual(previous, self.manager.snapshot("mapping_a").command)
         registry.async_update_device(
@@ -279,7 +282,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
             climate.async_set_sensors_used_in_climate([owned.id], "Home")
         ) as (queued, calls, release):
             release.set()
-            await queued
+            await asyncio.wait_for(asyncio.shield(queued), timeout=1)
             self.assertEqual(1, len(calls))
             self.assertEqual([owned.id], calls[0].data["device_ids"])
             self.assertEqual(self.ecobee.entity_id, calls[0].data["entity_id"])
@@ -336,34 +339,48 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
 
                     self._register_writer(kind, writer)
                     active = asyncio.create_task(self._command(kind))
-                    await started.wait()
-                    queued = asyncio.create_task(self._command(kind))
-                    await asyncio.sleep(0)
-                    await self.manager.async_stop()
-                    self.assertFalse(active.done())
-                    with self.assertRaises(ServiceValidationError):
-                        await asyncio.wait_for(queued, 1)
-                    self._assert_stopped()
-                    if kind != "notification":
-                        self.assertIs(
-                            CommandStatus.UNCONFIRMED,
-                            self.manager.diagnostic_command_summary("mapping_a").status,
-                        )
-                    with patch(
-                        "custom_components.ecobee_unified.manager.async_dispatcher_send"
-                    ) as publish:
-                        release.set()
-                        if fail:
-                            with self.assertRaises(HomeAssistantError) as raised:
-                                await active
-                            self.assertNotIn(
-                                "private writer detail", str(raised.exception)
+                    queued = None
+                    stop_task = None
+                    try:
+                        await self._wait_for_fixture_event(active, started)
+                        queued = asyncio.create_task(self._command(kind))
+                        await asyncio.sleep(0)
+                        stop_task = asyncio.create_task(self.manager.async_stop())
+                        await asyncio.wait_for(asyncio.shield(stop_task), timeout=1)
+                        self.assertFalse(active.done())
+                        with self.assertRaises(ServiceValidationError):
+                            await asyncio.wait_for(queued, 1)
+                        self._assert_stopped()
+                        if kind != "notification":
+                            self.assertIs(
+                                CommandStatus.UNCONFIRMED,
+                                self.manager.diagnostic_command_summary(
+                                    "mapping_a"
+                                ).status,
                             )
-                        else:
-                            await active
-                        publish.assert_not_called()
-                    self.assertEqual(1, len(calls))
-                    self._assert_stopped()
+                        with patch(
+                            "custom_components.ecobee_unified.manager.async_dispatcher_send"
+                        ) as publish:
+                            release.set()
+                            if fail:
+                                with self.assertRaises(HomeAssistantError) as raised:
+                                    await asyncio.wait_for(
+                                        asyncio.shield(active), timeout=1
+                                    )
+                                self.assertNotIn(
+                                    "private writer detail", str(raised.exception)
+                                )
+                            else:
+                                await asyncio.wait_for(
+                                    asyncio.shield(active), timeout=1
+                                )
+                            publish.assert_not_called()
+                        self.assertEqual(1, len(calls))
+                        self._assert_stopped()
+
+                    finally:
+                        release.set()
+                        await self._settle_fixture_tasks(active, queued, stop_task)
 
     async def test_cancelled_writer_preserves_uncertainty_without_retry(self) -> None:
         for kind in ("standard", "action", "notification"):
@@ -386,22 +403,33 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
 
                     self._register_writer(kind, writer)
                     active = asyncio.create_task(self._command(kind))
-                    await started.wait()
-                    if stop:
-                        await self.manager.async_stop()
-                    active.cancel()
-                    with self.assertRaises(asyncio.CancelledError):
-                        await active
-                    if kind != "notification":
-                        self.assertIs(
-                            CommandStatus.UNCONFIRMED,
-                            self.manager.diagnostic_command_summary("mapping_a").status,
+                    stop_task = None
+                    try:
+                        await self._wait_for_fixture_event(active, started)
+                        if stop:
+                            stop_task = asyncio.create_task(self.manager.async_stop())
+                            await asyncio.wait_for(asyncio.shield(stop_task), timeout=1)
+                        active.cancel()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await asyncio.wait_for(asyncio.shield(active), timeout=1)
+                        if kind != "notification":
+                            self.assertIs(
+                                CommandStatus.UNCONFIRMED,
+                                self.manager.diagnostic_command_summary(
+                                    "mapping_a"
+                                ).status,
+                            )
+                            self.assertFalse(self.manager._unsub_timeouts)
+                        self.assertEqual(1, len(calls))
+                        self.assertFalse(
+                            self.manager._command_locks["mapping_a"].locked()
                         )
-                        self.assertFalse(self.manager._unsub_timeouts)
-                    self.assertEqual(1, len(calls))
-                    self.assertFalse(self.manager._command_locks["mapping_a"].locked())
-                    if stop:
-                        self._assert_stopped()
+                        if stop:
+                            self._assert_stopped()
+
+                    finally:
+                        release.set()
+                        await self._settle_fixture_tasks(active, stop_task)
 
     async def test_cancelled_queue_does_not_leak_or_dispatch(self) -> None:
         started, release = asyncio.Event(), asyncio.Event()
@@ -414,17 +442,23 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
 
         self._register_writer("standard", writer)
         active = asyncio.create_task(self._command("standard"))
-        await started.wait()
-        queued = asyncio.create_task(self._command("standard"))
-        await asyncio.sleep(0)
-        queued.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await queued
-        release.set()
-        await active
-        self.assertEqual(1, len(calls))
-        await self._command("standard")
-        self.assertEqual(2, len(calls))
+        queued = None
+        try:
+            await self._wait_for_fixture_event(active, started)
+            queued = asyncio.create_task(self._command("standard"))
+            await asyncio.sleep(0)
+            queued.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(queued), timeout=1)
+            release.set()
+            await asyncio.wait_for(asyncio.shield(active), timeout=1)
+            self.assertEqual(1, len(calls))
+            await asyncio.wait_for(self._command("standard"), timeout=1)
+            self.assertEqual(2, len(calls))
+
+        finally:
+            release.set()
+            await self._settle_fixture_tasks(active, queued)
 
     async def test_cancellation_after_writer_return_releases_command_lock(self) -> None:
         for kind in ("standard", "action", "notification"):
@@ -443,12 +477,32 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
 
                 self._register_writer(kind, writer)
                 active = asyncio.create_task(self._command(kind))
-                with self.assertRaises(asyncio.CancelledError):
-                    await active
-                self.assertEqual(1, len(calls))
-                self.assertFalse(self.manager._command_locks["mapping_a"].locked())
-                await asyncio.wait_for(self._command(kind), 1)
-                self.assertEqual(2, len(calls))
+                try:
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(asyncio.shield(active), timeout=1)
+                    self.assertEqual(1, len(calls))
+                    self.assertFalse(self.manager._command_locks["mapping_a"].locked())
+                    self.assertTrue(active.cancelled())
+                    if kind != "notification":
+                        summary = self.manager.diagnostic_command_summary("mapping_a")
+                        self.assertEqual(1, summary.revision)
+                        self.assertEqual(
+                            "set_temperature"
+                            if kind == "standard"
+                            else "set_occupancy_modes",
+                            summary.operation,
+                        )
+                        self.assertIs(
+                            CommandStatus.PENDING
+                            if kind == "standard"
+                            else CommandStatus.SUBMITTED,
+                            summary.status,
+                        )
+                    await asyncio.wait_for(self._command(kind), 1)
+                    self.assertEqual(2, len(calls))
+
+                finally:
+                    await self._settle_fixture_tasks(active)
 
     async def test_already_queued_source_events_cannot_revive_stopped_manager(
         self,
@@ -492,24 +546,34 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
 
         self._register_writer("standard", writer)
         active = asyncio.create_task(self._command("standard", manager))
-        await started.wait()
-        queued = asyncio.create_task(self._command("standard", manager))
-        await asyncio.sleep(0)
-        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
-        self.assertFalse(active.done())
-        with self.assertRaises(ServiceValidationError):
-            await asyncio.wait_for(queued, 1)
-        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
-        with patch(
-            "custom_components.ecobee_unified.manager.async_dispatcher_send"
-        ) as publish:
+        queued = None
+        unload = None
+        try:
+            await self._wait_for_fixture_event(active, started)
+            queued = asyncio.create_task(self._command("standard", manager))
+            await asyncio.sleep(0)
+            unload = asyncio.create_task(
+                self.hass.config_entries.async_unload(entry.entry_id)
+            )
+            self.assertTrue(await asyncio.wait_for(asyncio.shield(unload), timeout=1))
+            self.assertFalse(active.done())
+            with self.assertRaises(ServiceValidationError):
+                await asyncio.wait_for(queued, 1)
+            self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+            with patch(
+                "custom_components.ecobee_unified.manager.async_dispatcher_send"
+            ) as publish:
+                release.set()
+                await asyncio.wait_for(asyncio.shield(active), timeout=1)
+                publish.assert_not_called()
+            self.assertEqual(1, len(calls))
+            self._assert_stopped(manager)
+            self.assertIsNot(manager, entry.runtime_data.manager)
+            self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+
+        finally:
             release.set()
-            await active
-            publish.assert_not_called()
-        self.assertEqual(1, len(calls))
-        self._assert_stopped(manager)
-        self.assertIsNot(manager, entry.runtime_data.manager)
-        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
+            await self._settle_fixture_tasks(active, queued, unload)
 
     async def test_native_local_observations_wait_for_writer_acceptance(self) -> None:
         for operation in ("set_preset_mode", "set_humidity"):

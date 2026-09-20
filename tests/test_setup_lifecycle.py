@@ -523,7 +523,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 ]
                 setup.cancel()
                 with self.assertRaises(asyncio.CancelledError):
-                    await setup
+                    await asyncio.wait_for(asyncio.shield(setup), timeout=5)
                 self.assertEqual(ConfigEntryState.SETUP_ERROR, entry.state)
                 self.assertFalse(entry.setup_lock.locked())
                 native_cleanup.assert_called_once_with()
@@ -545,10 +545,16 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 self.assertIs(snapshot, manager.snapshot(mapping.mapping_id))
                 self._assert_stopped(manager)
             finally:
-                setup.cancel()
-                await asyncio.gather(setup, return_exceptions=True)
-                if manager is not None:
-                    await manager.async_stop()
+                blocked.set()
+                try:
+                    await self._settle_fixture_tasks(setup)
+                finally:
+                    if manager is not None:
+                        stop = asyncio.create_task(manager.async_stop())
+                        try:
+                            await asyncio.wait_for(asyncio.shield(stop), timeout=5)
+                        finally:
+                            await self._settle_fixture_tasks(stop)
 
     def _assert_stopped(self, manager: MappingManager) -> None:
         for name in (

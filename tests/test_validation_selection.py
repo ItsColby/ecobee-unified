@@ -21,6 +21,89 @@ from scripts import plan_validation as planner
 
 
 class ValidationSelectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.upper().startswith("GIT_")
+        }
+        environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        environment_patch = patch.dict(os.environ, environment, clear=True)
+        environment_patch.start()
+        self.addCleanup(environment_patch.stop)
+
+    @unittest.skipUnless(os.name == "posix", "requires symbolic links")
+    def test_linked_python_inputs_are_refused_before_any_source_read(self):
+        for linked_parent in (False, True):
+            with (
+                self.subTest(linked_parent=linked_parent),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                temporary = Path(directory)
+                root, outside = temporary / "candidate", temporary / "outside"
+                (root / "tests").mkdir(parents=True)
+                outside.mkdir()
+                (outside / "test_probe.py").write_text(
+                    "raise AssertionError('must not read')\n"
+                )
+                if linked_parent:
+                    (root / "tests/nested").symlink_to(
+                        outside, target_is_directory=True
+                    )
+                else:
+                    (root / "tests/test_probe.py").symlink_to(outside / "test_probe.py")
+                with (
+                    patch.object(planner, "ROOT", root),
+                    patch.object(
+                        Path,
+                        "read_text",
+                        side_effect=AssertionError("source read before admission"),
+                    ) as read,
+                ):
+                    with self.assertRaisesRegex(ValueError, "linked path"):
+                        planner.build_plan(["README.md"])
+                    read.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "requires symbolic links")
+    def test_linked_runner_and_workflow_are_refused_before_content_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "candidate"
+            (root / "scripts").mkdir(parents=True)
+            (root / ".github/workflows").mkdir(parents=True)
+            outside = Path(directory) / "outside.txt"
+            outside.write_text("must not read\n")
+            for relative in (
+                "scripts/verify-release-local.sh",
+                ".github/workflows/validate.yaml",
+            ):
+                (root / relative).symlink_to(outside)
+                with (
+                    patch.object(planner, "ROOT", root),
+                    patch.object(planner, "_git", return_value=""),
+                    patch.object(
+                        Path,
+                        "read_text",
+                        side_effect=AssertionError("linked input read"),
+                    ) as read,
+                ):
+                    plan = {"unresolved": []}
+                    planner._route_dependency_changes(
+                        [relative], "HEAD", None, set(), set(), set(), plan
+                    )
+                    self.assertTrue(
+                        any("linked path" in message for message in plan["unresolved"])
+                    )
+                    read.assert_not_called()
+            with (
+                patch.object(planner, "ROOT", root),
+                patch.object(
+                    Path, "read_text", side_effect=AssertionError("linked runner read")
+                ) as read,
+            ):
+                with self.assertRaisesRegex(ValueError, "linked path"):
+                    planner.lane_command({}, "unit")
+                read.assert_not_called()
+
     def test_docs_do_not_run_product_or_environment_suites(self):
         plan = planner.build_plan(["README.md"])
         self.assertTrue(plan["jobs"]["unit"])
@@ -251,6 +334,36 @@ class ValidationSelectionTests(unittest.TestCase):
             planner.workflow_dependencies(
                 "jobs:\n  future_job:\n    uses: unknown/action@ref"
             )
+        workflow = (ROOT / ".github/workflows/validate.yaml").read_text()
+        for job_id in ("future_job", "extra-job", "job2", "FutureJob", "_job-2"):
+            for comment in ("", " # synthetic", " \t# synthetic"):
+                with (
+                    self.subTest(job_id=job_id, comment=comment),
+                    self.assertRaisesRegex(ValueError, "job dependency mapping"),
+                ):
+                    planner.workflow_dependencies(
+                        workflow.rstrip()
+                        + f"\n  {job_id}:{comment}\n"
+                        + "    runs-on: ubuntu-24.04\n"
+                        + "    steps:\n      - run: exit 1\n"
+                    )
+        commented = workflow
+        for job_id in (
+            "plan",
+            "unit",
+            "home_assistant_minimum",
+            "home_assistant_current",
+            "hassfest",
+            "hacs",
+            "release_gate",
+        ):
+            commented = commented.replace(
+                f"  {job_id}:\n", f"  {job_id}: # explanation\n"
+            )
+        self.assertEqual(
+            planner.workflow_dependencies(workflow),
+            planner.workflow_dependencies(commented),
+        )
 
     def test_enum_translations_select_the_native_sensor_consumer(self):
         plan = planner.build_plan([planner.PRODUCT + "/translations/en.json"])
@@ -375,6 +488,7 @@ class ValidationSelectionTests(unittest.TestCase):
                 GIT_COMMITTER_NAME="Validation",
                 GIT_AUTHOR_EMAIL="validation@example.com",
                 GIT_COMMITTER_EMAIL="validation@example.com",
+                PYTHONDONTWRITEBYTECODE="1",
             )
             # The adversarial fixture must honor replacements inherited runners disable.
             env.pop("GIT_NO_REPLACE_OBJECTS", None)
@@ -388,6 +502,7 @@ class ValidationSelectionTests(unittest.TestCase):
             (root / "scripts").mkdir()
             for relative in (
                 planner.PLANNER,
+                "scripts/check_public_safety.py",
                 "scripts/verify-release-local.ps1",
                 "scripts/verify-release-local.sh",
             ):
@@ -442,8 +557,6 @@ class ValidationSelectionTests(unittest.TestCase):
                     planner._git("rev-parse", "HEAD")
 
             cli = [sys.executable, str(root / planner.PLANNER)]
-            if planner.PLANNER.endswith("run_dependency_light_tests.py"):
-                cli.append("--plan")
             selection = ["--base", before, "--head", after]
 
             def run(command, overrides=None):
@@ -562,7 +675,6 @@ class ValidationSelectionTests(unittest.TestCase):
                 git("update-ref", "refs/heads/moving-base", after)
                 return paths
 
-            entrypoint = getattr(planner, "plan_main", None) or planner.main
             output = io.StringIO()
             with (
                 patch.object(planner, "ROOT", root),
@@ -570,7 +682,7 @@ class ValidationSelectionTests(unittest.TestCase):
                 contextlib.redirect_stdout(output),
             ):
                 self.assertEqual(
-                    0, entrypoint(["--base", "moving-base", "--head", after])
+                    0, planner.main(["--base", "moving-base", "--head", after])
                 )
             plan = json.loads(output.getvalue())
             self.assertEqual([relative], plan["paths"])
@@ -688,7 +800,6 @@ class ValidationSelectionTests(unittest.TestCase):
             [
                 sys.executable,
                 str(ROOT / "scripts/plan_validation.py"),
-                *[],
                 "--path",
                 "unknown.input",
             ],
@@ -705,7 +816,6 @@ class ValidationSelectionTests(unittest.TestCase):
             [
                 sys.executable,
                 str(ROOT / "scripts/plan_validation.py"),
-                *[],
                 "--path",
                 "README.md",
                 "--plan-only",
@@ -724,7 +834,7 @@ class ValidationSelectionTests(unittest.TestCase):
 import json, os, shutil, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
-if args and (args[0].endswith("plan_validation.py") or "--plan" in args or args[0] == "-c"):
+if args and (args[0].endswith("plan_validation.py") or args[0] == "-c"):
     raise SystemExit(subprocess.call([os.environ["SELECTION_REAL_PYTHON"], *args]))
 with Path(os.environ["SELECTION_LOG"]).open("a") as stream:
     stream.write(json.dumps(args) + "\n")
@@ -737,7 +847,7 @@ if os.environ.get("SELECTION_FAIL") == "harness" and any(arg.startswith("pytest-
     raise SystemExit(23)
 if os.environ.get("SELECTION_FAIL") == "dependencies" and "--upgrade" in args:
     raise SystemExit(23)
-if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittest" in args or "--home-assistant" in args):
+if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittest" in args):
     raise SystemExit(23)
 """
         script = ROOT / "scripts/verify-release-local.sh"
@@ -801,11 +911,7 @@ if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittes
                         for call in calls
                     )
                 )
-                test_calls = [
-                    call
-                    for call in calls
-                    if "pytest" in call or "--home-assistant" in call
-                ]
+                test_calls = [call for call in calls if "pytest" in call]
                 if failure in {"harness", "dependencies"}:
                     self.assertEqual([], test_calls)
                 else:

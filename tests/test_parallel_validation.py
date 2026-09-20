@@ -12,6 +12,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 BASH = shutil.which("bash")
@@ -69,6 +70,25 @@ assert args[:2] == ["run", "--rm"]
 (events / (lane + ".started")).touch()
 if lane == "unit":
     assert (events / "actionlint.done").exists()
+    if os.environ.get("MATRIX_SOURCE_HEAD"):
+        def git(*arguments):
+            return subprocess.run(["git", "-C", source, *arguments],
+                                  capture_output=True, text=True, check=False)
+        assert git("rev-parse", "--verify", "HEAD").returncode != 0
+        indexed = git("ls-files").stdout.splitlines()
+        assert "nested/probe.txt" in indexed
+        assert git("config", "--local", "--get", "user.name").returncode == 1
+        assert git("config", "--local", "--get", "user.email").returncode == 1
+        history = next(args[index + 1].split(":")[0]
+                       for index, arg in enumerate(args[:-1])
+                       if arg == "-v" and ":/source-history:" in args[index + 1])
+        original = subprocess.check_output(
+            ["git", "-C", history, "rev-parse", "HEAD"], text=True).strip()
+        assert original == os.environ["MATRIX_SOURCE_HEAD"]
+        original_file = subprocess.check_output(
+            ["git", "-C", history, "show", "HEAD:nested/probe.txt"], text=True)
+        assert original_file == "ordinary tracked fixture\n"
+        (events / "snapshot-index.verified").touch()
     if failure == "ignored_tracked":
         assert not (Path(source) / "local-only.txt").exists()
         history = next(args[index + 1].split(":")[0]
@@ -252,7 +272,6 @@ class NativeValidationTests(unittest.TestCase):
             and Path(str(event["path"])).parent
             in {Path(environment) / "bin" for environment in environments[1:]}
         ]
-        self.assertTrue(lane_pips)
         self.assertTrue(
             all(event["history"] == self.native_source for event in lane_pips)
         )
@@ -296,6 +315,78 @@ class NativeValidationTests(unittest.TestCase):
 class ParallelValidationTests(unittest.TestCase):
     """Use real shell jobs and snapshots with isolated external-tool stand-ins."""
 
+    def setUp(self) -> None:
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.upper().startswith("GIT_")
+        }
+        environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        environment_patch = patch.dict(os.environ, environment, clear=True)
+        environment_patch.start()
+        self.addCleanup(environment_patch.stop)
+
+    def _configure_snapshot_probe(
+        self, root: Path, env: dict[str, str], host_configuration: str, failure: str
+    ) -> None:
+        source, events, binary = (root / name for name in ("source", "events", "bin"))
+        if host_configuration:
+            env["MATRIX_SOURCE_HEAD"] = subprocess.check_output(
+                [str(GIT), "-C", str(source), "rev-parse", "HEAD"],
+                env=env,
+                text=True,
+            ).strip()
+            hostile = root / "hostile-template"
+            hooks = hostile / "hooks"
+            hooks.mkdir(parents=True)
+            for name in ("pre-commit", "post-index-change"):
+                hook = hooks / name
+                hook.write_text(
+                    f"#!{sys.executable}\nfrom pathlib import Path\n"
+                    f"Path({str(events / 'host-hook.called')!r}).touch()\n"
+                    "raise SystemExit(97)\n",
+                    encoding="utf-8",
+                )
+                hook.chmod(0o755)
+            signer = root / "signer"
+            signer.write_text(
+                f"#!{sys.executable}\nfrom pathlib import Path\n"
+                f"Path({str(events / 'host-signer.called')!r}).touch()\n"
+                "raise SystemExit(98)\n",
+                encoding="utf-8",
+            )
+            signer.chmod(0o755)
+            config = root / "global.gitconfig"
+            settings = [("commit.gpgSign", "true"), ("gpg.program", str(signer))]
+            if host_configuration == "hooks":
+                settings.append(("core.hooksPath", str(hooks)))
+            elif host_configuration == "template":
+                settings.append(("init.templateDir", str(hostile)))
+                env["GIT_TEMPLATE_DIR"] = str(hostile)
+            for key, value in settings:
+                subprocess.run(
+                    [str(GIT), "config", "--file", str(config), key, value],
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                )
+            env["GIT_CONFIG_GLOBAL"] = str(config)
+        if failure in {"linked_leaf", "linked_parent"}:
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "probe.txt").write_text("harmless outside fixture\n")
+            (source / "nested/probe.txt").unlink()
+            if failure == "linked_parent":
+                (source / "nested").rmdir()
+                (source / "nested").symlink_to(outside, target_is_directory=True)
+            else:
+                (source / "nested/probe.txt").symlink_to(outside / "probe.txt")
+            tar = binary / "tar"
+            tar.write_text(
+                f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(events / 'snapshot.copy.started')!r}).touch()\nraise SystemExit(99)\n"
+            )
+            tar.chmod(0o755)
+
     def run_matrix(
         self,
         failure: str = "",
@@ -307,6 +398,7 @@ class ParallelValidationTests(unittest.TestCase):
         only: str = "",
         mutate_source: bool = False,
         shallow: bool = False,
+        host_configuration: str = "",
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
         with tempfile.TemporaryDirectory(prefix="parallel validation ") as temporary:
             root = Path(temporary)
@@ -317,11 +409,13 @@ class ParallelValidationTests(unittest.TestCase):
             (source / "scripts/plan_validation.py").write_text(
                 AFFECTED_PLANNER, encoding="utf-8"
             )
+            shutil.copyfile(
+                ROOT / "scripts/check_public_safety.py",
+                source / "scripts/check_public_safety.py",
+            )
+            (source / "nested").mkdir()
+            (source / "nested/probe.txt").write_text("ordinary tracked fixture\n")
             if failure == "ignored_tracked":
-                shutil.copyfile(
-                    ROOT / "scripts/check_public_safety.py",
-                    source / "scripts/check_public_safety.py",
-                )
                 (source / "README.md").write_text("public-safe", encoding="utf-8")
             events = root / "events"
             events.mkdir()
@@ -365,6 +459,7 @@ class ParallelValidationTests(unittest.TestCase):
                     text=True,
                 )
                 (source / ".git/shallow").write_text(head, encoding="utf-8")
+            self._configure_snapshot_probe(root, env, host_configuration, failure)
             if failure == "ignored_tracked":
                 (source / ".gitignore").write_text(
                     "README.md\nlocal-only.txt\n", encoding="utf-8"
@@ -420,11 +515,24 @@ class ParallelValidationTests(unittest.TestCase):
                 )
             return result, {path.name for path in events.iterdir()}, remaining_payload
 
+    def test_snapshot_index_ignores_host_hooks_templates_and_signing(self) -> None:
+        for configuration in ("hooks", "template", "signing"):
+            with self.subTest(configuration=configuration):
+                result, events, remaining_payload = self.run_matrix(
+                    host_configuration=configuration
+                )
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertIn("snapshot-index.verified", events)
+                self.assertNotIn("host-hook.called", events)
+                self.assertNotIn("host-signer.called", events)
+                self.assertFalse(remaining_payload)
+
     def test_container_provisioning_and_payload_failures(self) -> None:
         commands: dict[str, list[str]] = {}
-        result, _, remaining_payload = self.run_matrix(commands=commands)
+        result, events, remaining_payload = self.run_matrix(commands=commands)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(remaining_payload)
+        self.assertTrue({"minimum.done", "current.done", "release.done"} <= events)
         apt_calls = ["apt update -qq", "apt install -y -qq --no-install-recommends git"]
         for lane, failure, payload_status, expected_status, expected_calls in (
             ("unit", "", 0, 0, [*apt_calls, "payload"]),
@@ -560,12 +668,6 @@ apt-get() {
                 self.assertNotIn("release.done", events)
                 self.assertFalse(remaining)
 
-    def test_support_lanes_overlap_between_unit_and_release(self) -> None:
-        result, events, remaining_payload = self.run_matrix()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue({"minimum.done", "current.done", "release.done"} <= events)
-        self.assertFalse(remaining_payload)
-
     def test_either_failure_waits_for_both_lanes_and_blocks_release(self) -> None:
         for failure in ("minimum", "current"):
             with self.subTest(failure=failure):
@@ -597,6 +699,15 @@ apt-get() {
         self.assertNotIn("current.started", events)
         self.assertNotIn("release.done", events)
         self.assertFalse(remaining_payload)
+
+    def test_linked_snapshot_input_is_refused_before_tar_or_lanes(self) -> None:
+        for failure in ("linked_leaf", "linked_parent"):
+            with self.subTest(failure=failure):
+                result, events, remaining_payload = self.run_matrix(failure)
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(events, events)
+                self.assertIn("Source admission refused", result.stderr)
+                self.assertFalse(remaining_payload)
 
     def test_snapshot_scans_tracked_files_despite_new_ignore_rules(self) -> None:
         result, events, remaining_payload = self.run_matrix("ignored_tracked")

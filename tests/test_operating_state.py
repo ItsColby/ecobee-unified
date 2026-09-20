@@ -9,6 +9,7 @@ from custom_components.ecobee_unified.models import (
     SourceHealth,
     build_snapshot,
     degradation_advisories,
+    degradation_problem_reasons,
     equipment_stage,
 )
 
@@ -164,3 +165,53 @@ def test_each_read_policy_has_explicit_no_fallback(field: str) -> None:
     assert getattr(snapshot, field) is None
     assert not snapshot.homekit_writable
     assert snapshot.ecobee_writable
+
+
+@pytest.mark.parametrize("mapping", ["zone_a", "zone_b"])
+@pytest.mark.parametrize("selection", ["explicit_split", "partial_fallback"])
+def test_conflicting_target_range_preserves_owners_and_recovers(
+    mapping: str, selection: str
+) -> None:
+    local = report("idle")
+    cloud = report("idle")
+    local_attributes = dict(local.attributes) | {
+        "target_temp_low": 24.0,
+        "target_temp_high": 26.0,
+    }
+    cloud = replace(
+        cloud,
+        attributes=dict(cloud.attributes)
+        | {"target_temp_low": 18.0, "target_temp_high": 20.0},
+    )
+    policies = {}
+    if selection == "explicit_split":
+        policies["target_temperature_high"] = "ecobee_only"
+    else:
+        local_attributes.pop("target_temp_high")
+    local = replace(local, attributes=local_attributes)
+    baseline = build_snapshot(mapping, local, cloud)
+    conflict = build_snapshot(mapping, local, cloud, read_policies=policies)
+
+    assert conflict.target_temperature_low is None
+    assert conflict.target_temperature_high is None
+    assert "target_temperature_range_conflict" in degradation_problem_reasons(conflict)
+    assert conflict.provenance["target_temperature_low"] == "homekit"
+    assert conflict.provenance["target_temperature_high"] == "ecobee"
+    assert conflict.available
+    assert conflict.current_temperature == baseline.current_temperature
+    assert conflict.target_temperature == baseline.target_temperature
+    assert conflict.homekit_writable == baseline.homekit_writable
+    assert conflict.supported_features == baseline.supported_features
+    assert conflict.confirmation_values == baseline.confirmation_values
+    assert conflict.confirmation_values["target_temperature_low"] == 18.0
+    assert conflict.confirmation_values["target_temperature_high"] == 20.0
+
+    cloud = replace(
+        cloud, attributes=dict(cloud.attributes) | {"target_temp_high": 27.0}
+    )
+    recovered = build_snapshot(mapping, local, cloud, read_policies=policies)
+    assert recovered.target_temperature_low == 24.0
+    assert recovered.target_temperature_high == 27.0
+    assert "target_temperature_range_conflict" not in recovered.degradation
+    assert recovered.provenance["target_temperature_low"] == "homekit"
+    assert recovered.provenance["target_temperature_high"] == "ecobee"

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.core import HomeAssistant, callback
@@ -225,6 +226,116 @@ async def test_rename_loss_fallback_recovery_and_removal_repair(
     await hass.async_block_till_done()
     issue = ir.async_get(hass).async_get_issue(DOMAIN, "mapping_mapping_a")
     assert issue is not None
+
+
+@pytest.mark.parametrize("selection", ["explicit_split", "partial_fallback"])
+async def test_serialized_climate_withholds_conflicting_range_and_recovers(
+    hass: HomeAssistant, selection: str
+) -> None:
+    sources = {
+        zone: (
+            _register_source(
+                hass, "homekit_controller", f"hk_{zone}", with_device=True
+            ),
+            _register_source(hass, "ecobee", f"ec_{zone}", with_device=True),
+        )
+        for zone in ("a", "b")
+    }
+    local_attributes = _climate_attributes(20.0) | {
+        "target_temp_low": 24.0,
+        "target_temp_high": 26.0,
+        "supported_features": 387,
+    }
+    if selection == "partial_fallback":
+        local_attributes.pop("target_temp_high")
+    cloud_attributes = _climate_attributes(20.5) | {
+        "target_temp_low": 18.0,
+        "target_temp_high": 27.0,
+    }
+    for hk, ec in sources.values():
+        hass.states.async_set(hk.entity_id, "heat_cool", local_attributes)
+        hass.states.async_set(ec.entity_id, "heat_cool", cloud_attributes)
+    entry = _entry(
+        hass,
+        tuple(
+            _mapping(f"mapping_{zone}", f"Zone {zone.upper()}", hk, ec)
+            for zone, (hk, ec) in sources.items()
+        ),
+    )
+    if selection == "explicit_split":
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                "read_policies": {
+                    f"mapping_{zone}": {"target_temperature_high": "ecobee_only"}
+                    for zone in sources
+                }
+            },
+        )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    for zone, (_, ec) in sources.items():
+        unified = registry.async_get_entity_id("climate", DOMAIN, f"mapping_{zone}")
+        assert unified is not None
+        initial = hass.states.get(unified)
+        assert initial is not None
+        assert initial.attributes["target_temp_low"] == 24.0
+        assert initial.attributes["target_temp_high"] == 27.0
+
+        hass.states.async_set(
+            ec.entity_id,
+            "heat_cool",
+            cloud_attributes | {"target_temp_high": 20.0},
+        )
+        await hass.async_block_till_done()
+        conflict = hass.states.get(unified)
+        assert conflict is not None
+        assert conflict.state == "heat_cool"
+        assert conflict.attributes["target_temp_low"] is None
+        assert conflict.attributes["target_temp_high"] is None
+        assert conflict.attributes["current_temperature"] == 20.0
+        assert conflict.attributes["temperature"] == 21.0
+        assert (
+            conflict.attributes["supported_features"]
+            == initial.attributes["supported_features"]
+        )
+        assert (
+            "target_temperature_range_conflict"
+            in conflict.attributes["problem_reasons"]
+        )
+        assert (
+            conflict.attributes["selected_sources"]["target_temperature_low"]
+            == "homekit"
+        )
+        assert (
+            conflict.attributes["selected_sources"]["target_temperature_high"]
+            == "ecobee"
+        )
+        snapshot = entry.runtime_data.manager.snapshot(f"mapping_{zone}")
+        assert snapshot.homekit_writable
+        assert snapshot.confirmation_values["target_temperature_low"] == 18.0
+        assert snapshot.confirmation_values["target_temperature_high"] == 20.0
+        other_zone = "b" if zone == "a" else "a"
+        other_unified = registry.async_get_entity_id(
+            "climate", DOMAIN, f"mapping_{other_zone}"
+        )
+        assert other_unified is not None
+        other_state = hass.states.get(other_unified)
+        assert other_state is not None
+        assert other_state.attributes["target_temp_low"] == 24.0
+        assert other_state.attributes["target_temp_high"] == 27.0
+
+        hass.states.async_set(ec.entity_id, "heat_cool", cloud_attributes)
+        await hass.async_block_till_done()
+        recovered = hass.states.get(unified)
+        assert recovered is not None
+        assert recovered.attributes["target_temp_low"] == 24.0
+        assert recovered.attributes["target_temp_high"] == 27.0
+        assert (
+            "target_temperature_range_conflict"
+            not in recovered.attributes["problem_reasons"]
+        )
 
 
 async def test_standard_and_vendor_commands_have_exactly_one_writer(

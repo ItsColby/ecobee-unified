@@ -373,6 +373,16 @@ def _equipment_qualifiers(
     return stage, detail_status
 
 
+def _coherent_target_temperature_range(
+    low: float | None, high: float | None, degradation: set[str]
+) -> tuple[float | None, float | None]:
+    """Withhold contradictory endpoints without changing their selected owners."""
+    if low is not None and high is not None and low > high:
+        degradation.add("target_temperature_range_conflict")
+        return None, None
+    return low, high
+
+
 def build_snapshot(
     mapping_id: str,
     homekit: RawSource,
@@ -433,6 +443,14 @@ def build_snapshot(
             provenance[target] = owner
             if owner == "ecobee" and policy == "homekit_first":
                 degradation.add("homekit_read_fallback")
+
+    values["target_temperature_low"], values["target_temperature_high"] = (
+        _coherent_target_temperature_range(
+            values["target_temperature_low"],
+            values["target_temperature_high"],
+            degradation,
+        )
+    )
 
     current_temperature, temperature_owner, temperature_degradation = (
         _select_current_temperature(

@@ -11,8 +11,8 @@ A config entry contains one or more explicit `MappingConfig` records. Each has a
 Keeping the mappings in one hub entry makes collection-wide duplicate checks
 and reconfiguration one transaction. Stable mapping IDs already distinguish the
 entities, so the design does not add a separate subentry lifecycle and migration
-for each thermostat. The flow saves only if the original entry data is still
-current. [Manifest](../custom_components/ecobee_unified/manifest.json),
+for each thermostat. The flow saves only if the original entry data and options
+are still current. [Manifest](../custom_components/ecobee_unified/manifest.json),
 [collection save](../custom_components/ecobee_unified/config_flow.py).
 
 The manifest declares neither source `dependencies` nor `after_dependencies`.
@@ -92,6 +92,16 @@ A `RawSource` is usable only when its effective health is `healthy` and it has a
 | AQI, CO2, VOC | Their own selected, eligible Ecobee sensors; one sensor's absence does not remove another sensor's value. |
 
 The climate is available exactly when a valid HVAC mode and current temperature can be projected. Other fields can be missing while it remains available. Conversely, a readable climate can expose no ordinary controls because its current values came from fallback. [Snapshot construction](../custom_components/ecobee_unified/models.py), [fallback and capability tests](../tests/test_models.py).
+
+After independent endpoint selection, an inverted target range (low greater than
+high) withholds both canonical endpoints and adds the problem reason
+`target_temperature_range_conflict`. This applies to both same-source and mixed
+source pairs. Provenance, unrelated readings, writer authority, and the separate
+command-confirmation observations remain intact. Equal endpoints and
+single available endpoints are retained. The range recovers on the next snapshot
+with ordered selected values; normalization does not reselect a source to repair
+the pair. [Range and recovery tests](../tests/test_operating_state.py),
+[native climate serialization](../tests/test_integration_ha.py).
 
 ### Keep current action and reported stage coherent
 
@@ -377,7 +387,21 @@ The confirmation timer starts after successful writer return when the command is
 
 ## Keep configuration and entity identity stable
 
-The native flow owns one config entry with a nonempty mapping collection. Reconfigure stages adds, edits, and removals, then saves the collection on Finish only if the entry data still matches the original snapshot. Writer-reference changes and mapping removals require explicit confirmation; observation-only edits and name changes do not change the mapping ID. The last mapping cannot be removed through this flow. Options independently update only cloud staleness and confirmation timing, with their own stale-edit guard: cloud age is 300–7,200 seconds in 60-second steps, confirmation is 300–1,800 seconds in 30-second steps. Changed accepted configuration reloads through native config-entry APIs. [Flows](../custom_components/ecobee_unified/config_flow.py), [reconfigure and option tests](../tests/test_runtime_core_api.py).
+The native flow owns one config entry with a nonempty mapping collection.
+Reconfigure stages adds, edits, and removals across thermostat mappings,
+datapoints, and daily history. Save opens a changed-only native review with
+source labels, order, and material selection policy; submitting that review
+saves only if both entry data and options still match their original snapshots.
+An unchanged save exits without a review or reload. Writer-reference changes
+and mapping removals require explicit confirmation; observation-only edits and
+name changes do not change the mapping ID. The last mapping cannot be removed
+through this flow. Options independently update read preferences, cloud
+staleness, and confirmation timing, with their own stale-edit guard: cloud age
+is 300–7,200 seconds in 60-second steps, confirmation is 300–1,800 seconds in
+30-second steps. Changed accepted configuration reloads through native
+config-entry APIs. [Flows](../custom_components/ecobee_unified/config_flow.py),
+[reconfigure and option tests](../tests/test_runtime_core_api.py),
+[review and concurrency tests](../tests/test_datapoint_config.py).
 
 Editing can preserve an unchanged saved reference that is temporarily missing, and can retain an unchanged climate pairing whose identity is temporarily unproven. That allowance preserves intent; it does not validate a new source or restore runtime eligibility. An absent parent cannot establish the association of a newly selected optional source, and an explicit identity mismatch remains invalid. Accepted unknown data is preserved rather than silently erased. [Preservation boundaries](../custom_components/ecobee_unified/config_flow.py), [mapping merge](../custom_components/ecobee_unified/models.py), [missing-parent tests](../tests/test_configuration_source_contracts.py).
 

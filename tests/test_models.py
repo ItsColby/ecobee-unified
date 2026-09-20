@@ -223,6 +223,7 @@ class SnapshotTests(unittest.TestCase):
                 "heat",
                 {
                     "current_temperature": 20.0,
+                    "thermostat_temperature": 31.0,
                     "temperature": 21.0,
                     "hvac_action": "heating",
                     "hvac_modes": ["off", "heat", "cool"],
@@ -233,7 +234,7 @@ class SnapshotTests(unittest.TestCase):
             source(
                 "cool",
                 {
-                    "current_temperature": 28.0,
+                    "current_temperature": 28.63,
                     "temperature": 18.0,
                     "hvac_action": "cooling",
                     "preset_mode": "home",
@@ -245,7 +246,6 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(20.0, snapshot.current_temperature)
         self.assertEqual(21.0, snapshot.target_temperature)
         self.assertEqual("homekit", snapshot.provenance["current_temperature"])
-        self.assertNotEqual(24.0, snapshot.current_temperature)
         self.assertIsNone(snapshot.preset_mode)
         self.assertEqual("home", snapshot.ecobee_preset_mode)
         self.assertEqual("Home", snapshot.climate_mode)
@@ -409,15 +409,6 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertIsNone(mismatched.target_temperature_step)
 
-    def test_primary_precision_is_not_replaced_by_more_precise_fallback(self) -> None:
-        snapshot = build_snapshot(
-            "mapping_a",
-            source("heat", {"current_temperature": 20.0}),
-            source("heat", {"current_temperature": 20.63}),
-        )
-        self.assertEqual(20.0, snapshot.current_temperature)
-        self.assertEqual("homekit", snapshot.provenance["current_temperature"])
-
     def test_explicit_homekit_temperature_sensor_preserves_local_precision(
         self,
     ) -> None:
@@ -562,6 +553,7 @@ class SnapshotTests(unittest.TestCase):
                 "max_temp": 95.0,
                 "target_temp_step": 0.5,
                 "unit_of_measurement": "°F",
+                "humidity": 36.2,
             },
         )
         quantized = build_snapshot(
@@ -593,6 +585,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(command_matches(quantized, expected))
         self.assertTrue(command_matches(half_step, expected))
         self.assertFalse(command_matches(wrong_target, expected))
+        self.assertFalse(command_matches(quantized, {"target_humidity": 36.0}))
 
         fine_step = build_snapshot(
             "mapping_a",
@@ -618,18 +611,6 @@ class SnapshotTests(unittest.TestCase):
             confirmation_values=MappingProxyType({"target_temperature": 20.051}),
         )
         self.assertFalse(command_matches(fine_step, {"target_temperature": 20.0}))
-
-    def test_non_temperature_confirmation_keeps_strict_tolerance(self) -> None:
-        snapshot = build_snapshot(
-            "mapping_a",
-            source(
-                "heat",
-                {"current_temperature": 20.0, "humidity": 36.2},
-            ),
-            source("heat", {"current_temperature": 20.0}),
-        )
-
-        self.assertFalse(command_matches(snapshot, {"target_humidity": 36.0}))
 
     def test_explicit_temperature_falls_back_only_on_actual_unavailability(
         self,
@@ -715,20 +696,6 @@ class SnapshotTests(unittest.TestCase):
                     source("heat", {"current_temperature": 21.0}),
                 )
                 self.assertEqual(0, snapshot.supported_features)
-
-    def test_current_temperature_never_uses_similar_raw_sensor_field(self) -> None:
-        snapshot = build_snapshot(
-            "mapping_a",
-            source(
-                "heat",
-                {
-                    "current_temperature": 20.0,
-                    "thermostat_temperature": 31.0,
-                },
-            ),
-            source("heat", {"current_temperature": 21.0}),
-        )
-        self.assertEqual(20.0, snapshot.current_temperature)
 
     def test_optional_vendor_projections_are_bounded_and_independent(self) -> None:
         snapshot = build_snapshot(
@@ -825,25 +792,6 @@ class SnapshotTests(unittest.TestCase):
             degradation_problem_reasons(snapshot),
         )
 
-    def test_unknown_preset_is_actionable_without_a_usable_writer(self) -> None:
-        snapshot = build_snapshot(
-            "mapping_a",
-            source("heat", {"current_temperature": 20.0}),
-            source("heat", {"current_temperature": 21.0}),
-            homekit_preset=RawSource(
-                "unknown",
-                {"options": ["Home", "Away"]},
-                health=SourceHealth.UNKNOWN,
-            ),
-            homekit_preset_writable=False,
-        )
-
-        self.assertEqual((), degradation_advisories(snapshot))
-        self.assertIn(
-            "homekit_preset_unknown",
-            degradation_problem_reasons(snapshot),
-        )
-
     def test_every_nonadvisory_unhealthy_source_has_a_problem_reason(self) -> None:
         healthy_homekit = source("heat", {"current_temperature": 20.0})
         healthy_ecobee = source("heat", {"current_temperature": 21.0})
@@ -903,6 +851,12 @@ class SnapshotTests(unittest.TestCase):
                     snapshot.source_health[source_name],
                 )
                 self.assertTrue(degradation_problem_reasons(snapshot))
+                if source_name == "homekit_preset":
+                    self.assertEqual((), degradation_advisories(snapshot))
+                    self.assertIn(
+                        "homekit_preset_unknown",
+                        degradation_problem_reasons(snapshot),
+                    )
 
 
 if __name__ == "__main__":

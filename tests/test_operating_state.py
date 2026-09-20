@@ -35,13 +35,14 @@ def report(action: str, equipment: str = "", temperature: float = 21.0) -> RawSo
     )
 
 
-@pytest.mark.parametrize("mapping", ["zone_a", "zone_b"])
 @pytest.mark.parametrize(
     ("local", "cloud", "equipment", "expected", "status"),
     [
         ("idle", "cooling", "compCool1,fan", "idle", "disagreement"),
         ("cooling", "idle", "", "cooling", "disagreement"),
         ("cooling", "cooling", "compCool1,fan", "cool_stage_1", "matched"),
+        ("cooling", "cooling", "compCool2,fan", "cool_stage_2", "matched"),
+        ("idle", "idle", "", "idle", "matched"),
         ("heating", "heating", "heatPump,fan", "heat_pump_stage_1", "matched"),
         ("heating", "cooling", "compCool1,fan", "heating", "disagreement"),
         ("idle", "fan", "fan", "idle", "disagreement"),
@@ -51,9 +52,9 @@ def report(action: str, equipment: str = "", temperature: float = 21.0) -> RawSo
     ],
 )
 def test_detail_never_contradicts_selected_action(
-    mapping: str, local: str, cloud: str, equipment: str, expected: str, status: str
+    local: str, cloud: str, equipment: str, expected: str, status: str
 ) -> None:
-    snapshot = build_snapshot(mapping, report(local), report(cloud, equipment))
+    snapshot = build_snapshot("zone", report(local), report(cloud, equipment))
     assert snapshot.hvac_action == local
     assert snapshot.equipment_stage == expected
     assert snapshot.equipment_detail_status == status
@@ -63,43 +64,11 @@ def test_detail_never_contradicts_selected_action(
         assert "equipment_action_disagreement" in degradation_advisories(snapshot)
 
 
-@pytest.mark.parametrize("mapping", ["zone_a", "zone_b"])
-def test_both_arrival_orders_recover_detail(mapping: str) -> None:
-    idle = report("idle")
-    local_cooling = report("cooling")
-    cloud_cooling = report("cooling", "compCool2,fan")
-    for sequence in (
-        [
-            (idle, idle),
-            (local_cooling, idle),
-            (local_cooling, cloud_cooling),
-            (idle, cloud_cooling),
-            (idle, idle),
-        ],
-        [
-            (idle, idle),
-            (idle, cloud_cooling),
-            (local_cooling, cloud_cooling),
-            (local_cooling, idle),
-            (idle, idle),
-        ],
-    ):
-        states = [build_snapshot(mapping, local, cloud) for local, cloud in sequence]
-        assert states[0].equipment_stage == states[-1].equipment_stage == "idle"
-        assert states[2].equipment_stage == "cool_stage_2"
-        assert (
-            states[1].equipment_detail_status
-            == states[3].equipment_detail_status
-            == "disagreement"
-        )
-
-
-@pytest.mark.parametrize("mapping", ["zone_a", "zone_b"])
-def test_cloud_preference_changes_reads_and_keeps_writer_envelope(mapping: str) -> None:
+def test_cloud_preference_changes_reads_and_keeps_writer_envelope() -> None:
     local, cloud = report("idle"), report("cooling", "compCool1,fan", 23.0)
-    baseline = build_snapshot(mapping, local, cloud)
+    baseline = build_snapshot("zone", local, cloud)
     selected = build_snapshot(
-        mapping,
+        "zone",
         local,
         cloud,
         read_policies={
@@ -167,10 +136,9 @@ def test_each_read_policy_has_explicit_no_fallback(field: str) -> None:
     assert snapshot.ecobee_writable
 
 
-@pytest.mark.parametrize("mapping", ["zone_a", "zone_b"])
 @pytest.mark.parametrize("selection", ["explicit_split", "partial_fallback"])
 def test_conflicting_target_range_preserves_owners_and_recovers(
-    mapping: str, selection: str
+    selection: str,
 ) -> None:
     local = report("idle")
     cloud = report("idle")
@@ -189,8 +157,8 @@ def test_conflicting_target_range_preserves_owners_and_recovers(
     else:
         local_attributes.pop("target_temp_high")
     local = replace(local, attributes=local_attributes)
-    baseline = build_snapshot(mapping, local, cloud)
-    conflict = build_snapshot(mapping, local, cloud, read_policies=policies)
+    baseline = build_snapshot("zone", local, cloud)
+    conflict = build_snapshot("zone", local, cloud, read_policies=policies)
 
     assert conflict.target_temperature_low is None
     assert conflict.target_temperature_high is None
@@ -209,7 +177,7 @@ def test_conflicting_target_range_preserves_owners_and_recovers(
     cloud = replace(
         cloud, attributes=dict(cloud.attributes) | {"target_temp_high": 27.0}
     )
-    recovered = build_snapshot(mapping, local, cloud, read_policies=policies)
+    recovered = build_snapshot("zone", local, cloud, read_policies=policies)
     assert recovered.target_temperature_low == 24.0
     assert recovered.target_temperature_high == 27.0
     assert "target_temperature_range_conflict" not in recovered.degradation

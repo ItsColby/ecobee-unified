@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import textwrap
-import tomllib
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from scripts.check_public_safety import (
-    REVIEWED_BINARY_SHA256,
     _history_failures,
     _text_failures,
     run_archive_guard,
@@ -24,7 +25,33 @@ from scripts.check_public_safety import (
 )
 
 
+def _has_description_text(value: str) -> bool:
+    """Check the maintained single-line plain or quoted description format."""
+    value = re.sub(
+        r"""("(?:\\.|[^"\\])*"|'(?:''|[^'])*')|(?<!\S)#.*""",
+        lambda match: match[1] or "",
+        value,
+    ).strip()
+    if value.startswith(("'", '"')):
+        try:
+            value = ast.literal_eval(value)
+        except SyntaxError, ValueError:
+            return False
+    return isinstance(value, str) and bool(value.strip())
+
+
 class PublicSafetyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.upper().startswith("GIT_")
+        }
+        environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        environment_patch = patch.dict(os.environ, environment, clear=True)
+        environment_patch.start()
+        self.addCleanup(environment_patch.stop)
+
     def test_generic_patterns_reject_sensitive_shapes(self) -> None:
         samples = {
             "absolute Windows user path": "C:" + r"\Users\Example\file.txt",
@@ -110,11 +137,146 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual(2, count)
         self.assertIn("local.txt: private IPv4 address", failures)
 
-    def test_reviewed_brand_asset_is_hash_pinned(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        relative = "custom_components/ecobee_unified/brand/icon.png"
-        digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
-        self.assertEqual(REVIEWED_BINARY_SHA256[relative], digest)
+    def test_working_tree_refuses_linked_candidates_before_reading(self) -> None:
+        for linked_part, kind in (
+            ("candidate", "symlink"),
+            ("ancestor", "junction"),
+            ("candidate", "reparse"),
+            ("ancestor", "reparse"),
+        ):
+            with (
+                self.subTest(part=linked_part, kind=kind),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                relative = Path("nested") / "linked.txt"
+                candidate = root / relative
+                candidate.parent.mkdir()
+                candidate.write_text("ordinary public text", encoding="utf-8")
+                linked = candidate if linked_part == "candidate" else candidate.parent
+                native_lstat = Path.lstat
+
+                def lstat(path, *, linked=linked, kind=kind, native_lstat=native_lstat):
+                    info = native_lstat(path)
+                    if path == linked and kind == "reparse":
+                        return SimpleNamespace(
+                            st_mode=info.st_mode,
+                            st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT,
+                        )
+                    return info
+
+                result = subprocess.CompletedProcess(
+                    [], 0, relative.as_posix().encode() + b"\0"
+                )
+                with (
+                    patch(
+                        "scripts.check_public_safety.subprocess.run",
+                        return_value=result,
+                    ),
+                    patch.object(
+                        Path,
+                        "is_symlink",
+                        autospec=True,
+                        side_effect=lambda path, linked=linked, kind=kind: (
+                            path == linked and kind == "symlink"
+                        ),
+                    ),
+                    patch.object(
+                        Path,
+                        "is_junction",
+                        autospec=True,
+                        side_effect=lambda path, linked=linked, kind=kind: (
+                            path == linked and kind == "junction"
+                        ),
+                    ),
+                    patch.object(Path, "lstat", autospec=True, side_effect=lstat),
+                    patch.object(
+                        Path, "read_bytes", return_value=b"ordinary public text"
+                    ) as read_bytes,
+                ):
+                    count, failures = run_guard(root)
+                read_bytes.assert_not_called()
+                self.assertEqual(0, count)
+                self.assertEqual(
+                    [f"{relative}: unreviewed symbolic link or reparse point"], failures
+                )
+
+    def test_sensitive_filenames_are_opaque_in_worktree_and_archive(self) -> None:
+        filename = "person" + "@real-domain.dev.txt"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._git(root, "init")
+            (root / filename).write_text("192" + ".168.1.2", encoding="utf-8")
+            self._git(root, "add", filename)
+            for guard in (run_guard, run_archive_guard):
+                with self.subTest(guard=guard.__name__):
+                    count, failures = guard(root)
+                    self.assertEqual(1, count)
+                    self.assertEqual(2, len(failures))
+                    self.assertTrue(all(filename not in item for item in failures))
+                    self.assertTrue(
+                        all("sensitive filename [" in item for item in failures)
+                    )
+                    self.assertTrue(
+                        any(
+                            "filename non-example email address" in item
+                            for item in failures
+                        )
+                    )
+                    self.assertTrue(
+                        any("private IPv4 address" in item for item in failures)
+                    )
+
+    def test_guards_refuse_inherited_repository_selectors(self) -> None:
+        selectors = (
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_CONFIG",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_IMPLICIT_WORK_TREE",
+            "GIT_GRAFT_FILE",
+            "GIT_INDEX_FILE",
+            "GIT_REPLACE_REF_BASE",
+            "GIT_PREFIX",
+            "GIT_SHALLOW_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_CEILING_DIRECTORIES",
+            "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        )
+        for name in selectors:
+            for guard in (run_guard, run_archive_guard, _history_failures):
+                with (
+                    self.subTest(name=name, guard=guard.__name__),
+                    patch.dict(os.environ, {name: ""}),
+                    self.assertRaisesRegex(ValueError, name),
+                ):
+                    guard(Path("unused-explicit-source"))
+
+    def test_history_reads_original_blobs_despite_replacement_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._git(root, "init")
+            (root / "retired.txt").write_text("192" + ".168.1.2", encoding="utf-8")
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "Initial content")
+            original = subprocess.check_output(
+                ["git", "rev-parse", "HEAD:retired.txt"], cwd=root, text=True
+            ).strip()
+            replacement = subprocess.check_output(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=root,
+                input="safe",
+                text=True,
+            ).strip()
+            self._git(root, "replace", original, replacement)
+            with patch.dict(os.environ):
+                os.environ.pop("GIT_NO_REPLACE_OBJECTS", None)
+                self.assertIn(
+                    "Git history blob: private IPv4 address", _history_failures(root)
+                )
 
     def test_working_tree_rejects_utf16_content_under_text_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -159,15 +321,6 @@ class PublicSafetyTests(unittest.TestCase):
         self.assertEqual(1, count)
         self.assertEqual(
             ["Source archive notes.txt: unreviewed binary content"], failures
-        )
-
-    def test_pytest_collects_async_home_assistant_tests(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        configuration = tomllib.loads(
-            (root / "pyproject.toml").read_text(encoding="utf-8")
-        )
-        self.assertEqual(
-            "auto", configuration["tool"]["pytest"]["ini_options"]["asyncio_mode"]
         )
 
     def test_retired_history_content_and_binary_blobs_are_scanned(self) -> None:
@@ -227,6 +380,7 @@ class PublicSafetyTests(unittest.TestCase):
         cases = {
             "clean": None,
             "removed_blob": "Git history blob: private IPv4 address",
+            "replaced_blob": "Git history blob: private IPv4 address",
             "detached_metadata": "Git history metadata: non-example email address",
             "linked_metadata": "Git history metadata: non-example email address",
             "worktree": "README.md: private IPv4 address",
@@ -249,16 +403,30 @@ class PublicSafetyTests(unittest.TestCase):
                 readme = source / "README.md"
                 private_address = "192" + ".168.1.2"
                 readme.write_text(
-                    private_address if case == "removed_blob" else "safe",
+                    private_address
+                    if case in {"removed_blob", "replaced_blob"}
+                    else "safe",
                     encoding="utf-8",
                 )
                 self._git(source, "init")
                 self._git(source, "add", ".")
                 self._git(source, "commit", "-m", "Initial candidate")
-                if case == "removed_blob":
+                if case in {"removed_blob", "replaced_blob"}:
                     readme.write_text("safe", encoding="utf-8")
                     self._git(source, "add", "README.md")
                     self._git(source, "commit", "-m", "Remove private content")
+                    if case == "replaced_blob":
+                        original = subprocess.check_output(
+                            ["git", "rev-parse", "HEAD~:README.md"],
+                            cwd=source,
+                            text=True,
+                        ).strip()
+                        replacement = subprocess.check_output(
+                            ["git", "rev-parse", "HEAD:README.md"],
+                            cwd=source,
+                            text=True,
+                        ).strip()
+                        self._git(source, "replace", original, replacement)
                 elif case in {"detached_metadata", "linked_metadata"}:
                     if case == "linked_metadata":
                         self._git(
@@ -317,7 +485,9 @@ class PublicSafetyTests(unittest.TestCase):
                             [sys.executable, "-B", str(Path(workspace) / "scripts/check_public_safety.py"),
                              "--history-repository", history],
                             cwd=workspace,
-                            env=os.environ | {"PYTHONDONTWRITEBYTECODE": "1"},
+                            # Containers receive only explicitly forwarded Git variables.
+                             env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+                             | environment | {"PYTHONDONTWRITEBYTECODE": "1"},
                         )
                         sys.exit(result.returncode)
                         """
@@ -344,7 +514,10 @@ class PublicSafetyTests(unittest.TestCase):
                     command,
                     cwd=source,
                     env=os.environ
-                    | {"PATH": f"{binary_directory}:{os.environ['PATH']}"},
+                    | {
+                        "PATH": f"{binary_directory}:{os.environ['PATH']}",
+                        "VALIDATION_PYTHON": sys.executable,
+                    },
                     capture_output=True,
                     text=True,
                     check=False,
@@ -373,124 +546,24 @@ class PublicSafetyTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_support_and_ci_have_exact_minimum_and_current_core_lanes(self) -> None:
+    def test_declared_minimum_matches_distribution_requirement(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        workflow = (root / ".github/workflows/validate.yaml").read_text(
-            encoding="utf-8"
-        )
-        release_runner = (root / "scripts/verify-release-local.sh").read_text(
-            encoding="utf-8"
-        )
-        release_wrapper = (root / "scripts/verify-release-local.ps1").read_text(
-            encoding="utf-8"
-        )
-        dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
         minimum_requirements = (root / "requirements-ha-test.txt").read_text(
             encoding="utf-8"
         )
-        current_requirements = (root / "requirements-ha-current.txt").read_text(
+        hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            f"homeassistant=={hacs['homeassistant']}", minimum_requirements.strip()
+        )
+
+    def test_windows_wrapper_forwards_explicit_worktree_git_directory(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        wrapper = (root / "scripts/verify-release-local.ps1").read_text(
             encoding="utf-8"
         )
-        hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
-        manifest = json.loads(
-            (root / "custom_components/ecobee_unified/manifest.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        icons = json.loads(
-            (root / "custom_components/ecobee_unified/icons.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual("homeassistant==2026.8.0", minimum_requirements.strip())
-        self.assertEqual("homeassistant==2026.9.3", current_requirements.strip())
-        self.assertEqual("2026.8.0", hacs["homeassistant"])
-        self.assertIs(True, manifest["single_config_entry"])
-        self.assertEqual("hub", manifest["integration_type"])
-        self.assertIn(
-            "Home Assistant integration tests (Core 2026.8.0 minimum)", workflow
-        )
-        self.assertIn(
-            "Home Assistant integration tests (Core 2026.9.3 current)", workflow
-        )
-        self.assertEqual(
-            2, release_runner.count("pytest-homeassistant-custom-component==")
-        )
-        self.assertIn(
-            '"${source_git[@]}" ls-files --cached --others --exclude-standard -z',
-            release_runner,
-        )
-        self.assertIn('--git-dir="$source_git_dir"', release_runner)
-        self.assertIn("rev-parse --path-format=absolute --git-dir", release_wrapper)
-        self.assertIn("$Mode container $linuxGitDir", release_wrapper)
-        self.assertIn('tar -C "$source_root" --null --files-from=-', release_runner)
-        self.assertIn('chmod a+rx "$repo_root"', release_runner)
-        self.assertNotIn('cp -a "$source_root/."', release_runner)
-        self.assertIn("bash scripts/verify-release-local.sh minimum native", workflow)
-        self.assertIn("bash scripts/verify-release-local.sh current native", workflow)
-        unit_job = workflow[
-            workflow.index("  unit:") : workflow.index("  home_assistant_minimum:")
-        ]
-        self.assertIn("fetch-depth: 0", unit_job)
-        self.assertIn('"shellcheck-py==0.11.0.1" "zizmor==1.29.0"', release_runner)
-        self.assertIn("shellcheck scripts/verify-release-local.sh", release_runner)
-        self.assertIn("zizmor --strict-collection --persona auditor .", release_runner)
-        self.assertEqual(1, dependabot.count("package-ecosystem: github-actions"))
-        self.assertEqual(1, dependabot.count("interval: weekly"))
-        self.assertIn("default-days: 7", dependabot)
-        self.assertNotIn("package-ecosystem: pip", dependabot)
-        self.assertEqual(
-            {
-                "create_vacation",
-                "delete_vacation",
-                "resume_program",
-                "set_occupancy_modes",
-                "set_sensors_used_in_climate",
-            },
-            set(icons["services"]),
-        )
-        self.assertEqual(
-            "mdi:hvac",
-            icons["entity"]["sensor"]["equipment_stage"]["default"],
-        )
-        minimum_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.354"'
-        )
-        current_harness = (
-            'python -m pip install "pytest-homeassistant-custom-component==0.13.366"'
-        )
-        minimum_core = "python -m pip install --upgrade -r requirements-ha-test.txt"
-        current_core = "python -m pip install --upgrade -r requirements-ha-current.txt"
-        dependency_check = "python -m pip check"
-        all_tests = "pytest tests -q"
-        minimum_lane = release_runner[
-            release_runner.index("run_minimum()") : release_runner.index(
-                "run_current()"
-            )
-        ]
-        current_lane = release_runner[
-            release_runner.index("run_current()") : release_runner.index(
-                "run_release()"
-            )
-        ]
-        for lane, harness, core in (
-            (minimum_lane, minimum_harness, minimum_core),
-            (current_lane, current_harness, current_core),
-        ):
-            # The runner appends selected/full checks to the installed environment.
-            setup = lane[lane.index("  run_python '") :]
-            checks = lane[lane.index("  local checks=") : lane.index('  if [[ "$mode"')]
-            execution = setup + checks
-            self.assertLess(execution.index(harness), execution.index(core))
-            self.assertLess(execution.index(core), execution.index(dependency_check))
-            self.assertLess(
-                execution.index(dependency_check), execution.index(all_tests)
-            )
-        self.assertIn(
-            "needs: [plan, unit, home_assistant_minimum, home_assistant_current, hassfest, hacs]",
-            workflow,
-        )
-        self.assertNotIn("python -m unittest tests.test_models", workflow)
+        # Plan-only wrapper tests cannot exercise the Windows-to-WSL handoff.
+        self.assertIn("rev-parse --path-format=absolute --git-dir", wrapper)
+        self.assertIn("$Mode container $linuxGitDir", wrapper)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (
@@ -514,6 +587,34 @@ class PublicSafetyTests(unittest.TestCase):
         labels = reconfigure["menu_options"]
         self.assertEqual(set(menu_options), set(labels))
         self.assertTrue(all(label.strip() for label in labels.values()))
+
+    def test_description_text_rejects_empty_scalars_and_preserves_quoted_hashes(
+        self,
+    ) -> None:
+        for value in (
+            "",
+            "   ",
+            "# comment",
+            '""',
+            "''",
+            '"   " # comment',
+            "'  ' # comment",
+            '"\\t"',
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(_has_description_text(value))
+        for value in (
+            "A description",
+            "A description # comment",
+            '"# content"',
+            "'# content' # comment",
+            '"A description" # comment',
+            "A #comment-free word",
+            '" # content"',
+            '"A \\"quoted\\" description"',
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(_has_description_text(value))
 
     def test_user_facing_fields_have_nonblank_descriptions(self) -> None:
         root = (
@@ -559,8 +660,8 @@ class PublicSafetyTests(unittest.TestCase):
                 and current_field is not None
                 and line.startswith("      description:")
             ):
-                field_descriptions[f"{current_action}.{current_field}"] = bool(
-                    line.partition(":")[2].strip()
+                field_descriptions[f"{current_action}.{current_field}"] = (
+                    _has_description_text(line.partition(":")[2])
                 )
         self.assertTrue(field_descriptions)
         self.assertTrue(

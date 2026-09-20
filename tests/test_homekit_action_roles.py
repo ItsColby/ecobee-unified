@@ -199,28 +199,40 @@ class HomeKitActionRoleTests(CoreRuntimeTestCase):
         snapshot = self.manager.snapshot("mapping_a")
         lock = self.manager._command_locks["mapping_a"]
         await lock.acquire()
-        preset_command = asyncio.create_task(
-            self.manager.async_set_preset_mode("mapping_a", "Away", None)
-        )
-        resume_command = asyncio.create_task(
-            self.manager.async_resume_program("mapping_a", None)
-        )
-        await asyncio.sleep(0)
-        self.registry.async_update_entity(
-            self.preset.entity_id, translation_key="temperature_display_units"
-        )
-        self.registry.async_update_entity(
-            self.clear_hold.entity_id, original_device_class="identify"
-        )
-        with patch.object(self.manager, "snapshot", return_value=snapshot):
-            lock.release()
-            outcomes = await asyncio.gather(
-                preset_command, resume_command, return_exceptions=True
+        fixture_holds_lock = True
+        preset_command = resume_command = None
+        try:
+            preset_command = asyncio.create_task(
+                self.manager.async_set_preset_mode("mapping_a", "Away", None)
             )
-        self.assertTrue(
-            all(isinstance(result, ServiceValidationError) for result in outcomes)
-        )
-        self.assertFalse(self.calls)
+            resume_command = asyncio.create_task(
+                self.manager.async_resume_program("mapping_a", None)
+            )
+            await asyncio.sleep(0)
+            self.registry.async_update_entity(
+                self.preset.entity_id, translation_key="temperature_display_units"
+            )
+            self.registry.async_update_entity(
+                self.clear_hold.entity_id, original_device_class="identify"
+            )
+            with patch.object(self.manager, "snapshot", return_value=snapshot):
+                lock.release()
+                fixture_holds_lock = False
+                outcomes = await asyncio.wait_for(
+                    asyncio.gather(
+                        preset_command, resume_command, return_exceptions=True
+                    ),
+                    timeout=1,
+                )
+            self.assertTrue(
+                all(isinstance(result, ServiceValidationError) for result in outcomes)
+            )
+            self.assertFalse(self.calls)
+
+        finally:
+            if fixture_holds_lock:
+                lock.release()
+            await self._settle_fixture_tasks(preset_command, resume_command)
 
     async def test_renamed_sources_preserve_identity_and_native_dispatch(self) -> None:
         renamed_preset = self.registry.async_update_entity(

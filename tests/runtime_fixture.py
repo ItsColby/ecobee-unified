@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 import unittest
@@ -133,6 +134,35 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.manager.async_stop()
         await self.hass.async_stop(force=True)
+
+    async def _wait_for_fixture_event(
+        self, task: asyncio.Task[None], started: asyncio.Event
+    ) -> None:
+        """Report an early command result instead of waiting on its absent writer."""
+        waiter = asyncio.create_task(started.wait())
+        try:
+            done, _ = await asyncio.wait(
+                (task, waiter), timeout=1, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                await task
+                self.fail("Command completed before reaching the fixture writer")
+            self.assertIn(waiter, done, "Command did not reach the fixture writer")
+        finally:
+            waiter.cancel()
+            await asyncio.gather(waiter, return_exceptions=True)
+
+    async def _settle_fixture_tasks(self, *tasks: asyncio.Task[None] | None) -> None:
+        """Cancel and retrieve only the caller tasks created by a gated fixture."""
+        owned = [task for task in tasks if task is not None]
+        for task in owned:
+            if not task.done():
+                task.cancel()
+        done, pending = await asyncio.wait(owned, timeout=1)
+        for task in done:
+            if not task.cancelled():
+                task.exception()
+        self.assertFalse(pending, "Fixture command tasks did not settle")
 
     def _source(
         self,

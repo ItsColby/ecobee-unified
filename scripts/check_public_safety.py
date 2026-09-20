@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
+import stat
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -52,6 +55,36 @@ REVIEWED_BINARY_SHA256 = {
 REVIEWED_BINARY_HASHES = frozenset(REVIEWED_BINARY_SHA256.values())
 
 
+def _git_command(*arguments: str) -> list[str]:
+    local_names = {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    }
+    # GIT_CONFIG_KEY/VALUE entries are inert without GIT_CONFIG_COUNT; native
+    # hook cleanup unsets the count and may leave those unused entries behind.
+    inherited = sorted(name for name in os.environ if name in local_names)
+    if inherited:
+        raise ValueError(
+            "Inherited local Git overrides are not supported: " + ", ".join(inherited)
+        )
+
+    return ["git", "--no-replace-objects", "--no-optional-locks", *arguments]
+
+
 def _text_failures(text: str) -> set[str]:
     # Only this path check may ignore an exact reviewed public documentation URL.
     unix_path_text = PUBLIC_URL_PATTERN.sub(
@@ -75,6 +108,13 @@ def _text_failures(text: str) -> set[str]:
         } and not email.endswith("@users.noreply.github.com"):
             failures.add("non-example email address")
     return failures
+
+
+def _safe_filename(name: str) -> str:
+    if _text_failures(name):
+        identifier = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+        return f"sensitive filename [{identifier}]"
+    return name
 
 
 def _is_reviewed_binary(path: Path, content: bytes) -> bool:
@@ -103,11 +143,42 @@ def _content_failures(path: Path, content: bytes) -> tuple[bool, list[str]]:
     return True, sorted(_text_failures(text))
 
 
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        attributes = path.lstat()
+    except FileNotFoundError:
+        return False
+    return bool(
+        getattr(attributes, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def is_linked_source(root: Path, path: Path) -> bool:
+    """Apply the working-tree guard's leaf and ancestor admission policy."""
+    return any(
+        candidate.is_symlink()
+        or candidate.is_junction()
+        or _is_reparse_point(candidate)
+        for candidate in (path, *path.parents)
+        if candidate != root and root in candidate.parents
+    )
+
+
+def require_source_paths(root: Path, paths) -> None:
+    """Refuse linked inputs before a consumer reads or copies their contents."""
+    for name in paths:
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("Source admission requires repository-relative paths")
+        if is_linked_source(root, root / relative):
+            raise ValueError("Source admission refused an unreviewed linked path")
+
+
 def run_guard(root: Path) -> tuple[int, list[str]]:
     failures: list[str] = []
     count = 0
     result = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        _git_command("ls-files", "--cached", "--others", "--exclude-standard", "-z"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -121,15 +192,23 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
             failures.append("Working tree filename: non-UTF-8 content")
             continue
         path = root / relative
+        if is_linked_source(root, path):
+            failures.append(
+                f"{_safe_filename(str(relative))}: unreviewed symbolic link or reparse point"
+            )
+            continue
         if not path.is_file():
             continue
         failures.extend(
-            f"{relative}: filename {failure}"
+            f"{_safe_filename(str(relative))}: filename {failure}"
             for failure in sorted(_text_failures(str(relative)))
         )
         counted, content_failures = _content_failures(relative, path.read_bytes())
         count += counted
-        failures.extend(f"{relative}: {failure}" for failure in content_failures)
+        failures.extend(
+            f"{_safe_filename(str(relative))}: {failure}"
+            for failure in content_failures
+        )
     return count, failures
 
 
@@ -137,7 +216,7 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
     """Build and inspect the exact tracked source archive in temporary storage."""
 
     result = subprocess.run(
-        ["git", "ls-files", "--stage", "-z"],
+        _git_command("ls-files", "--stage", "-z"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -152,7 +231,7 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
         relative = Path(raw_name.decode("utf-8"))
         if stage != "0":
             failures.append(
-                f"Source archive {relative.as_posix()}: unresolved index stage"
+                f"Source archive {_safe_filename(relative.as_posix())}: unresolved index stage"
             )
             continue
         tracked.append((relative, object_id))
@@ -163,7 +242,7 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
         ) as archive:
             for relative, object_id in tracked:
                 blob = subprocess.run(
-                    ["git", "cat-file", "blob", object_id],
+                    _git_command("cat-file", "blob", object_id),
                     cwd=root,
                     check=True,
                     capture_output=True,
@@ -172,12 +251,13 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
         with zipfile.ZipFile(archive_path) as archive:
             for name in archive.namelist():
                 failures.extend(
-                    f"Source archive {name}: filename {failure}"
+                    f"Source archive {_safe_filename(name)}: filename {failure}"
                     for failure in sorted(_text_failures(name))
                 )
                 _, content_failures = _content_failures(Path(name), archive.read(name))
                 failures.extend(
-                    f"Source archive {name}: {failure}" for failure in content_failures
+                    f"Source archive {_safe_filename(name)}: {failure}"
+                    for failure in content_failures
                 )
     return len(tracked), failures
 
@@ -185,14 +265,14 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
 def _history_source_failure(root: Path) -> str | None:
     try:
         shallow = subprocess.run(
-            ["git", "rev-parse", "--is-shallow-repository"],
+            _git_command("rev-parse", "--is-shallow-repository"),
             cwd=root,
             check=True,
             capture_output=True,
             text=True,
         )
         subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
+            _git_command("rev-parse", "--verify", "HEAD"),
             cwd=root,
             check=True,
             capture_output=True,
@@ -213,7 +293,7 @@ def _history_failures(root: Path) -> list[str]:
 def _scan_history(root: Path) -> list[str]:
     failures: set[str] = set()
     metadata = subprocess.run(
-        ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce%n%B%x00"],
+        _git_command("log", "--all", "--format=%an%n%ae%n%cn%n%ce%n%B%x00"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -228,7 +308,7 @@ def _scan_history(root: Path) -> list[str]:
         )
 
     references = subprocess.run(
-        ["git", "for-each-ref", "--format=%(refname)"],
+        _git_command("for-each-ref", "--format=%(refname)"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -241,7 +321,7 @@ def _scan_history(root: Path) -> list[str]:
     )
 
     filenames = subprocess.run(
-        ["git", "log", "--all", "--format=", "--name-only", "-z"],
+        _git_command("log", "--all", "--format=", "--name-only", "-z"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -264,7 +344,7 @@ def _scan_history(root: Path) -> list[str]:
             failures.add("Git history filename: unreviewed binary content")
 
     objects = subprocess.run(
-        ["git", "rev-list", "--objects", "--all"],
+        _git_command("rev-list", "--objects", "--all"),
         cwd=root,
         check=True,
         capture_output=True,
@@ -276,7 +356,9 @@ def _scan_history(root: Path) -> list[str]:
         {line.split(maxsplit=1)[0] for line in objects.stdout.splitlines()}
     )
     object_details = subprocess.run(
-        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        _git_command(
+            "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"
+        ),
         cwd=root,
         check=True,
         capture_output=True,
@@ -292,7 +374,7 @@ def _scan_history(root: Path) -> list[str]:
             failures.add(f"Git history {object_type}: oversized unreviewed content")
             continue
         blob = subprocess.run(
-            ["git", "cat-file", object_type, object_id],
+            _git_command("cat-file", object_type, object_id),
             cwd=root,
             check=True,
             capture_output=True,
@@ -328,7 +410,25 @@ def main() -> int:
         default=root,
         help="Complete original Git repository when payload validation uses a snapshot",
     )
+    parser.add_argument("--check-source-paths", action="store_true")
     arguments = parser.parse_args()
+    if arguments.check_source_paths:
+        try:
+            require_source_paths(
+                root,
+                (
+                    os.fsdecode(path)
+                    for path in sys.stdin.buffer.read().split(b"\0")
+                    if path
+                ),
+            )
+        except OSError, ValueError:
+            print(
+                "Source admission refused an input or could not inspect it.",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
     count, failures = run_guard(root)
     failures.extend(_history_failures(arguments.history_repository))
     archive_count, archive_failures = run_archive_guard(root)

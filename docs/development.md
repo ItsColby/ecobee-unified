@@ -17,10 +17,13 @@ For a working edit, use `-ChangedPath scripts/verify-release-local.sh` instead o
 refs. On Linux, use `bash scripts/verify-release-local.sh affected container ""`
 with `--base <base-commit> --head HEAD`, or repeated `--path <relative-path>`;
 add `--plan-only` to inspect the JSON plan without snapshots or installations.
-Planning uses an existing host Python 3.14 to parse source without importing the
-integration. The Windows `-PlanOnly` preview requires `python` on PATH. The Bash
-runner resolves `python3.14`, an installed uv runtime, or `VALIDATION_PYTHON`.
-Neither preview downloads a runtime; HA execution keeps its isolated Python 3.14 lane.
+Planning and container snapshot admission use an existing host Python 3.14
+to parse source without importing the integration. The Windows `-PlanOnly`
+preview requires `python` on PATH. The Bash runner resolves `python3.14`, an
+installed uv runtime, or `VALIDATION_PYTHON`. The public-safety
+guard's link policy runs before planning reads input sources and before snapshot
+copying. The planner, guard, and interpreter remain trusted executable tooling.
+Neither step downloads a runtime; HA execution keeps its isolated Python 3.14 lane.
 Explicit paths describe the complete change being accepted. The refs mode
 requires the checked-out candidate as its head; it does not include uncommitted
 edits. An empty verified comparison selects no jobs. Missing comparison input
@@ -62,7 +65,7 @@ with `--only minimum` and `--only current` on the Bash affected route.
 
 ## Check the complete candidate
 
-On Linux, install Git, Bash, tar, and Podman, then run:
+On Linux, provide Git, Bash, tar, Podman, and the Python 3.14 locator above, then run:
 
 ```bash
 bash scripts/verify-release-local.sh all container
@@ -215,7 +218,7 @@ Installation acceptance and consumer migration are covered in the
 
 Change each Core and harness pair together, verify dependency consistency, and rerun
 the changed support lane. Reuse unchanged sibling-lane evidence. A minimum-version change also affects [`hacs.json`](../hacs.json).
-Keep the runner, CI job labels, and assertions in `test_public_safety.py` aligned;
+Keep the runner, CI job labels, and distribution minimum aligned;
 review the external assumptions in [Upstream contracts](upstream-contracts.md).
 Tool versions and container digests are owned by
 [`verify-release-local.sh`](../scripts/verify-release-local.sh). Dependabot updates

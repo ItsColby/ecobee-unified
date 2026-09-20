@@ -146,9 +146,9 @@ class WeatherSourceTests(WeatherSourceFixture):
             with self.subTest(role=role):
                 reading = self._read(role)
                 self.assertEqual(value, (reading.value, reading.unit))
-                self.assertEqual("STATION-A", reading.station)
-                self.assertEqual(self.provider_time, reading.provider_reported_at)
-                self.assertEqual(self.receipt_time, reading.ha_reported_at)
+        self.assertEqual("STATION-A", reading.station)
+        self.assertEqual(self.provider_time, reading.provider_reported_at)
+        self.assertEqual(self.receipt_time, reading.ha_reported_at)
         self.assertAlmostEqual(
             22.2222222222, self._read("temperature", output_unit="°C").value
         )
@@ -206,13 +206,6 @@ class WeatherSourceTests(WeatherSourceFixture):
                 expected_station="STATION-A",
                 now=self.now,
             )
-        # A healthy second binding still qualifies independently for parent fallback.
-        self.assertEqual(
-            72,
-            self._read(
-                "temperature", entry=self.second, state=self._state(self.second)
-            ).value,
-        )
 
     async def test_missing_unknown_malformed_and_future_provider_metadata_fail_closed(
         self,

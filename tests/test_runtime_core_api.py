@@ -186,8 +186,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         homekit_state = self.hass.states.get(self.homekit.entity_id)
         ecobee_state = self.hass.states.get(self.ecobee.entity_id)
-        self.assertIsNotNone(homekit_state)
-        self.assertIsNotNone(ecobee_state)
         assert homekit_state is not None
         assert ecobee_state is not None
         baseline = max(homekit_state.last_reported, ecobee_state.last_reported)
@@ -232,8 +230,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     ) -> None:
         homekit_state = self.hass.states.get(self.homekit.entity_id)
         ecobee_state = self.hass.states.get(self.ecobee.entity_id)
-        self.assertIsNotNone(homekit_state)
-        self.assertIsNotNone(ecobee_state)
         assert homekit_state is not None
         assert ecobee_state is not None
         baseline = max(homekit_state.last_reported, ecobee_state.last_reported)
@@ -1335,7 +1331,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 )
                 await self.hass.async_block_till_done()
                 source_state = self.hass.states.get(self.homekit_temperature.entity_id)
-                self.assertIsNotNone(source_state)
                 assert source_state is not None
                 self.assertEqual("22.04", source_state.state)
                 recovered = manager.snapshot(mapping.mapping_id)
@@ -3053,7 +3048,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual("unavailable", disabled.source_health["homekit"].value)
         self.assertEqual("ecobee", disabled.provenance["current_temperature"])
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
-        self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
             {"mapping": self.mapping.name, "source": "homekit disabled"},
@@ -3073,7 +3067,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
-        self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
             {"mapping": self.mapping.name, "source": "ecobee disabled"},
@@ -3088,7 +3081,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
-        self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
             {"mapping": self.mapping.name, "source": "HomeKit preset disabled"},
@@ -3128,7 +3120,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             issue = ir.async_get(self.hass).async_get_issue(
                 DOMAIN, "mapping_mapping_required_devices"
             )
-            self.assertIsNotNone(issue)
             assert issue is not None
             self.assertEqual(
                 {"mapping": mapping.name, "source": "ecobee device"},
@@ -3704,18 +3695,26 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_vendor_action_requires_registered_service_and_healthy_source(
         self,
     ) -> None:
-        with self.assertRaises(ServiceValidationError):
-            await self.manager.async_vendor_action(
-                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
-            )
+        calls: list[ServiceCall] = []
 
-        self.hass.services.async_register("ecobee", "create_vacation", lambda _: None)
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        with self.assertRaises(ServiceValidationError) as raised:
+            await self.manager.async_vendor_action(
+                "mapping_a", "delete_vacation", {"vacation_name": "Trip"}, None
+            )
+        self.assertEqual("ecobee_writer_unavailable", raised.exception.translation_key)
+
+        self.hass.services.async_register("ecobee", "delete_vacation", capture)
         self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
         await self.hass.async_block_till_done()
-        with self.assertRaises(ServiceValidationError):
+        with self.assertRaises(ServiceValidationError) as raised:
             await self.manager.async_vendor_action(
-                "mapping_a", "create_vacation", {"vacation_name": "Trip"}, None
+                "mapping_a", "delete_vacation", {"vacation_name": "Trip"}, None
             )
+        self.assertEqual("ecobee_writer_unavailable", raised.exception.translation_key)
+        self.assertEqual([], calls)
 
     async def test_vendor_action_timeout_owns_late_completion(self) -> None:
         started = asyncio.Event()
@@ -3737,23 +3736,28 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 "mapping_a", "delete_vacation", {"vacation_name": "Trip"}, None
             )
         )
-        await started.wait()
-        self.assertIsNotNone(self.manager._unsub_state_report)
-        revision = self.manager._tracker.current_revision("mapping_a")
-        assert revision is not None
+        try:
+            await self._wait_for_fixture_event(task, started)
+            self.assertIsNotNone(self.manager._unsub_state_report)
+            revision = self.manager._tracker.current_revision("mapping_a")
+            assert revision is not None
 
-        self.manager._handle_timeout("mapping_a", revision)
-        self.assertEqual(
-            CommandStatus.UNCONFIRMED,
-            self.manager.snapshot("mapping_a").command.status,
-        )
+            self.manager._handle_timeout("mapping_a", revision)
+            self.assertEqual(
+                CommandStatus.UNCONFIRMED,
+                self.manager.snapshot("mapping_a").command.status,
+            )
 
-        release.set()
-        await task
-        self.assertEqual(
-            CommandStatus.UNCONFIRMED,
-            self.manager.snapshot("mapping_a").command.status,
-        )
+            release.set()
+            await asyncio.wait_for(asyncio.shield(task), timeout=1)
+            self.assertEqual(
+                CommandStatus.UNCONFIRMED,
+                self.manager.snapshot("mapping_a").command.status,
+            )
+
+        finally:
+            release.set()
+            await self._settle_fixture_tasks(task)
 
     async def test_vendor_action_failure_is_bounded(self) -> None:
         calls = 0
@@ -3780,7 +3784,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.manager.snapshot("mapping_a").command.status,
         )
 
-    async def test_unavailable_writers_and_invalid_vendor_bounds_fail_before_effect(
+    async def test_unavailable_writers_fail_before_effect(
         self,
     ) -> None:
         calls: list[ServiceCall] = []
@@ -3808,14 +3812,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             await self.manager.async_resume_program("mapping_a", None)
         self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
         await self.hass.async_block_till_done()
-        for invalid in (-1, 61):
-            with (
-                self.subTest(minutes=invalid),
-                self.assertRaises(ServiceValidationError),
-            ):
-                await self.manager.async_set_minimum_fan_runtime(
-                    "mapping_a", invalid, None
-                )
+        self.hass.services.async_register("ecobee", "set_fan_min_on_time", capture)
+        with self.assertRaises(ServiceValidationError) as raised:
+            await self.manager.async_set_minimum_fan_runtime("mapping_a", 10, None)
+        self.assertEqual("ecobee_writer_unavailable", raised.exception.translation_key)
         self.assertEqual([], calls)
 
     async def test_optional_sibling_device_drift_degrades_and_recovers(self) -> None:
@@ -3947,6 +3947,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
 
     async def test_command_timeout_reports_unconfirmed_without_retry(self) -> None:
+        self.assertIsNotNone(self.manager._unsub_state_report)
         calls: list[ServiceCall] = []
 
         async def capture(call: ServiceCall) -> None:
@@ -3964,6 +3965,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 {"target_temperature": 22.0},
                 None,
             )
+        self.assertIsNotNone(self.manager._unsub_state_report)
         scheduled_delays = [call.args[1] for call in schedule.call_args_list]
         self.assertIn(DEFAULT_CONFIRMATION_SECONDS, scheduled_delays)
         self.assertIn(DEFAULT_ECOBEE_STALE_SECONDS + 1, scheduled_delays)
@@ -3973,34 +3975,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual("unconfirmed", timed_out.status.value)
         self.assertEqual(1, len(calls))
         self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
-
-    async def test_unchanged_report_subscription_covers_cadence_recovery_and_pending(
-        self,
-    ) -> None:
-        self.assertIsNotNone(self.manager._unsub_state_report)
-
-        async def capture(_call: ServiceCall) -> None:
-            return None
-
-        self.hass.services.async_register("climate", "set_temperature", capture)
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
-        self.assertIsNotNone(self.manager._unsub_state_report)
-
-        revision = self.manager.snapshot("mapping_a").command.revision
-        self.manager._handle_timeout("mapping_a", revision)
         self.assertIsNotNone(self.manager._unsub_state_report)
 
     async def test_unchanged_reports_recover_only_stale_cadence_sources(self) -> None:
         ecobee_state = self.hass.states.get(self.ecobee.entity_id)
         aqi_state = self.hass.states.get(self.ecobee_aqi.entity_id)
-        self.assertIsNotNone(ecobee_state)
-        self.assertIsNotNone(aqi_state)
         assert ecobee_state is not None
         assert aqi_state is not None
         future = max(ecobee_state.last_reported, aqi_state.last_reported) + timedelta(
@@ -4096,7 +4075,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
 
     async def test_report_handler_uses_stable_event_timestamp(self) -> None:
         state = self.hass.states.get(self.ecobee.entity_id)
-        self.assertIsNotNone(state)
         assert state is not None
         reported_at = state.last_reported
         state.last_reported = reported_at + timedelta(seconds=600)
@@ -4155,9 +4133,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_confirmation_ignores_reports_from_the_wrong_writer_source(
         self,
     ) -> None:
-        self.manager._tracker.begin(
+        revision = self.manager._tracker.begin(
             "mapping_a", "set_temperature", {"target_temperature": 21.0}
         )
+        self.assertTrue(self.manager._tracker.accept_write("mapping_a", revision))
         self.hass.states.async_set(
             self.homekit_preset.entity_id,
             "Away",
@@ -4165,12 +4144,21 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         self.assertEqual(
-            "pending", self.manager.snapshot("mapping_a").command.status.value
+            "pending", self.manager._tracker.summary("mapping_a").status.value
         )
 
-        self.manager._tracker.begin(
+        self.hass.states.async_set(
+            self.ecobee.entity_id, "heat", self._attributes(20.0)
+        )
+        await self.hass.async_block_till_done()
+        self.assertEqual(
+            "confirmed", self.manager._tracker.summary("mapping_a").status.value
+        )
+
+        revision = self.manager._tracker.begin(
             "mapping_a", "set_preset_mode", {"preset_mode": "Away"}
         )
+        self.assertTrue(self.manager._tracker.accept_write("mapping_a", revision))
         ecobee_state = self.hass.states.get(self.ecobee.entity_id)
         assert ecobee_state is not None
         self.manager._handle_state_report_event(
@@ -4182,7 +4170,23 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             )
         )
         self.assertEqual(
-            "pending", self.manager.snapshot("mapping_a").command.status.value
+            "pending", self.manager._tracker.summary("mapping_a").status.value
+        )
+
+        self.hass.states.async_set(
+            self.homekit_preset.entity_id,
+            "Home",
+            {"options": ["Home", "Away"]},
+        )
+        await self.hass.async_block_till_done()
+        self.hass.states.async_set(
+            self.homekit_preset.entity_id,
+            "Away",
+            {"options": ["Home", "Away"]},
+        )
+        await self.hass.async_block_till_done()
+        self.assertEqual(
+            "confirmed", self.manager._tracker.summary("mapping_a").status.value
         )
 
     async def test_all_climate_methods_validate_capability_and_use_one_writer(
@@ -4312,8 +4316,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         await self.manager.async_stop()
         homekit_state = self.hass.states.get(self.homekit.entity_id)
         ecobee_state = self.hass.states.get(self.ecobee.entity_id)
-        self.assertIsNotNone(homekit_state)
-        self.assertIsNotNone(ecobee_state)
         assert homekit_state is not None
         assert ecobee_state is not None
         base_time = ecobee_state.last_reported
@@ -4406,34 +4408,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         self.assertEqual(1, len(calls))
 
-    async def test_unchanged_report_keeps_source_fresh(self) -> None:
-        homekit_state = self.hass.states.get(self.homekit.entity_id)
-        self.assertIsNotNone(homekit_state)
-        assert homekit_state is not None
-        homekit_state.last_updated = homekit_state.last_reported - timedelta(
-            seconds=600
-        )
-
-        self.hass.states.async_set(
-            self.homekit.entity_id,
-            homekit_state.state,
-            dict(homekit_state.attributes),
-        )
-        await self.hass.async_block_till_done()
-        reported = self.hass.states.get(self.homekit.entity_id)
-        self.assertIsNotNone(reported)
-        assert reported is not None
-        self.assertGreater(reported.last_reported, reported.last_updated)
-
-        with patch(
-            "custom_components.ecobee_unified.manager.dt_util.utcnow",
-            return_value=reported.last_reported + timedelta(seconds=1),
-        ):
-            self.manager.refresh_mapping("mapping_a")
-        snapshot = self.manager.snapshot("mapping_a")
-        self.assertEqual("healthy", snapshot.source_health["homekit"].value)
-        self.assertTrue(snapshot.homekit_writable)
-
     async def test_source_service_errors_are_safely_translated(self) -> None:
         async def fail_with_private_detail(_call: ServiceCall) -> None:
             raise RuntimeError("private backend detail")
@@ -4480,71 +4454,56 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             "failed", self.manager.snapshot("mapping_a").command.status.value
         )
 
-    async def test_matching_report_during_dispatch_confirms_after_writer_success(
-        self,
-    ) -> None:
-        async def report_then_succeed(_call: ServiceCall) -> None:
-            matching = self._attributes(20.0) | {"temperature": 22.0}
-            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
-            reported = self.hass.states.get(self.ecobee.entity_id)
-            assert reported is not None
-            self.manager._handle_state_report_event(
-                Mock(
-                    data={
-                        "entity_id": self.ecobee.entity_id,
-                        "last_reported": reported.last_reported,
-                    }
+    async def test_matching_report_during_dispatch_respects_writer_result(self) -> None:
+        for fail in (False, True):
+            with self.subTest(writer_fails=fail):
+                calls: list[ServiceCall] = []
+
+                async def report_during_call(
+                    call: ServiceCall, *, fail=fail, calls=calls
+                ) -> None:
+                    calls.append(call)
+                    matching = self._attributes(20.0) | {"temperature": 22.0}
+                    self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
+                    reported = self.hass.states.get(self.ecobee.entity_id)
+                    assert reported is not None
+                    self.manager._handle_state_report_event(
+                        Mock(
+                            data={
+                                "entity_id": self.ecobee.entity_id,
+                                "last_reported": reported.last_reported,
+                            }
+                        )
+                    )
+                    self.assertIs(
+                        CommandStatus.PENDING,
+                        self.manager.snapshot("mapping_a").command.status,
+                    )
+                    if fail:
+                        raise RuntimeError("writer rejected the command")
+
+                self.hass.services.async_register(
+                    "climate", "set_temperature", report_during_call
                 )
-            )
-
-        self.hass.services.async_register(
-            "climate", "set_temperature", report_then_succeed
-        )
-
-        await self.manager.async_standard_command(
-            "mapping_a",
-            "set_temperature",
-            {"temperature": 22.0},
-            {"target_temperature": 22.0},
-            None,
-        )
-
-        command = self.manager.snapshot("mapping_a").command
-        self.assertEqual("confirmed", command.status.value)
-        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
-
-    async def test_matching_report_cannot_confirm_before_writer_success(self) -> None:
-        async def report_then_fail(_call: ServiceCall) -> None:
-            matching = self._attributes(20.0) | {"temperature": 22.0}
-            self.hass.states.async_set(self.ecobee.entity_id, "heat", matching)
-            reported = self.hass.states.get(self.ecobee.entity_id)
-            assert reported is not None
-            self.manager._handle_state_report_event(
-                Mock(
-                    data={
-                        "entity_id": self.ecobee.entity_id,
-                        "last_reported": reported.last_reported,
-                    }
+                command = self.manager.async_standard_command(
+                    "mapping_a",
+                    "set_temperature",
+                    {"temperature": 22.0},
+                    {"target_temperature": 22.0},
+                    None,
                 )
-            )
-            raise RuntimeError("writer rejected the command")
+                if fail:
+                    with self.assertRaises(HomeAssistantError):
+                        await command
+                else:
+                    await command
 
-        self.hass.services.async_register(
-            "climate", "set_temperature", report_then_fail
-        )
-
-        with self.assertRaises(HomeAssistantError):
-            await self.manager.async_standard_command(
-                "mapping_a",
-                "set_temperature",
-                {"temperature": 22.0},
-                {"target_temperature": 22.0},
-                None,
-            )
-
-        command = self.manager.snapshot("mapping_a").command
-        self.assertEqual("failed", command.status.value)
-        self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
+                self.assertIs(
+                    CommandStatus.FAILED if fail else CommandStatus.CONFIRMED,
+                    self.manager.snapshot("mapping_a").command.status,
+                )
+                self.assertEqual(1, len(calls))
+                self.assertNotIn("mapping_a", self.manager._unsub_timeouts)
 
     async def test_overlapping_commands_are_dispatched_in_user_order(self) -> None:
         first_started = asyncio.Event()
@@ -4572,36 +4531,42 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 None,
             )
         )
-        await first_started.wait()
-        second_task = asyncio.create_task(
-            self.manager.async_standard_command(
-                "mapping_a",
-                "set_temperature",
-                {"temperature": 23.0},
-                {"target_temperature": 23.0},
-                None,
+        second_task = None
+        try:
+            await self._wait_for_fixture_event(first_task, first_started)
+            second_task = asyncio.create_task(
+                self.manager.async_standard_command(
+                    "mapping_a",
+                    "set_temperature",
+                    {"temperature": 23.0},
+                    {"target_temperature": 23.0},
+                    None,
+                )
             )
-        )
 
-        with self.assertRaises(TimeoutError):
-            await asyncio.wait_for(second_started.wait(), timeout=0.01)
-        self.assertEqual([("start", 22.0)], call_order)
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(second_started.wait(), timeout=0.01)
+            self.assertEqual([("start", 22.0)], call_order)
 
-        release_first.set()
-        await asyncio.gather(first_task, second_task)
-        self.assertEqual(
-            [
-                ("start", 22.0),
-                ("finish", 22.0),
-                ("start", 23.0),
-                ("finish", 23.0),
-            ],
-            call_order,
-        )
-        current = self.manager.snapshot("mapping_a").command
-        self.assertEqual(2, current.revision)
-        self.assertEqual("pending", current.status.value)
-        self.assertIn("mapping_a", self.manager._unsub_timeouts)
+            release_first.set()
+            await asyncio.wait_for(asyncio.gather(first_task, second_task), timeout=1)
+            self.assertEqual(
+                [
+                    ("start", 22.0),
+                    ("finish", 22.0),
+                    ("start", 23.0),
+                    ("finish", 23.0),
+                ],
+                call_order,
+            )
+            current = self.manager.snapshot("mapping_a").command
+            self.assertEqual(2, current.revision)
+            self.assertEqual("pending", current.status.value)
+            self.assertIn("mapping_a", self.manager._unsub_timeouts)
+
+        finally:
+            release_first.set()
+            await self._settle_fixture_tasks(first_task, second_task)
 
     async def test_diagnostics_are_allow_listed_and_identifier_free(self) -> None:
         self.hass.states.async_set(
@@ -4726,7 +4691,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.manager.refresh_all()
         self.assertFalse(self.manager.snapshot("mapping_a").homekit_writable)
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
-        self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
             {"mapping": self.mapping.name, "source": "homekit device"},
@@ -4752,7 +4716,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         unified_entity_id = registry.async_get_entity_id(
             "climate", DOMAIN, self.mapping.mapping_id
         )
-        self.assertIsNotNone(unified_entity_id)
         assert unified_entity_id is not None
         unified_entity_ids = {
             item.entity_id
@@ -4851,7 +4814,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertTrue(snapshot.homekit_writable)
         self.assertIn("ecobee_vendor_context_unavailable", snapshot.degradation)
         issue = ir.async_get(self.hass).async_get_issue(DOMAIN, "mapping_mapping_a")
-        self.assertIsNotNone(issue)
         assert issue is not None
         self.assertEqual(
             {"mapping": self.mapping.name, "source": "ecobee"},

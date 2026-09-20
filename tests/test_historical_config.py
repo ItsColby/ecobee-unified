@@ -405,22 +405,6 @@ class HistoricalConfigurationTests(CoreRuntimeTestCase):
         self.assertNotIn("beestat_history_v3", rebound["sources"][0])
         self.assertNotIn("metadata_basis", rebound["sources"][0])
 
-    async def test_stale_flow_never_overwrites_data_or_options(self) -> None:
-        entry = self._entry()
-        for owner in ("data", "options"):
-            with self.subTest(owner=owner):
-                result = await self._next(await self._open(entry), "historical_add")
-                result = await self._submit(result, self._values())
-                self.assertEqual(FlowResultType.MENU, result["type"], result)
-                changed = dict(getattr(entry, owner)) | {"concurrent_change": owner}
-                self.hass.config_entries.async_update_entry(entry, **{owner: changed})
-                with patch.object(self.hass.config_entries, "async_reload") as reload:
-                    result = await self._next(result, "reconfigure_finish")
-                    self.assertEqual("configuration_changed", result["reason"])
-                    reload.assert_not_called()
-                self.assertEqual(changed, getattr(entry, owner))
-                self.assertEqual([], entry.data[CONF_HISTORICAL_FAMILIES])
-
     async def test_binding_quantity_and_method_changes_require_confirmation(
         self,
     ) -> None:

@@ -39,6 +39,13 @@ metadata checks are selected independently of product tests. Configuration
 changes without a reviewed tool-specific mapping need explicit review, rather
 than an automatic complete run.
 
+Container execution rebuilds the affected plan from the captured payload, retaining
+the preview's resolved dependency baseline and selected paths. That plan contains
+the exact lane commands, which are reused without reading original source files
+again. Ref comparisons also require the captured files to match the clean candidate.
+Keep edits stable while the payload is being copied. Native execution uses one
+captured plan and requires its working tree to remain stable for the run.
+
 Pull requests and main pushes use this same selection. The stable Release gate
 requires the planning job and every selected job to succeed, and accepts skipped
 jobs only when the plan excludes them. Manual workflow dispatch explicitly runs
@@ -68,14 +75,15 @@ On Windows, the wrapper requires Git for Windows, WSL with a distribution named
 .\scripts\verify-release-local.ps1 -Mode all
 ```
 
-Both routes need complete, non-shallow Git history and network access to fetch
-the pinned tools and dependencies. The Windows wrapper resolves the checkout's
-actual Git directory before entering WSL, including for linked worktrees.
+The selected public-safety unit check needs complete, non-shallow Git history.
+HA-only and Hassfest-only selections do not prepare or require a history mirror.
+Execution needs network access to fetch the pinned tools and dependencies. The
+Windows wrapper resolves the checkout's actual Git directory before entering WSL, including for linked worktrees.
 
 The container runner captures the tracked and nonignored untracked working-tree
 files, including uncommitted edits, into one read-only validation payload. It
-preserves the original Git history separately for the public-safety scan. The
-minimum and current Home Assistant lanes run concurrently in separate containers
+preserves the original Git history separately only when the selected unit lane
+runs the public-safety scan. The minimum and current Home Assistant lanes run concurrently in separate containers
 after the static checks pass; both finish before Hassfest or temporary-file
 cleanup. On interruption, the runner waits for active lanes before removing
 that payload and returns the interrupt status; this wait has no shutdown deadline.

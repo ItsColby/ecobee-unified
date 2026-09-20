@@ -842,5 +842,137 @@ if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittes
                 self.assertEqual([], list(Path(directory).iterdir()))
 
 
+class SnapshotPlanningTests(unittest.TestCase):
+    """The execution plan must describe copied files and a pinned baseline."""
+
+    def test_snapshot_replans_captured_consumers_and_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            (source / "scripts").mkdir(parents=True)
+            (source / "tests").mkdir()
+            for relative in (
+                planner.PLANNER,
+                "scripts/check_public_safety.py",
+                "scripts/verify-release-local.sh",
+            ):
+                shutil.copyfile(ROOT / relative, source / relative)
+            (source / "tests/test_public_safety.py").write_text(
+                "from scripts import check_public_safety\n", encoding="utf-8"
+            )
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.upper().startswith("GIT_")
+            }
+            env.update(
+                GIT_CONFIG_GLOBAL=os.devnull,
+                GIT_CONFIG_NOSYSTEM="1",
+                PYTHONDONTWRITEBYTECODE="1",
+                GIT_AUTHOR_NAME="Validation",
+                GIT_COMMITTER_NAME="Validation",
+                GIT_AUTHOR_EMAIL="validation@example.com",
+                GIT_COMMITTER_EMAIL="validation@example.com",
+            )
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", str(source), *args], env=env, text=True
+                ).strip()
+
+            git("-c", "init.templateDir=", "init", "-q")
+            git("add", "-A", "-f")
+            baseline = git("commit-tree", git("write-tree"), "-m", "baseline")
+            git("update-ref", "HEAD", baseline)
+            prefix = (
+                ["--plan"]
+                if planner.PLANNER.endswith("run_dependency_light_tests.py")
+                else []
+            )
+
+            def call(checkout, *args, input_text=None):
+                result = subprocess.run(
+                    [sys.executable, str(checkout / planner.PLANNER), *prefix, *args],
+                    input=input_text,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=20,
+                )
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                return json.loads(result.stdout)
+
+            initial = call(source, "--path", "scripts/check_public_safety.py")
+            ref_initial = call(source, "--base", baseline, "--head", baseline)
+            self.assertEqual([], initial["ha_tests"])
+            invalid = subprocess.run(
+                [
+                    sys.executable,
+                    str(source / planner.PLANNER),
+                    *prefix,
+                    "--snapshot-plan",
+                    "--git-directory",
+                    str(source / ".git"),
+                ],
+                input=json.dumps({"base": "HEAD", "paths": []}),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+            self.assertEqual(2, invalid.returncode)
+            self.assertIn("pinned base", invalid.stderr)
+            # Capture an added consumer after preview. The execution plan must
+            # find it in the copied source, even after it disappears in the original.
+            consumer = "tests/captured_test.py"
+            (source / consumer).write_text(
+                "from scripts import check_public_safety\n", encoding="utf-8"
+            )
+            snapshot = root / "snapshot"
+            shutil.copytree(source, snapshot, ignore=shutil.ignore_patterns(".git"))
+            dirty_snapshot = subprocess.run(
+                [
+                    sys.executable,
+                    str(snapshot / planner.PLANNER),
+                    *prefix,
+                    "--snapshot-plan",
+                    "--git-directory",
+                    str(source / ".git"),
+                ],
+                input=json.dumps(ref_initial),
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+            self.assertEqual(2, dirty_snapshot.returncode)
+            self.assertIn("clean candidate", dirty_snapshot.stderr)
+            (source / consumer).unlink()
+            runner = source / "scripts/verify-release-local.sh"
+            original_runner = runner.read_text(encoding="utf-8")
+            pin = planner.runner_dependencies(original_runner)["ruff"]
+            runner.write_text(
+                original_runner.replace(pin, "ruff==99.0.0"), encoding="utf-8"
+            )
+            (source / planner.PLANNER).write_text(
+                "raise RuntimeError('changed source')\n"
+            )
+            captured = call(
+                snapshot,
+                "--snapshot-plan",
+                "--git-directory",
+                str(source / ".git"),
+                input_text=json.dumps(initial),
+            )
+            self.assertEqual(baseline, captured["base"])
+            self.assertIn(consumer, captured["ha_tests"])
+            self.assertIn(consumer, captured["commands"]["current"])
+            self.assertIn(pin, captured["commands"]["unit"])
+            self.assertNotIn("ruff==99.0.0", captured["commands"]["unit"])
+
+
 if __name__ == "__main__":
     unittest.main()

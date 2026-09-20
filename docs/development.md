@@ -17,9 +17,10 @@ For a working edit, use `-ChangedPath scripts/verify-release-local.sh` instead o
 refs. On Linux, use `bash scripts/verify-release-local.sh affected container ""`
 with `--base <base-commit> --head HEAD`, or repeated `--path <relative-path>`;
 add `--plan-only` to inspect the JSON plan without snapshots or installations.
-Planning uses an existing host Python 3.14 (`python3.14`, an installed uv runtime,
-or `VALIDATION_PYTHON`) to parse source without importing the integration. It
-does not download a runtime; HA execution keeps its isolated Python 3.14 lane.
+Planning uses an existing host Python 3.14 to parse source without importing the
+integration. The Windows `-PlanOnly` preview requires `python` on PATH. The Bash
+runner resolves `python3.14`, an installed uv runtime, or `VALIDATION_PYTHON`.
+Neither preview downloads a runtime; HA execution keeps its isolated Python 3.14 lane.
 Explicit paths describe the complete change being accepted. The refs mode
 requires the checked-out candidate as its head; it does not include uncommitted
 edits. An empty verified comparison selects no jobs. Missing comparison input
@@ -111,7 +112,7 @@ The supported test environments are deliberately paired:
 | Lane | Home Assistant Core | `pytest-homeassistant-custom-component` | Core requirements |
 | --- | --- | --- | --- |
 | Minimum | `2026.8.0` | `0.13.354` | [`requirements-ha-test.txt`](../requirements-ha-test.txt) |
-| Current | `2026.9.2` | `0.13.365` | [`requirements-ha-current.txt`](../requirements-ha-current.txt) |
+| Current | `2026.9.3` | `0.13.366` | [`requirements-ha-current.txt`](../requirements-ha-current.txt) |
 
 For a focused edit, create a Python 3.14 environment on Linux or inside WSL. This
 example installs the current pair in the same order as the runner:
@@ -119,7 +120,7 @@ example installs the current pair in the same order as the runner:
 ```bash
 python3.14 -m venv .venv
 source .venv/bin/activate
-python -m pip install "pytest-homeassistant-custom-component==0.13.365"
+python -m pip install "pytest-homeassistant-custom-component==0.13.366"
 python -m pip install --upgrade -r requirements-ha-current.txt
 python -m pip install "ruff==0.16.1" "mypy==2.3.0"
 python -m pip check

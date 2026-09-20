@@ -171,7 +171,7 @@
         "title": "Thermostat mapping"
       },
       "reconfigure": {
-        "description": "Add, edit, or remove thermostat mappings, read-only datapoints, and daily history mappings, then choose Save changes to apply the complete set. Saving reloads the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained.",
+        "description": "Add, edit, or remove thermostat mappings, read-only datapoints, and daily history mappings, then choose Save changes to review the complete set before applying it.",
         "menu_options": {
           "reconfigure_add": "Add thermostat mapping",
           "reconfigure_edit": "Edit thermostat mapping",
@@ -237,7 +237,7 @@
           "name": "Mapping name"
         },
         "data_description": {
-          "confirm_change": "Confirm that changes to either climate, Current Mode, Clear Hold, or the notification source point to the intended thermostat and actions. The mapping keeps its identity; changes take effect after Save mapping changes.",
+          "confirm_change": "Confirm that changes to either climate, Current Mode, Clear Hold, or the notification source point to the intended thermostat and actions. The mapping keeps its identity; changes take effect after the final review is submitted.",
           "ecobee_aqi_entity": "Display the existing index from this thermostat’s Ecobee sensor. The source must have aqi device class, no unit, and a nonnegative numeric reading when available. Ecobee Unified supplies no separate index calculation.",
           "ecobee_co2_entity": "Add carbon dioxide reported by this thermostat’s Ecobee sensor. The source must have carbon_dioxide device class, ppm units, and a nonnegative numeric reading when available. A valid sensor contract does not establish whether Ecobee measured or estimated the value.",
           "ecobee_entity": "Select the same thermostat’s climate entity from Ecobee. It supplies vendor status, observes most normal control requests, and handles Ecobee-specific actions. Its usable readings can fill gaps without enabling cloud control of normal thermostat functions.",
@@ -504,6 +504,10 @@
         "data_description": {
           "confirm_change": "Confirm removal of this one mapping. No source entity, stored statistic, or thermostat mapping is removed. Apply with Save changes."
         }
+      },
+      "reconfigure_finish": {
+        "title": "Review changes",
+        "description": "{changes}\n\nSubmit to save these changes and reload the integration. A request dispatched before reload may still take effect, while its pending confirmation is no longer retained."
       }
     }
   },

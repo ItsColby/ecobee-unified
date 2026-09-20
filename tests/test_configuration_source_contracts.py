@@ -206,6 +206,11 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             result = await self.hass.config_entries.flow.async_configure(
                 result["flow_id"], {"next_step_id": "reconfigure_finish"}
             )
+            self.assertIs(FlowResultType.FORM, result["type"])
+            self.assertEqual("reconfigure_finish", result["step_id"])
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {}
+            )
             self.assertEqual("reconfigure_successful", result["reason"])
             await self.hass.async_block_till_done()
             issue_a = issues.async_get_issue(DOMAIN, "mapping_mapping_a")
@@ -333,6 +338,13 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         ) as schedule_reload:
             result = await self.hass.config_entries.flow.async_configure(
                 result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+            self.assertIs(FlowResultType.FORM, result["type"])
+            self.assertEqual("reconfigure_finish", result["step_id"])
+            self.assertEqual(original_data, dict(entry.data))
+            schedule_reload.assert_not_called()
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {}
             )
         self.assertEqual("reconfigure_successful", result["reason"])
         schedule_reload.assert_called_once_with(entry.entry_id)
@@ -464,6 +476,13 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         ) as schedule_reload:
             result = await self.hass.config_entries.flow.async_configure(
                 result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+            self.assertIs(FlowResultType.FORM, result["type"])
+            self.assertEqual("reconfigure_finish", result["step_id"])
+            self.assertEqual(original_data, dict(entry.data))
+            schedule_reload.assert_not_called()
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {}
             )
         self.assertEqual("reconfigure_successful", result["reason"])
         schedule_reload.assert_called_once_with(entry.entry_id)

@@ -79,6 +79,13 @@ high value. Fan and preset choices must be advertised by the source. Humidity
 requires a whole-number target within the reported bounds; Unified does not
 invent a humidity increment.
 
+Read preferences and fallback can combine the two range endpoints from different
+sources. If the selected low target exceeds the selected high target, Unified
+withholds both endpoints and reports `target_temperature_range_conflict`. Other
+usable readings and controls remain available, and source provenance remains
+visible. The range returns automatically when the selected values are ordered;
+Unified does not switch sources to manufacture a valid pair.
+
 For example, this selects cooling on an example Unified climate that advertises
 the `cool` mode. Replace the entity ID before using it:
 
@@ -187,8 +194,12 @@ observer assignments and confirmation tolerances, see the [runtime contract](arc
 ## Adjust the composition or its waiting periods
 
 Open the existing integration entry's **Reconfigure** action to add, rename,
-replace, or remove mappings. Choose **Save mapping changes** after staging the
-edits. Changes to either climate, Current Mode, Clear Hold, or the notification
+replace, or remove mappings. Choose **Save changes** after staging the
+edits to review the changes, then submit the review to save and reload. The review
+shows additions, removals, and changed values for thermostat mappings,
+multi-source datapoints, and historical families, including source order and
+selection policy. Leaving the flow before the final submit saves nothing.
+Changes to either climate, Current Mode, Clear Hold, or the notification
 writer require the confirmation checkbox. Removal also requires confirmation.
 At least one mapping must remain in an entry.
 
@@ -343,8 +354,9 @@ compositions cannot enter a measured-humidity history family. Confirmed opaque
 and target mappings can still be used as separate current datapoints. This
 admission check neither repairs old statistics nor proves past source continuity.
 
-**Fixed source** reads the first source and preserves its gaps. **Ordered daily**
-chooses the first eligible daily row. Accept differing aggregation
+**Fixed source** selects only the first source and preserves its gaps. All
+configured candidates are still read and validated. **Ordered daily** chooses
+the first eligible daily row. Accept differing aggregation
 methods explicitly before enabling selection across those methods. A selected
 row supplies all its values; the reader does not combine another source's
 maximum with its mean, fill absent days, or interpolate hourly values.

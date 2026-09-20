@@ -157,6 +157,9 @@ class HistoricalConfigurationTests(CoreRuntimeTestCase):
     async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
         with patch.object(self.hass.config_entries, "async_reload", return_value=True):
             result = await self._next(result, "reconfigure_finish")
+            if result["type"] == FlowResultType.FORM:
+                self.assertEqual("reconfigure_finish", result["step_id"])
+                result = await self._submit(result, {})
             await self.hass.async_block_till_done()
         self.assertEqual("reconfigure_successful", result["reason"])
         return result
@@ -167,6 +170,60 @@ class HistoricalConfigurationTests(CoreRuntimeTestCase):
         self.assertEqual(FlowResultType.MENU, result["type"], result)
         await self._save(result)
         return deepcopy(entry.data[CONF_HISTORICAL_FAMILIES][-1])
+
+    async def test_review_keeps_history_association_methods_and_selection_visible(
+        self,
+    ) -> None:
+        entry = self._entry()
+        original = deepcopy(dict(entry.data))
+        result = await self._next(await self._open(entry), "historical_add")
+        result = await self._submit(
+            result,
+            self._values(
+                secondary_statistic=self.secondary,
+                policy="ordered_daily",
+                accept_cross_method=True,
+            ),
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result)
+        with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
+            result = await self._next(result, "reconfigure_finish")
+            self.assertEqual(FlowResultType.FORM, result["type"])
+            summary = result["description_placeholders"]["changes"]
+            self.assertIn("Daily room temperature", summary)
+            self.assertIn("temperature", summary)
+            self.assertIn("°C", summary)
+            self.assertIn(self.hass.config.time_zone, summary)
+            self.assertLess(
+                summary.index("recorder hourly time weighted"),
+                summary.index("beestat legacy daily sample mean"),
+            )
+            self.assertIn("ordered whole-day selection", summary)
+            self.assertIn("Different aggregation methods: accepted", summary)
+            self.assertNotIn(self.anchor.id, summary)
+            self.assertEqual(original, entry.data)
+            reload.assert_not_called()
+            await self._submit(result, {})
+            reload.assert_called_once_with(entry.entry_id)
+        saved = entry.data[CONF_HISTORICAL_FAMILIES][0]
+        self.assertEqual(self.anchor.id, saved["anchor_ref"])
+        self.assertEqual("ordered_daily", saved["policy"])
+        self.assertEqual(
+            [self.primary, self.secondary],
+            [source["statistic_id"] for source in saved["sources"]],
+        )
+
+        result = await self._next(await self._open(entry), "historical_remove")
+        result = await self._submit(result, {"family_id": saved["family_id"]})
+        result = await self._submit(result, {"confirm_change": True})
+        result = await self._next(result, "reconfigure_finish")
+        summary = result["description_placeholders"]["changes"]
+        self.assertIn("Removed Daily history", summary)
+        self.assertIn("Daily room temperature", summary)
+        self.assertIn("beestat legacy daily sample mean", summary)
+        self.assertEqual([saved], entry.data[CONF_HISTORICAL_FAMILIES])
+        self.hass.config_entries.flow.async_abort(result["flow_id"])
+        self.assertEqual([saved], entry.data[CONF_HISTORICAL_FAMILIES])
 
     async def test_native_forms_add_edit_reorder_remove_preserve_identities_and_future_fields(
         self,

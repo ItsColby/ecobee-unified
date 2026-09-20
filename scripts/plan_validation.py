@@ -12,6 +12,11 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
+if __package__:
+    from .check_public_safety import require_source_paths
+else:
+    from check_public_safety import require_source_paths
+
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = "custom_components/ecobee_unified"
 PLANNER = "scripts/plan_validation.py"
@@ -143,6 +148,7 @@ def changed_paths(
 
 def _imports(path: str, files: set[str]) -> set[str]:
     """Read syntax only; do not import the product while planning validation."""
+    require_source_paths(ROOT, [path])
     tree = ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
     result: set[str] = set()
     package = path.removesuffix(".py").split("/")[:-1]
@@ -277,7 +283,8 @@ def workflow_dependencies(source: str) -> dict[str, tuple[str, ...]]:
     )
     jobs = dict(
         re.findall(
-            r"(?ms)^  ([a-z_]+):\n(.*?)(?=^  [a-z_]+:|\Z)",
+            r"(?ms)^  ([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(?:#[^\n]*)?\n(.*?)"
+            r"(?=^  [A-Za-z_][A-Za-z0-9_-]*:[ \t]*(?:#[^\n]*)?(?:\n|\Z)|\Z)",
             source.split("jobs:\n", 1)[-1],
         )
     )
@@ -372,6 +379,7 @@ def _route_dependency_changes(
             ):
                 raise ValueError(f"Unresolved workflow dependency owner: {path}")
             before = _git("show", f"{base}:{path}", git_directory=git_directory)
+            require_source_paths(ROOT, [path])
             after = (ROOT / path).read_text(encoding="utf-8")
             if path.endswith(".sh"):
                 _route_runner_dependencies(
@@ -397,12 +405,21 @@ def _route_dependency_changes(
 def build_plan(
     paths: list[str], base: str = "HEAD", git_directory: str | None = None
 ) -> dict:
-    files = {
-        path.relative_to(ROOT).as_posix()
-        for owner in ("custom_components", "tests", "scripts")
-        for path in (ROOT / owner).rglob("*.py")
-        if "__pycache__" not in path.parts
-    }
+    files: set[str] = set()
+    for owner in ("custom_components", "tests", "scripts"):
+        require_source_paths(ROOT, [owner])
+        for directory, children, names in (ROOT / owner).walk():
+            children[:] = [name for name in children if name != "__pycache__"]
+            require_source_paths(
+                ROOT,
+                [(directory / name).relative_to(ROOT) for name in (*children, *names)],
+            )
+            files.update(
+                (directory / name).relative_to(ROOT).as_posix()
+                for name in names
+                if name.endswith(".py")
+            )
+    require_source_paths(ROOT, files)
     dependencies = {path: _imports(path, files) for path in files}
     unit_files, ha_files = _test_files(files)
     for test in ha_files:
@@ -519,6 +536,7 @@ def _route_path(
 
 def lane_command(plan: dict, lane: str) -> str:
     """Return quoted commands for the existing isolated environment runner."""
+    require_source_paths(ROOT, ["scripts/verify-release-local.sh"])
     pins = runner_dependencies(
         (ROOT / "scripts/verify-release-local.sh").read_text(encoding="utf-8")
     )

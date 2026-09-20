@@ -245,7 +245,6 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(20.0, snapshot.current_temperature)
         self.assertEqual(21.0, snapshot.target_temperature)
         self.assertEqual("homekit", snapshot.provenance["current_temperature"])
-        self.assertNotEqual(24.0, snapshot.current_temperature)
         self.assertIsNone(snapshot.preset_mode)
         self.assertEqual("home", snapshot.ecobee_preset_mode)
         self.assertEqual("Home", snapshot.climate_mode)

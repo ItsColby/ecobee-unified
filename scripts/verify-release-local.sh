@@ -26,7 +26,7 @@ if [[ "$(cd "$actual_root" && pwd -P)" != "$(cd "$source_root" && pwd -P)" ]]; t
   echo "Git target root does not match the wrapper source root." >&2; exit 2
 fi
 validation_python="${VALIDATION_PYTHON:-}"
-if [[ "$mode" == affected && -z "$validation_python" ]]; then
+if [[ ( "$mode" == affected || "$backend" == container ) && -z "$validation_python" ]]; then
   if command -v python3.14 >/dev/null 2>&1; then
     validation_python="$(command -v python3.14)"
   elif command -v uv >/dev/null 2>&1; then
@@ -34,7 +34,7 @@ if [[ "$mode" == affected && -z "$validation_python" ]]; then
   elif [[ -x "$HOME/.local/bin/uv" ]]; then
     validation_python="$("$HOME/.local/bin/uv" python find 3.14 --no-python-downloads)"
   else
-    echo "Affected planning requires Python 3.14; set VALIDATION_PYTHON to an existing interpreter." >&2
+    echo "Source admission and planning require Python 3.14; set VALIDATION_PYTHON to an existing interpreter." >&2
     exit 2
   fi
 fi
@@ -84,20 +84,23 @@ if [[ "$backend" == container ]]; then
       if [[ -e "$source_root/$path" || -L "$source_root/$path" ]]; then
         printf '%s\0' "$path"
       fi
-    done |
-    tar -C "$source_root" --null --files-from=- --create --file=- |
+    done > "$temporary_root/source-paths"
+  "$validation_python" "$source_root/scripts/check_public_safety.py" --check-source-paths < "$temporary_root/source-paths"
+  tar -C "$source_root" --null --files-from="$temporary_root/source-paths" --create --file=- |
     tar -C "$repo_root" --extract --file=-
   # The pinned Actionlint image runs as an unprivileged user.
   chmod a+rx "$repo_root"
   # DrvFS exposes regular files as executable unless metadata is enabled.
   find "$repo_root" -type f -exec chmod a-x {} +
-  git -C "$repo_root" init -q
-  git -C "$repo_root" config user.name local-validation
-  git -C "$repo_root" config user.email local-validation@invalid
+  # The payload needs an index, not synthetic history or user identity.
+  # Both templates and index hooks must remain inside this owned snapshot.
+  empty_git_template="$temporary_root/empty-git-template"
+  mkdir "$empty_git_template"
+  snapshot_git=(git -c "core.hooksPath=$empty_git_template" -C "$repo_root")
+  "${snapshot_git[@]}" init -q --template="$empty_git_template"
   # Discovery already excluded ignored untracked files; retain tracked files
   # even when the candidate adds an ignore rule that now matches them.
-  git -C "$repo_root" add --force -A
-  git -C "$repo_root" commit -qm snapshot
+  "${snapshot_git[@]}" add --force -A
 elif [[ "$backend" != native ]]; then
   echo "Unknown backend: $backend" >&2
   exit 2

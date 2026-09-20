@@ -83,7 +83,7 @@ for observation and dispatch, and [`models.py`](../custom_components/ecobee_unif
 for normalization and confirmation rules. A compatibility change needs a
 regression at the affected native boundary: mapping identity or role drift,
 serialized temperature, exact writer dispatch, or unchanged-report handling.
-Run both support lanes as described in [Development](development.md).
+Select the affected support lanes and checks as described in [Development](development.md).
 
 Tagged upstream code establishes an implementation contract; the runtime still
 validates the user's installed entities and advertised capabilities. These

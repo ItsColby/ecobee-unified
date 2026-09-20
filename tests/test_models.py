@@ -28,6 +28,61 @@ def source(
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_target_range_guard_requires_two_conflicting_endpoints(self) -> None:
+        for low, high in (
+            (19.0, 24.0),
+            (21.0, 21.0),
+            (None, 24.0),
+            (19.0, None),
+            (None, None),
+        ):
+            with self.subTest(low=low, high=high):
+                snapshot = build_snapshot(
+                    "mapping_a",
+                    source(
+                        "heat",
+                        {
+                            "current_temperature": 20.0,
+                            "temperature": 21.0,
+                            "target_temp_low": low,
+                            "target_temp_high": high,
+                        },
+                    ),
+                    RawSource(None),
+                )
+                self.assertEqual(low, snapshot.target_temperature_low)
+                self.assertEqual(high, snapshot.target_temperature_high)
+                self.assertEqual(21.0, snapshot.target_temperature)
+                self.assertNotIn(
+                    "target_temperature_range_conflict", snapshot.degradation
+                )
+
+    def test_inverted_same_source_range_is_not_published(self) -> None:
+        snapshot = build_snapshot(
+            "mapping_a",
+            source(
+                "heat_cool",
+                {
+                    "current_temperature": 20.0,
+                    "target_temp_low": 24.0,
+                    "target_temp_high": 20.0,
+                },
+            ),
+            source(
+                "heat_cool",
+                {
+                    "current_temperature": 20.0,
+                    "target_temp_low": 18.0,
+                    "target_temp_high": 26.0,
+                },
+            ),
+        )
+        self.assertIsNone(snapshot.target_temperature_low)
+        self.assertIsNone(snapshot.target_temperature_high)
+        self.assertEqual("homekit", snapshot.provenance["target_temperature_low"])
+        self.assertEqual("homekit", snapshot.provenance["target_temperature_high"])
+        self.assertIn("target_temperature_range_conflict", snapshot.degradation)
+
     def test_every_standard_field_uses_primary_owner(self) -> None:
         homekit_attributes = {
             "current_temperature": 20.0,

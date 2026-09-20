@@ -309,6 +309,9 @@ async def _save(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"next_step_id": "reconfigure_finish"}
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_finish"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["reason"] == "reconfigure_successful"
     # Await the real unload/reload and real Recorder commits; no reload stub.
     await async_wait_recording_done(hass)

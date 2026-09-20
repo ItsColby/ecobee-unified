@@ -192,9 +192,134 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
     async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
         with patch.object(self.hass.config_entries, "async_reload", return_value=True):
             result = await self._next(result, "reconfigure_finish")
+            if result["type"] == FlowResultType.FORM:
+                self.assertEqual("reconfigure_finish", result["step_id"])
+                result = await self._submit(result, {})
             await self.hass.async_block_till_done()
         self.assertEqual("reconfigure_successful", result["reason"])
         return result
+
+    async def test_review_stages_order_policy_and_range_without_saving(self) -> None:
+        values = self._physical_temperature_values(
+            name="Bedroom <review> [link](https://example.invalid)",
+            minimum_value=10,
+            maximum_value=35,
+            max_age_seconds=1200,
+            primary_max_age_seconds=0,
+            secondary_max_age_seconds=600,
+            fallback=False,
+        )
+        entry = self._entry()
+        original = deepcopy(dict(entry.data))
+        result = await self._next(await self._open(entry), "datapoint_add")
+        result = await self._submit(result, values)
+        self.assertEqual(FlowResultType.MENU, result["type"], result)
+        with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
+            result = await self._next(result, "reconfigure_finish")
+            self.assertEqual(FlowResultType.FORM, result["type"])
+            self.assertEqual("reconfigure_finish", result["step_id"])
+            self.assertEqual(
+                [],
+                serialize_schema(
+                    result["data_schema"], custom_serializer=cv.custom_serializer
+                ),
+            )
+            self.assertEqual(original, entry.data)
+            reload.assert_not_called()
+            summary = result["description_placeholders"]["changes"]
+            self.assertIn("&lt;review&gt;", summary)
+            self.assertNotIn("[link](https://example.invalid)", summary)
+            self.assertLess(summary.index("HomeKit Device"), summary.index("Ecobee"))
+            self.assertIn("physical temperature", summary)
+            self.assertIn("°C", summary)
+            self.assertIn("1200 seconds", summary)
+            self.assertIn("600 seconds", summary)
+            self.assertIn("no age expiry", summary)
+            self.assertIn("primary only", summary)
+            self.assertIn("10", summary)
+            self.assertIn("35", summary)
+            self.assertNotIn(self.mapping.name, summary)
+            result = await self._submit(result, {})
+            self.assertEqual("reconfigure_successful", result["reason"])
+            reload.assert_called_once_with(entry.entry_id)
+        saved = entry.data["datapoints"][0]
+        self.assertEqual(values["name"], saved["name"])
+        self.assertEqual(35, saved["maximum_value"])
+        self.assertFalse(saved["fallback"])
+
+    async def test_review_omits_unchanged_rows_and_shows_edits_and_removals(
+        self,
+    ) -> None:
+        first = _datapoint_from_input(self.hass, self._values(name="Edited humidity"))
+        second = _datapoint_from_input(self.hass, self._values(name="Removed humidity"))
+        retained = _datapoint_from_input(
+            self.hass, self._values(name="Untouched humidity")
+        )
+        entry = self._entry([first, second, retained])
+        original = deepcopy(dict(entry.data))
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": first["datapoint_id"]})
+        result = await self._submit(
+            result,
+            self._values(
+                name="Edited humidity",
+                primary_entity=self.ecobee.entity_id,
+                secondary_entity=self.homekit.entity_id,
+                fallback=False,
+            ),
+        )
+        result = await self._next(result, "datapoint_remove")
+        result = await self._submit(result, {"datapoint_id": second["datapoint_id"]})
+        result = await self._submit(result, {"confirm_change": True})
+        with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
+            result = await self._next(result, "reconfigure_finish")
+            summary = result["description_placeholders"]["changes"]
+            self.assertIn("Changed Datapoint: Edited humidity", summary)
+            self.assertIn("Removed Datapoint: Removed humidity", summary)
+            self.assertNotIn("Untouched humidity", summary)
+            self.assertNotIn(first["datapoint_id"], summary)
+            self.assertNotIn(self.homekit.id, summary)
+            self.assertIn("→", summary)
+            self.assertEqual(original, entry.data)
+            reload.assert_not_called()
+            await self._submit(result, {})
+        self.assertEqual(
+            [first["datapoint_id"], retained["datapoint_id"]],
+            [row["datapoint_id"] for row in entry.data["datapoints"]],
+        )
+        self.assertEqual(retained, entry.data["datapoints"][1])
+
+    async def test_review_rechecks_external_data_and_options_before_submit(
+        self,
+    ) -> None:
+        entry = self._entry()
+        for owner in ("data", "options"):
+            with self.subTest(owner=owner):
+                result = await self._next(await self._open(entry), "datapoint_add")
+                result = await self._submit(result, self._values())
+                result = await self._next(result, "reconfigure_finish")
+                self.assertEqual(FlowResultType.FORM, result["type"])
+                changed = deepcopy(dict(getattr(entry, owner))) | {"external": owner}
+                self.hass.config_entries.async_update_entry(entry, **{owner: changed})
+                with patch.object(
+                    self.hass.config_entries, "async_schedule_reload"
+                ) as reload:
+                    result = await self._submit(result, {})
+                    self.assertEqual("configuration_changed", result["reason"])
+                    reload.assert_not_called()
+                self.assertEqual(changed, getattr(entry, owner))
+                self.assertEqual([], entry.data["datapoints"])
+
+    async def test_no_changes_finishes_without_review_write_or_reload(self) -> None:
+        entry = self._entry()
+        original = deepcopy(dict(entry.data))
+        result = await self._open(entry)
+        with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
+            result = await self._next(result, "reconfigure_finish")
+            self.assertEqual(FlowResultType.ABORT, result["type"])
+            self.assertEqual("reconfigure_successful", result["reason"])
+            reload.assert_not_called()
+        self.assertEqual(original, entry.data)
 
     def _physical_temperature_values(self, **changes: Any) -> dict[str, Any]:
         """Create an identity-proven pair of physical temperature observations."""
@@ -659,6 +784,8 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         result = await self._submit(result, values)
         self.assertEqual(FlowResultType.MENU, result["type"])
         result = await self._next(result, "reconfigure_finish")
+        self.assertEqual(FlowResultType.FORM, result["type"])
+        result = await self._submit(result, {})
         self.assertEqual("reconfigure_successful", result["reason"])
         await self.hass.async_block_till_done()
 
@@ -1061,10 +1188,12 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         second = await self._next(await self._open(entry), "datapoint_add")
         first = await self._submit(first, self._values(name="Winner"))
         second = await self._submit(second, self._values(name="Stale edit"))
+        second = await self._next(second, "reconfigure_finish")
+        self.assertEqual(FlowResultType.FORM, second["type"])
         await self._save(first)
         accepted = deepcopy(dict(entry.data))
         with patch.object(self.hass.config_entries, "async_reload") as reload:
-            second = await self._next(second, "reconfigure_finish")
+            second = await self._submit(second, {})
             self.assertEqual("configuration_changed", second["reason"])
             self.assertEqual(accepted, entry.data)
             reload.assert_not_called()

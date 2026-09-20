@@ -2379,6 +2379,16 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_finish"}
         )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        summary = result["description_placeholders"]["changes"]
+        self.assertIn("Changed Thermostat: Zone A updated", summary)
+        self.assertIn(f"Removed Thermostat: {mapping_b.name}", summary)
+        self.assertNotIn(self.mapping.mapping_id, summary)
+        self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
+        self.assertEqual(self.mapping.name, entry.data[CONF_MAPPINGS][0][CONF_NAME])
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {}
+        )
         self.assertIs(FlowResultType.ABORT, result["type"])
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
@@ -2426,6 +2436,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_finish"}
         )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {}
+        )
         self.assertIs(FlowResultType.ABORT, result["type"])
         mappings = entry.data[CONF_MAPPINGS]
         self.assertEqual(2, len(mappings))
@@ -2454,6 +2468,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_finish"}
         )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {}
+        )
         self.assertIs(FlowResultType.ABORT, result["type"])
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
@@ -2476,6 +2494,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             device=True,
             physical_identity="thermostat_replacement",
         )
+        registry = er.async_get(self.hass)
+        for source in (self.homekit, replacement_homekit):
+            registry.async_update_entity(source.entity_id, name="Same thermostat name")
         entry = MockConfigEntry(
             domain=DOMAIN,
             title="Ecobee Unified",
@@ -2513,6 +2534,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertIs(FlowResultType.MENU, result["type"])
         result = await self.hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "reconfigure_finish"}
+        )
+        self.assertIs(FlowResultType.FORM, result["type"])
+        summary = result["description_placeholders"]["changes"].replace("\\", "")
+        self.assertIn(self.homekit.entity_id, summary)
+        self.assertIn(replacement_homekit.entity_id, summary)
+        self.assertNotIn(self.homekit.id, summary)
+        result = await self.hass.config_entries.flow.async_configure(
+            result["flow_id"], {}
         )
         self.assertIs(FlowResultType.ABORT, result["type"])
         updated = entry.data[CONF_MAPPINGS][0]
@@ -2562,6 +2591,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         ) as schedule_reload:
             first = await self.hass.config_entries.flow.async_configure(
                 first["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+            self.assertIs(FlowResultType.FORM, first["type"])
+            first = await self.hass.config_entries.flow.async_configure(
+                first["flow_id"], {}
             )
         schedule_reload.assert_called_once_with(entry.entry_id)
         self.assertIs(FlowResultType.ABORT, first["type"])
@@ -2676,6 +2709,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         ) as schedule_reload:
             result = await self.hass.config_entries.flow.async_configure(
                 result["flow_id"], {"next_step_id": "reconfigure_finish"}
+            )
+            self.assertIs(FlowResultType.FORM, result["type"])
+            result = await self.hass.config_entries.flow.async_configure(
+                result["flow_id"], {}
             )
 
         schedule_reload.assert_called_once_with(entry.entry_id)

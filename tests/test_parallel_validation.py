@@ -290,6 +290,43 @@ class NativeValidationTests(unittest.TestCase):
             test_paths,
             [str(Path(environment) / "bin/pytest") for environment in environments[2:]],
         )
+        for environment, requirements in zip(
+            environments[2:],
+            ("requirements-ha-test.txt", "requirements-ha-current.txt"),
+            strict=True,
+        ):
+            lane_events = [
+                event
+                for event in events
+                if Path(str(event["path"])).parent == Path(environment) / "bin"
+            ]
+            arguments = [event["args"] for event in lane_events]
+            harness = next(
+                index
+                for index, args in enumerate(arguments)
+                if args[:3] == ["-m", "pip", "install"]
+                and any(
+                    value.startswith("pytest-homeassistant-custom-component==")
+                    for value in args[3:]
+                )
+            )
+            core = arguments.index(
+                ["-m", "pip", "install", "--upgrade", "-r", requirements]
+            )
+            dependency_check = arguments.index(["-m", "pip", "check"])
+            final_install = max(
+                index
+                for index, args in enumerate(arguments)
+                if args[:3] == ["-m", "pip", "install"]
+            )
+            tests = next(
+                index
+                for index, event in enumerate(lane_events)
+                if event["tool"] == "pytest"
+            )
+            self.assertLess(harness, core)
+            self.assertLess(final_install, dependency_check)
+            self.assertLess(dependency_check, tests)
 
     def test_native_python_lane_failure_stops_before_tests_and_cleans(self) -> None:
         for failure in ("venv", "pip"):

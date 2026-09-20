@@ -704,17 +704,12 @@ class HistoricalReadTests(CoreRuntimeTestCase):
             manager, start_date="2026-09-10", end_date="2026-09-11", **kwargs
         )
 
-    async def test_producer_fixed_policy_requires_explicit_method_acceptance(
-        self,
-    ) -> None:
+    async def test_producer_point_and_legacy_days_keep_separate_proof(self) -> None:
         source = await self._producer_source()
         with self.assertRaisesRegex(ValueError, "historical_cross_method_required"):
             _family([source], timezone="UTC")
         family = _family([source], timezone="UTC", accept_cross_method=True)
         self.assertEqual(family.policy, "fixed_source")
-
-    async def test_producer_point_and_legacy_days_keep_separate_proof(self) -> None:
-        source = await self._producer_source()
         context = Context()
         for reason in ("ready", "legacy_day"):
             with self.subTest(reason=reason):
@@ -725,9 +720,7 @@ class HistoricalReadTests(CoreRuntimeTestCase):
                     values["coverage_reasons"] = {"ready": 1, "provisional": 23}
                 data = producer.response([values])
                 calls = producer.register(self.hass, data)
-                manager = self._manager(
-                    _family([source], timezone="UTC", accept_cross_method=True)
-                )
+                manager = self._manager(family)
                 result = await self._producer_read(manager, context=context)
                 selected = result["families"][0]["rows"][0]["selected"]
                 self.assertEqual(result["schema_version"], 1)

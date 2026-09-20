@@ -1044,7 +1044,17 @@ class HistorySourceTests(CoreRuntimeTestCase):
         )
         self.assertEqual(declared, baseline)
         successor = declaration["statistic_id"]
-        for invalid in (None, {}, {"contract_version": 99}, "malformed"):
+        invalid_capabilities: list[Any] = [
+            None,
+            {},
+            {"contract_version": 99},
+            "malformed",
+        ]
+        for field in ("kind", "admission", "writer_status"):
+            capability, declaration = self._history_v3()
+            declaration[field] = []
+            invalid_capabilities.append(deepcopy(capability))
+        for invalid in invalid_capabilities:
             with self.subTest(capability=invalid):
                 self.response["hourly_statistics"] = {"history_v3": invalid}
                 current = await async_validate_source(
@@ -1057,17 +1067,3 @@ class HistorySourceTests(CoreRuntimeTestCase):
                     await async_capture_source(
                         self.hass, successor, "temperature", self.temperature.id
                     )
-
-    async def test_malformed_optional_descriptor_does_not_break_legacy(self) -> None:
-        legacy = self._statistic("beestat:zone_a_temperature", "°F", "temperature")
-        baseline = await async_capture_source(
-            self.hass, legacy, "temperature", self.temperature.id
-        )
-        for field in ("kind", "admission", "writer_status"):
-            with self.subTest(field=field):
-                _capability, declaration = self._history_v3()
-                declaration[field] = []
-                current = await async_validate_source(
-                    self.hass, baseline, "temperature", self.temperature.id
-                )
-                self.assertEqual(current, baseline)

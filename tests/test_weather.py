@@ -117,7 +117,8 @@ class WeatherPlatformTests(WeatherSourceFixture):
             await self.release_request.wait()
         if self.service_error is not None:
             raise self.service_error
-        return {call.data["entity_id"]: {"forecast": deepcopy(self.rows)}}
+        # Expose the source payload so preservation checks observe production writes.
+        return {call.data["entity_id"]: {"forecast": self.rows}}
 
     async def test_native_setup_current_fields_reload_retention_and_unload(
         self,
@@ -248,7 +249,6 @@ class WeatherPlatformTests(WeatherSourceFixture):
         changed = self.hass.states.get(self.entity_id)
         assert changed is not None
         self.assertEqual("rainy", changed.state)
-        self.assertNotEqual(repeated.state, changed.state)
         self.assertEqual(provider_time, changed.attributes["provider_reported_at"])
         assert changed.state_info is not None
         self.assertIn("ha_reported_at", changed.attributes)

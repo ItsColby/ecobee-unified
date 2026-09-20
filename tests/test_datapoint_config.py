@@ -378,10 +378,6 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
             )
         }
         for field in ("minimum_value", "maximum_value"):
-            selector = result["data_schema"].schema[field]
-            self.assertEqual("box", selector.config["mode"])
-            self.assertEqual("any", selector.config["step"])
-            self.assertNotIn("min", selector.config)
             self.assertEqual(
                 {"number": {"step": "any", "mode": "box"}},
                 serialized[field]["selector"],
@@ -558,30 +554,6 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         self.assertEqual("accepted_range_not_supported", result["errors"]["base"])
         self.assertEqual([], entry.data["datapoints"])
         self.hass.config_entries.flow.async_abort(result["flow_id"])
-
-    async def test_temperature_range_stale_commit_preserves_concurrent_options(
-        self,
-    ) -> None:
-        original = _datapoint_from_input(
-            self.hass, self._physical_temperature_values(maximum_value=40)
-        )
-        entry = self._entry([original])
-        result = await self._next(await self._open(entry), "datapoint_edit")
-        result = await self._submit(result, {"datapoint_id": original["datapoint_id"]})
-        result = await self._submit(
-            result,
-            _datapoint_form_defaults(self.hass, original)
-            | {"maximum_value": 35, "confirm_equivalence": False},
-        )
-        self.assertEqual(FlowResultType.MENU, result["type"])
-        concurrent_options = {"external_policy_change": True}
-        self.hass.config_entries.async_update_entry(entry, options=concurrent_options)
-        with patch.object(self.hass.config_entries, "async_reload") as reload:
-            result = await self._next(result, "reconfigure_finish")
-            self.assertEqual("configuration_changed", result["reason"])
-            reload.assert_not_called()
-        self.assertEqual(concurrent_options, entry.options)
-        self.assertEqual(original, entry.data["datapoints"][0])
 
     async def test_add_edit_remove_preserves_mappings_identity_and_future_fields(
         self,

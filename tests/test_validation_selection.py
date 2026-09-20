@@ -32,6 +32,40 @@ class ValidationSelectionTests(unittest.TestCase):
         environment_patch.start()
         self.addCleanup(environment_patch.stop)
 
+    def _native_checkout(self) -> Path:
+        """Give native CLI probes a real HEAD even in an index-only payload."""
+        temporary = tempfile.TemporaryDirectory(prefix="validation native checkout ")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        paths = subprocess.check_output(
+            ["git", "-C", str(ROOT), "ls-files", "-z"], text=True
+        ).split("\0")
+        for relative in filter(None, paths):
+            source = ROOT / relative
+            if source.is_file():
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+        for arguments in (
+            ("init", "-q", "--template="),
+            ("add", "-A"),
+            ("commit", "-qm", "Native validation fixture"),
+        ):
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Validation Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    *arguments,
+                ],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+        return root
+
     @unittest.skipUnless(os.name == "posix", "requires symbolic links")
     def test_linked_python_inputs_are_refused_before_any_source_read(self):
         for linked_parent in (False, True):
@@ -785,10 +819,11 @@ class ValidationSelectionTests(unittest.TestCase):
         self.assertIn("tests/test_sensor.py", plan["ha_tests"])
 
     def test_plan_cli_rejects_unresolved_paths_without_launching_jobs(self):
+        root = self._native_checkout()
         result = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "scripts/plan_validation.py"),
+                str(root / "scripts/plan_validation.py"),
                 "--path",
                 "unknown.input",
             ],
@@ -801,10 +836,11 @@ class ValidationSelectionTests(unittest.TestCase):
         self.assertEqual("", result.stdout)
 
     def test_plan_cli_is_json_and_needs_no_ha_import(self):
+        root = self._native_checkout()
         result = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "scripts/plan_validation.py"),
+                str(root / "scripts/plan_validation.py"),
                 "--path",
                 "README.md",
                 "--plan-only",
@@ -839,7 +875,7 @@ if os.environ.get("SELECTION_FAIL") == "dependencies" and "--upgrade" in args:
 if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittest" in args):
     raise SystemExit(23)
 """
-        script = ROOT / "scripts/verify-release-local.sh"
+        script = self._native_checkout() / "scripts/verify-release-local.sh"
         for failure in ("", "harness", "dependencies", "tests"):
             with (
                 self.subTest(failure=failure),
@@ -911,13 +947,14 @@ if os.environ.get("SELECTION_FAIL") == "tests" and ("pytest" in args or "unittes
         os.name == "posix" and shutil.which("bash"), "requires native Bash"
     )
     def test_native_plan_and_unselected_lane_stop_before_environment_creation(self):
+        root = self._native_checkout()
         with tempfile.TemporaryDirectory() as directory:
             env = dict(os.environ, TMPDIR=directory, VALIDATION_PYTHON=sys.executable)
             for extra, expected in ((["--plan-only"], 0), (["--only", "current"], 2)):
                 result = subprocess.run(
                     [
                         "bash",
-                        str(ROOT / "scripts/verify-release-local.sh"),
+                        str(root / "scripts/verify-release-local.sh"),
                         "affected",
                         "native",
                         "",

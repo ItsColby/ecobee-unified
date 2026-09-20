@@ -553,6 +553,7 @@ class SnapshotTests(unittest.TestCase):
                 "max_temp": 95.0,
                 "target_temp_step": 0.5,
                 "unit_of_measurement": "°F",
+                "humidity": 36.2,
             },
         )
         quantized = build_snapshot(
@@ -584,6 +585,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(command_matches(quantized, expected))
         self.assertTrue(command_matches(half_step, expected))
         self.assertFalse(command_matches(wrong_target, expected))
+        self.assertFalse(command_matches(quantized, {"target_humidity": 36.0}))
 
         fine_step = build_snapshot(
             "mapping_a",
@@ -609,18 +611,6 @@ class SnapshotTests(unittest.TestCase):
             confirmation_values=MappingProxyType({"target_temperature": 20.051}),
         )
         self.assertFalse(command_matches(fine_step, {"target_temperature": 20.0}))
-
-    def test_non_temperature_confirmation_keeps_strict_tolerance(self) -> None:
-        snapshot = build_snapshot(
-            "mapping_a",
-            source(
-                "heat",
-                {"current_temperature": 20.0, "humidity": 36.2},
-            ),
-            source("heat", {"current_temperature": 20.0}),
-        )
-
-        self.assertFalse(command_matches(snapshot, {"target_humidity": 36.0}))
 
     def test_explicit_temperature_falls_back_only_on_actual_unavailability(
         self,

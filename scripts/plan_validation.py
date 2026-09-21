@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import math
 import os
 import re
 import shlex
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 
 if __package__:
@@ -357,6 +359,84 @@ def _route_runner_dependencies(
     plan["release"] |= "hassfest_image" in changed
 
 
+def _configuration_equal(before: object, after: object) -> bool:
+    """Compare TOML values without conflating booleans, integers, and floats."""
+    if type(before) is not type(after):
+        return False
+    if isinstance(before, dict) and isinstance(after, dict):
+        return before.keys() == after.keys() and all(
+            _configuration_equal(value, after[key]) for key, value in before.items()
+        )
+    if isinstance(before, list) and isinstance(after, list):
+        return len(before) == len(after) and all(
+            _configuration_equal(left, right)
+            for left, right in zip(before, after, strict=True)
+        )
+    if isinstance(before, float) and isinstance(after, float) and math.isnan(before):
+        return math.isnan(after)
+    return before == after
+
+
+def _pyproject_configuration(source: str) -> dict:
+    """Separate configured native tools from configuration without a mapped owner."""
+    configuration = tomllib.loads(source)
+    tools = configuration.pop("tool", {})
+    if not isinstance(tools, dict):
+        raise TypeError("tool must be a TOML table")
+    sections = {name: tools.pop(name, {}) for name in ("ruff", "mypy")}
+    pytest = tools.pop("pytest", {})
+    if not isinstance(pytest, dict):
+        raise TypeError("tool.pytest must be a TOML table")
+    sections["pytest"] = pytest.pop("ini_options", {})
+    if any(not isinstance(section, dict) for section in sections.values()):
+        raise TypeError("Mapped tool configuration must be a TOML table")
+    if pytest:
+        tools["pytest"] = pytest
+    configuration["tool"] = tools
+    sections["unmapped"] = configuration
+    return sections
+
+
+def _route_pyproject_changes(
+    base: str,
+    git_directory: str | None,
+    files: set[str],
+    ha_files: set[str],
+    plan: dict,
+) -> None:
+    """Select only tools whose parsed configuration differs from the exact base."""
+    path = "pyproject.toml"
+    try:
+        before = _pyproject_configuration(
+            _git("show", f"{base}:{path}", git_directory=git_directory)
+        )
+        require_source_paths(ROOT, [path])
+        after = _pyproject_configuration((ROOT / path).read_text(encoding="utf-8"))
+        changed = {
+            name
+            for name in before
+            if not _configuration_equal(before[name], after[name])
+        }
+        if "unmapped" in changed:
+            raise ValueError("changed configuration has no mapped tool consumer")
+        if "ruff" in changed:
+            plan["python"] = sorted(files)
+        if "mypy" in changed:
+            for lane in ("minimum", "current"):
+                plan[lane] = True
+                plan["lane_typing"][lane] = sorted(
+                    path for path in files if path.startswith(PRODUCT + "/")
+                )
+        if "pytest" in changed:
+            for lane in ("minimum", "current"):
+                plan[lane] = True
+                plan["lane_tests"][lane] = sorted(ha_files)
+    except (OSError, ValueError, TypeError, subprocess.CalledProcessError) as err:
+        plan["unresolved"].append(
+            f"{path}: configuration comparison unavailable: {err}"
+        )
+
+
 def _route_dependency_changes(
     paths: list[str],
     base: str,
@@ -453,6 +533,8 @@ def build_plan(
     _route_dependency_changes(
         paths, base, git_directory, files, unit_files, ha_files, plan
     )
+    if "pyproject.toml" in paths:
+        _route_pyproject_changes(base, git_directory, files, ha_files, plan)
     if selected & ha_files:
         plan["current"] = True
         if any(path.startswith(PRODUCT + "/") for path in paths):
@@ -518,9 +600,8 @@ def _route_path(
         plan["release"] = True
         plan["hacs"] |= path == "hacs.json" or path.endswith("manifest.json")
     elif path == "pyproject.toml":
-        plan["unresolved"].append(
-            "pyproject.toml: select the affected tool configuration explicitly after review"
-        )
+        # Parsed content is compared with the pinned base after path routing.
+        pass
     elif selected and any(path in uses for uses in EXTRA_DEPENDENCIES.values()):
         # Explicit non-Python runtime inputs use their real native consumer.
         pass

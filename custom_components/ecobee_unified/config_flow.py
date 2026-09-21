@@ -1449,14 +1449,17 @@ def _datapoint_from_input(
     ):
         result.pop(field, None)
     result.update(canonical)
-    old_sources = (current or {}).get("sources", [])
+    old_sources = {
+        (source["entity"], source.get("attribute")): source
+        for source in (current or {}).get("sources", [])
+    }
     result["sources"] = [
         {
             **{
                 key: value
-                for key, value in (
-                    old_sources[index].items() if index < len(old_sources) else []
-                )
+                for key, value in old_sources.get(
+                    (source["entity"], source.get("attribute")), {}
+                ).items()
                 if key
                 not in {
                     "entity",
@@ -1468,7 +1471,7 @@ def _datapoint_from_input(
             },
             **source,
         }
-        for index, source in enumerate(canonical["sources"])
+        for source in canonical["sources"]
     ]
     return result
 

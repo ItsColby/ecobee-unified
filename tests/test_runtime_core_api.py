@@ -3632,6 +3632,18 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 "invalid_vacation_period",
             ),
             (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-W01-1", "08:00:00"
+                ),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-09-01", "T080000Z"
+                ),
+                "invalid_vacation_period",
+            ),
+            (
                 entity.async_create_vacation("Trip", 28.0, 15.0, "2026-09-01", "08:00"),
                 "invalid_vacation_period",
             ),

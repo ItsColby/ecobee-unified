@@ -313,16 +313,20 @@ class WeatherPlatformTests(WeatherSourceFixture):
                 self.request_started = asyncio.Event()
                 self.release_request = asyncio.Event()
                 task = asyncio.create_task(self.entity.async_forecast_daily())
-                await self.request_started.wait()
-                self.hass.states.async_set(
-                    self.first.entity_id, condition, self.source_attributes | attrs
-                )
-                # Deliver Core state/dispatcher callbacks while the source service waits.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
-                self.release_request.set()
-                self.assertIsNone(await task)
-                self.request_started = self.release_request = None
+                try:
+                    await self._wait_for_fixture_event(task, self.request_started)
+                    self.hass.states.async_set(
+                        self.first.entity_id, condition, self.source_attributes | attrs
+                    )
+                    # Deliver Core state/dispatcher callbacks while the source service waits.
+                    await asyncio.sleep(0)
+                    await asyncio.sleep(0)
+                    self.release_request.set()
+                    self.assertIsNone(await asyncio.wait_for(task, timeout=1))
+                finally:
+                    self.release_request.set()
+                    await self._settle_fixture_tasks(task)
+                    self.request_started = self.release_request = None
                 await self.hass.async_block_till_done()
 
     async def test_public_forecast_callbacks_follow_selection_and_stop_on_unload(
@@ -384,25 +388,29 @@ class WeatherPlatformTests(WeatherSourceFixture):
                 self.request_started = asyncio.Event()
                 self.release_request = asyncio.Event()
                 task = asyncio.create_task(self.entity.async_forecast_daily())
-                await self.request_started.wait()
-                if transient_change:
-                    self.hass.states.async_set(self.first.entity_id, "unavailable")
+                try:
+                    await self._wait_for_fixture_event(task, self.request_started)
+                    if transient_change:
+                        self.hass.states.async_set(self.first.entity_id, "unavailable")
+                        await asyncio.sleep(0)
+                        await asyncio.sleep(0)
+                    self.hass.states.async_set(
+                        self.first.entity_id,
+                        "sunny",
+                        self.source_attributes,
+                        force_update=True,
+                    )
                     await asyncio.sleep(0)
                     await asyncio.sleep(0)
-                self.hass.states.async_set(
-                    self.first.entity_id,
-                    "sunny",
-                    self.source_attributes,
-                    force_update=True,
-                )
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
-                self.release_request.set()
-                if transient_change:
-                    self.assertIsNone(await task)
-                else:
-                    self.assertIsNotNone(await task)
-                self.request_started = self.release_request = None
+                    self.release_request.set()
+                    if transient_change:
+                        self.assertIsNone(await asyncio.wait_for(task, timeout=1))
+                    else:
+                        self.assertIsNotNone(await asyncio.wait_for(task, timeout=1))
+                finally:
+                    self.release_request.set()
+                    await self._settle_fixture_tasks(task)
+                    self.request_started = self.release_request = None
                 await self.hass.async_block_till_done()
 
     async def test_unload_cancels_owned_forecast_publication_in_flight(self) -> None:
@@ -411,9 +419,9 @@ class WeatherPlatformTests(WeatherSourceFixture):
         self.request_started = asyncio.Event()
         self.release_request = asyncio.Event()
         self.hass.states.async_set(self.first.entity_id, "unavailable")
-        await self.request_started.wait()
-        self.assertIsNotNone(self.entity._refresh_task)
         try:
+            await asyncio.wait_for(self.request_started.wait(), timeout=1)
+            self.assertIsNotNone(self.entity._refresh_task)
             self.assertTrue(
                 await self.hass.config_entries.async_unload(self.unified_entry.entry_id)
             )
@@ -422,4 +430,6 @@ class WeatherPlatformTests(WeatherSourceFixture):
             self.assertEqual([], updates)
         finally:
             self.release_request.set()
+            if self.entity._refresh_task is not None:
+                await self._settle_fixture_tasks(self.entity._refresh_task)
         await self.hass.async_block_till_done()

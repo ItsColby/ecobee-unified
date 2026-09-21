@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import io
 import json
 import os
 import re
@@ -18,11 +19,36 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.check_public_safety import (
+    MAX_HISTORY_BLOB_BYTES,
+    _git_object_bytes,
     _history_failures,
+    _read_batch_object,
     _text_failures,
     run_archive_guard,
     run_guard,
 )
+
+
+def _exact_core_pin(path: Path) -> str:
+    """Read one unconditional exact Core pin, allowing other requirements."""
+    pins = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        content = line.split("#", 1)[0].strip()
+        if not re.match(r"homeassistant(?=[^A-Za-z0-9_.-]|$)", content, re.IGNORECASE):
+            continue
+        match = re.fullmatch(
+            r"homeassistant\s*==\s*([0-9]{4}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*))",
+            content,
+            re.IGNORECASE,
+        )
+        if match is None:
+            raise AssertionError(
+                f"{path.name} must use an unconditional stable exact Home Assistant pin"
+            )
+        pins.append(match.group(1))
+    if len(pins) != 1:
+        raise AssertionError(f"{path.name} must contain exactly one Home Assistant pin")
+    return pins[0]
 
 
 def _has_description_text(value: str) -> bool:
@@ -277,6 +303,147 @@ class PublicSafetyTests(unittest.TestCase):
                 self.assertIn(
                     "Git history blob: private IPv4 address", _history_failures(root)
                 )
+
+    def test_batch_preserves_empty_and_binary_objects_and_settles_early_close(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._git(root, "init")
+            contents = [b"", b"line\n\x00\xfftail\n", b"last"]
+            objects = [
+                (
+                    subprocess.check_output(
+                        ["git", "hash-object", "-w", "--stdin"], cwd=root, input=data
+                    )
+                    .decode()
+                    .strip(),
+                    "blob",
+                    len(data),
+                )
+                for data in contents
+            ]
+            self.assertEqual(contents, list(_git_object_bytes(root, objects)))
+            native_popen = subprocess.Popen
+            processes = []
+
+            def capture_process(*args, **kwargs):
+                process = native_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+
+            with patch("scripts.check_public_safety.subprocess.Popen", capture_process):
+                stream = _git_object_bytes(root, objects)
+                self.assertEqual(contents[0], next(stream))
+                stream.close()
+            self.assertIsNotNone(processes[0].poll())
+            self.assertTrue(processes[0].stdin.closed)
+            self.assertTrue(processes[0].stdout.closed)
+
+    def test_batch_rejects_invalid_or_incomplete_frames_without_exposing_bytes(
+        self,
+    ) -> None:
+        object_id = "1" * 40
+        prefix = object_id.encode()
+        cases = [
+            prefix + b" missing\n",
+            b"2" * 40 + b" blob 1\nx\n",
+            prefix + b" tag 1\nx\n",
+            prefix + b" blob -1\n",
+            prefix + b" blob 2\nxx\n",
+            prefix + b" blob 1\n",
+            prefix + b" blob 1\nx",
+            prefix + b" blob 1\nxx",
+            prefix + b" blob " + b"0" * 256 + b"\n",
+        ]
+        for payload in cases:
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(ValueError, "Git object batch"),
+            ):
+                _read_batch_object(io.BytesIO(payload), object_id, "blob", 1)
+
+    def test_batch_missing_object_reaps_failed_reader(self) -> None:
+        native_popen = subprocess.Popen
+        processes = []
+
+        def capture_process(*args, **kwargs):
+            process = native_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._git(root, "init")
+            with (
+                patch("scripts.check_public_safety.subprocess.Popen", capture_process),
+                self.assertRaisesRegex(ValueError, "invalid header"),
+            ):
+                list(_git_object_bytes(root, [("0" * 40, "blob", None)]))
+        self.assertIsNotNone(processes[0].poll())
+        self.assertTrue(processes[0].stdin.closed)
+        self.assertTrue(processes[0].stdout.closed)
+
+    def test_batch_refuses_nonzero_exit_and_unexpected_trailing_content(self) -> None:
+        object_id = "1" * 40
+        native_popen = subprocess.Popen
+        for extra, status, error in (
+            (b"", 7, subprocess.CalledProcessError),
+            (b"extra", 0, ValueError),
+        ):
+            processes = []
+            payload = object_id.encode() + b" blob 1\nx\n" + extra
+
+            def fake_git(
+                *args, payload=payload, status=status, processes=processes, **kwargs
+            ):
+                process = native_popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import sys; sys.stdin.buffer.readline(); "
+                            f"sys.stdout.buffer.write({payload!r}); sys.stdout.buffer.flush(); "
+                            f"sys.exit({status})"
+                        ),
+                    ],
+                    **kwargs,
+                )
+                processes.append(process)
+                return process
+
+            with (
+                self.subTest(status=status, extra=extra),
+                patch("scripts.check_public_safety.subprocess.Popen", fake_git),
+                self.assertRaises(error),
+            ):
+                list(_git_object_bytes(Path.cwd(), [(object_id, "blob", 1)]))
+            self.assertIsNotNone(processes[0].poll())
+            self.assertTrue(processes[0].stdin.closed)
+            self.assertTrue(processes[0].stdout.closed)
+
+    def test_history_keeps_annotated_tags_and_refuses_oversized_object_reads(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._git(root, "init")
+            (root / "large.txt").write_bytes(b"x" * (MAX_HISTORY_BLOB_BYTES + 1))
+            self._git(root, "add", ".")
+            self._git(root, "commit", "-m", "Add oversized content")
+            self._git(root, "tag", "-a", "release", "-m", "192" + ".168.1.2")
+            admitted = []
+
+            def read_objects(root, objects):
+                admitted.extend(objects)
+                return _git_object_bytes(root, objects)
+
+            with patch("scripts.check_public_safety._git_object_bytes", read_objects):
+                failures = _history_failures(root)
+        self.assertIn("Git history blob: oversized unreviewed content", failures)
+        self.assertIn("Git history tag: private IPv4 address", failures)
+        self.assertTrue(admitted)
+        self.assertTrue(all(size <= MAX_HISTORY_BLOB_BYTES for _, _, size in admitted))
 
     def test_working_tree_rejects_utf16_content_under_text_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -548,13 +715,9 @@ class PublicSafetyTests(unittest.TestCase):
 
     def test_declared_minimum_matches_distribution_requirement(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        minimum_requirements = (root / "requirements-ha-test.txt").read_text(
-            encoding="utf-8"
-        )
+        minimum = _exact_core_pin(root / "requirements-ha-test.txt")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            f"homeassistant=={hacs['homeassistant']}", minimum_requirements.strip()
-        )
+        self.assertEqual(hacs["homeassistant"], minimum)
 
     def test_windows_wrapper_forwards_explicit_worktree_git_directory(self) -> None:
         root = Path(__file__).resolve().parents[1]

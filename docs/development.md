@@ -38,9 +38,12 @@ are compared against the supplied base, or HEAD for working-path selections;
 changed harness, Python image, action, and tool pins select their actual consumers.
 An unavailable dependency comparison remains unresolved. The Bash runner remains
 the owner of exact local tool versions. Tooling, workflow, public-content and
-metadata checks are selected independently of product tests. Configuration
-changes without a reviewed tool-specific mapping need explicit review, rather
-than an automatic complete run.
+metadata checks are selected independently of product tests. Parsed `pyproject.toml`
+changes select Ruff's Python inputs, both maintained typing lanes for mypy, or both
+HA test lanes for pytest settings. Comments and equivalent TOML formatting add no
+tool consumers; normal public-safety validation still applies. Changed unmapped
+configuration, invalid TOML, and unavailable base or candidate content remain
+unresolved instead of selecting an automatic complete run.
 
 Container execution rebuilds the affected plan from the captured payload, retaining
 the preview's resolved dependency baseline and selected paths. That plan contains

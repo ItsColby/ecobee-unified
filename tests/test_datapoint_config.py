@@ -767,7 +767,8 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         self.assertEqual("°F", saved["unit"])
         self.assertFalse(saved["fallback"])
         self.assertEqual({"keep": True}, saved["future_row"])
-        self.assertEqual("keep", saved["sources"][0]["future_binding"])
+        self.assertNotIn("future_binding", saved["sources"][0])
+        self.assertEqual("keep", saved["sources"][1]["future_binding"])
         self.assertEqual({"keep": True}, entry.data["future_top_level"])
         self.assertIsNot(old_manager, entry.runtime_data.datapoints)
         self.assertFalse(old_manager._running)
@@ -927,6 +928,113 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
                 self.assertEqual(row["semantic"], saved["semantic"])
                 self.assertEqual({"keep": True}, saved["future_row"])
 
+    async def test_source_extensions_follow_attributes_when_one_entity_is_reordered(
+        self,
+    ) -> None:
+        state = self.hass.states.get(self.ecobee.entity_id)
+        assert state is not None
+        self.hass.states.async_set(
+            self.ecobee.entity_id,
+            state.state,
+            dict(state.attributes) | {"generic_a": 10, "generic_b": 20},
+        )
+        values = self._values(
+            kind="number",
+            unit="ppm",
+            primary_entity=self.ecobee.entity_id,
+            secondary_entity=self.ecobee.entity_id,
+            primary_attribute="generic_a",
+            secondary_attribute="generic_b",
+            primary_unit="ppm",
+            secondary_unit="ppm",
+        )
+        row = _datapoint_from_input(self.hass, values)
+        row["sources"][0]["future_binding"] = "first attribute"
+        row["sources"][1]["future_binding"] = "second attribute"
+        original = deepcopy(row)
+        entry = self._entry([row])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": row["datapoint_id"]})
+        result = await self._submit(
+            result,
+            values
+            | {"primary_attribute": "generic_b", "secondary_attribute": "generic_a"},
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result.get("errors"))
+        await self._save(result)
+        self.assertEqual(
+            ["second attribute", "first attribute"],
+            [
+                source["future_binding"]
+                for source in entry.data["datapoints"][0]["sources"]
+            ],
+        )
+        self.assertEqual(original, row)
+
+    async def test_source_removal_keeps_extensions_with_surviving_binding(self) -> None:
+        third = self._source(
+            "ecobee", "ec_extra", device=True, physical_identity="thermostat_a"
+        )
+        state = self.hass.states.get(third.entity_id)
+        assert state is not None
+        self.hass.states.async_set(
+            third.entity_id,
+            state.state,
+            dict(state.attributes) | {"current_humidity": 42},
+        )
+        row = _datapoint_from_input(
+            self.hass,
+            self._values(
+                tertiary_entity=third.entity_id, tertiary_attribute="current_humidity"
+            ),
+        )
+        for index, source in enumerate(row["sources"]):
+            source["future_binding"] = index
+        entry = self._entry([row])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": row["datapoint_id"]})
+        result = await self._submit(
+            result, self._values(secondary_entity=third.entity_id)
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result.get("errors"))
+        await self._save(result)
+        self.assertEqual(
+            [(self.homekit.id, 0), (third.id, 2)],
+            [
+                (source["entity"], source["future_binding"])
+                for source in entry.data["datapoints"][0]["sources"]
+            ],
+        )
+
+    async def test_replacement_source_does_not_inherit_removed_binding_extensions(
+        self,
+    ) -> None:
+        replacement = self._source(
+            "ecobee", "ec_replacement", device=True, physical_identity="thermostat_a"
+        )
+        state = self.hass.states.get(replacement.entity_id)
+        assert state is not None
+        self.hass.states.async_set(
+            replacement.entity_id,
+            state.state,
+            dict(state.attributes) | {"current_humidity": 42},
+        )
+        row = _datapoint_from_input(self.hass, self._values())
+        row["sources"][0]["future_binding"] = "retained"
+        row["sources"][1]["future_binding"] = "removed"
+        entry = self._entry([row])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": row["datapoint_id"]})
+        result = await self._submit(
+            result, self._values(secondary_entity=replacement.entity_id)
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result.get("errors"))
+        await self._save(result)
+        saved_sources = entry.data["datapoints"][0]["sources"]
+        self.assertEqual("retained", saved_sources[0]["future_binding"])
+        self.assertEqual(replacement.id, saved_sources[1]["entity"])
+        self.assertNotIn("future_binding", saved_sources[1])
+
     async def test_changed_sources_require_equivalence_again_but_name_and_fallback_do_not(
         self,
     ) -> None:
@@ -1055,6 +1163,9 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
 
     async def test_saved_registry_references_survive_entity_rename(self) -> None:
         row = _datapoint_from_input(self.hass, self._values())
+        row["sources"][0]["future_binding"] = "same registry identity"
+        state = self.hass.states.get(self.homekit.entity_id)
+        assert state is not None
         er.async_get(self.hass).async_update_entity(
             self.homekit.entity_id,
             new_entity_id="climate.renamed_source",
@@ -1062,6 +1173,22 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         defaults = _datapoint_form_defaults(self.hass, row)
         self.assertEqual("climate.renamed_source", defaults["primary_entity"])
         self.assertEqual(self.homekit.id, row["sources"][0]["entity"])
+        self.hass.states.async_set(
+            "climate.renamed_source", state.state, dict(state.attributes)
+        )
+        entry = self._entry([row])
+        result = await self._next(await self._open(entry), "datapoint_edit")
+        result = await self._submit(result, {"datapoint_id": row["datapoint_id"]})
+        result = await self._submit(
+            result, defaults | {"name": "Renamed source", "confirm_equivalence": True}
+        )
+        self.assertEqual(FlowResultType.MENU, result["type"], result.get("errors"))
+        await self._save(result)
+        saved = entry.data["datapoints"][0]
+        self.assertEqual(self.homekit.id, saved["sources"][0]["entity"])
+        self.assertEqual(
+            "same registry identity", saved["sources"][0]["future_binding"]
+        )
 
     async def test_interval_requires_source_timestamps_and_preserves_interval(
         self,

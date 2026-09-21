@@ -11,7 +11,10 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
+from typing import BinaryIO
 
 TEXT_SUFFIXES = {
     "",
@@ -55,8 +58,8 @@ REVIEWED_BINARY_SHA256 = {
 REVIEWED_BINARY_HASHES = frozenset(REVIEWED_BINARY_SHA256.values())
 
 
-def _git_command(*arguments: str) -> list[str]:
-    local_names = {
+LOCAL_GIT_OVERRIDE_NAMES = frozenset(
+    {
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_CONFIG",
         "GIT_CONFIG_PARAMETERS",
@@ -74,9 +77,13 @@ def _git_command(*arguments: str) -> list[str]:
         "GIT_CEILING_DIRECTORIES",
         "GIT_DISCOVERY_ACROSS_FILESYSTEM",
     }
+)
+
+
+def _git_command(*arguments: str) -> list[str]:
     # GIT_CONFIG_KEY/VALUE entries are inert without GIT_CONFIG_COUNT; native
     # hook cleanup unsets the count and may leave those unused entries behind.
-    inherited = sorted(name for name in os.environ if name in local_names)
+    inherited = sorted(name for name in os.environ if name in LOCAL_GIT_OVERRIDE_NAMES)
     if inherited:
         raise ValueError(
             "Inherited local Git overrides are not supported: " + ", ".join(inherited)
@@ -212,6 +219,69 @@ def run_guard(root: Path) -> tuple[int, list[str]]:
     return count, failures
 
 
+def _read_batch_object(
+    stream: BinaryIO, object_id: str, object_type: str, expected_size: int | None
+) -> bytes:
+    """Read one raw object without accepting missing or malformed batch output."""
+    header = stream.readline(256)
+    fields = header.removesuffix(b"\n").split(b" ")
+    if (
+        not header.endswith(b"\n")
+        or len(fields) != 3
+        or fields[0] != object_id.encode("ascii")
+        or fields[1] != object_type.encode("ascii")
+        or not re.fullmatch(rb"[0-9]+", fields[2])
+    ):
+        raise ValueError("Git object batch returned an invalid header")
+    size = int(fields[2])
+    if expected_size is not None and size != expected_size:
+        raise ValueError("Git object batch returned an unexpected size")
+    content = stream.read(size)
+    if len(content) != size or stream.read(1) != b"\n":
+        raise ValueError("Git object batch returned incomplete content")
+    return content
+
+
+def _git_object_bytes(
+    root: Path, objects: list[tuple[str, str, int | None]]
+) -> Iterator[bytes]:
+    """Stream admitted objects through one Git process and settle it on every exit."""
+    if not objects:
+        return
+    command = _git_command("cat-file", "--batch")
+    process = subprocess.Popen(
+        command,
+        cwd=root,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    assert process.stdin is not None and process.stdout is not None
+    try:
+        for object_id, object_type, expected_size in objects:
+            process.stdin.write(object_id.encode("ascii") + b"\n")
+            process.stdin.flush()
+            yield _read_batch_object(
+                process.stdout, object_id, object_type, expected_size
+            )
+        process.stdin.close()
+        if process.stdout.read(1):
+            raise ValueError("Git object batch returned unexpected trailing content")
+        return_code = process.wait()
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, command)
+    finally:
+        # Closing a pipe while Git is still writing can deadlock on its buffer.
+        # Kill an unfinished reader before closing its pipes, then always reap it.
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.stdin.close()
+        finally:
+            process.stdout.close()
+            process.wait()
+
+
 def run_archive_guard(root: Path) -> tuple[int, list[str]]:
     """Build and inspect the exact tracked source archive in temporary storage."""
 
@@ -240,14 +310,10 @@ def run_archive_guard(root: Path) -> tuple[int, list[str]]:
         with zipfile.ZipFile(
             archive_path, "w", compression=zipfile.ZIP_DEFLATED
         ) as archive:
-            for relative, object_id in tracked:
-                blob = subprocess.run(
-                    _git_command("cat-file", "blob", object_id),
-                    cwd=root,
-                    check=True,
-                    capture_output=True,
-                )
-                archive.writestr(relative.as_posix(), blob.stdout)
+            objects = [(object_id, "blob", None) for _, object_id in tracked]
+            with closing(_git_object_bytes(root, objects)) as contents:
+                for (relative, _), content in zip(tracked, contents, strict=True):
+                    archive.writestr(relative.as_posix(), content)
         with zipfile.ZipFile(archive_path) as archive:
             for name in archive.namelist():
                 failures.extend(
@@ -366,39 +432,43 @@ def _scan_history(root: Path) -> list[str]:
         encoding="utf-8",
         input="\n".join(object_ids),
     )
-    for detail in object_details.stdout.splitlines():
+    failures.update(_history_object_failures(root, object_details.stdout))
+    return sorted(failures)
+
+
+def _history_object_failures(root: Path, details: str) -> set[str]:
+    failures: set[str] = set()
+    admitted: list[tuple[str, str, int | None]] = []
+    for detail in details.splitlines():
         object_id, object_type, raw_size = detail.split()
         if object_type not in {"blob", "tag"}:
             continue
         if int(raw_size) > MAX_HISTORY_BLOB_BYTES:
             failures.add(f"Git history {object_type}: oversized unreviewed content")
             continue
-        blob = subprocess.run(
-            _git_command("cat-file", object_type, object_id),
-            cwd=root,
-            check=True,
-            capture_output=True,
-        ).stdout
-        try:
-            text = blob.decode("utf-8")
-        except UnicodeDecodeError:
-            _record_unreviewed_binary(
-                failures,
-                f"Git history {object_type}: non-UTF-8 content",
-                blob,
+        admitted.append((object_id, object_type, int(raw_size)))
+    with closing(_git_object_bytes(root, admitted)) as contents:
+        for (_, object_type, _), blob in zip(admitted, contents, strict=True):
+            try:
+                text = blob.decode("utf-8")
+            except UnicodeDecodeError:
+                _record_unreviewed_binary(
+                    failures,
+                    f"Git history {object_type}: non-UTF-8 content",
+                    blob,
+                )
+                continue
+            if "\0" in text:
+                _record_unreviewed_binary(
+                    failures,
+                    f"Git history {object_type}: unreviewed binary content",
+                    blob,
+                )
+                continue
+            failures.update(
+                f"Git history {object_type}: {item}" for item in _text_failures(text)
             )
-            continue
-        if "\0" in text:
-            _record_unreviewed_binary(
-                failures,
-                f"Git history {object_type}: unreviewed binary content",
-                blob,
-            )
-            continue
-        failures.update(
-            f"Git history {object_type}: {item}" for item in _text_failures(text)
-        )
-    return sorted(failures)
+    return failures
 
 
 def main() -> int:

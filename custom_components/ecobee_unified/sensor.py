@@ -37,7 +37,6 @@ class Projection:
     """One bounded cloud-only sensor projection."""
 
     suffix: str
-    translation_key: str
     value: Callable[[NormalizedSnapshot], str | float | None]
     device_class: SensorDeviceClass | None = None
     unit: str | None = None
@@ -72,21 +71,18 @@ EQUIPMENT_STAGE_OPTIONS = (
 PROJECTIONS = {
     SUFFIX_EQUIPMENT_STAGE: Projection(
         suffix=SUFFIX_EQUIPMENT_STAGE,
-        translation_key="equipment_stage",
         value=lambda snapshot: snapshot.equipment_stage,
         device_class=SensorDeviceClass.ENUM,
         options=EQUIPMENT_STAGE_OPTIONS,
     ),
     SUFFIX_AIR_QUALITY_INDEX: Projection(
         SUFFIX_AIR_QUALITY_INDEX,
-        "air_quality_index",
         lambda snapshot: snapshot.air_quality_index,
         SensorDeviceClass.AQI,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SUFFIX_CO2: Projection(
         SUFFIX_CO2,
-        "co2",
         lambda snapshot: snapshot.co2,
         SensorDeviceClass.CO2,
         UnitOfRatio.PARTS_PER_MILLION,
@@ -94,7 +90,6 @@ PROJECTIONS = {
     ),
     SUFFIX_VOC: Projection(
         SUFFIX_VOC,
-        "voc",
         lambda snapshot: snapshot.voc,
         SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
         UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
@@ -142,9 +137,7 @@ class EcobeeCloudSensor(EcobeeUnifiedEntity, SensorEntity):
     def __init__(
         self, manager: MappingManager, mapping: MappingConfig, projection: Projection
     ) -> None:
-        super().__init__(
-            manager, mapping, projection.suffix, projection.translation_key
-        )
+        super().__init__(manager, mapping, projection.suffix, projection.suffix)
         self._projection = projection
         self._attr_device_class = projection.device_class
         self._attr_native_unit_of_measurement = projection.unit

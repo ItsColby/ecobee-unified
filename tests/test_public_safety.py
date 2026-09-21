@@ -29,6 +29,28 @@ from scripts.check_public_safety import (
 )
 
 
+def _exact_core_pin(path: Path) -> str:
+    """Read one unconditional exact Core pin, allowing other requirements."""
+    pins = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        content = line.split("#", 1)[0].strip()
+        if not re.match(r"homeassistant(?=[^A-Za-z0-9_.-]|$)", content, re.IGNORECASE):
+            continue
+        match = re.fullmatch(
+            r"homeassistant\s*==\s*([0-9]{4}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*))",
+            content,
+            re.IGNORECASE,
+        )
+        if match is None:
+            raise AssertionError(
+                f"{path.name} must use an unconditional stable exact Home Assistant pin"
+            )
+        pins.append(match.group(1))
+    if len(pins) != 1:
+        raise AssertionError(f"{path.name} must contain exactly one Home Assistant pin")
+    return pins[0]
+
+
 def _has_description_text(value: str) -> bool:
     """Check the maintained single-line plain or quoted description format."""
     value = re.sub(
@@ -693,13 +715,9 @@ class PublicSafetyTests(unittest.TestCase):
 
     def test_declared_minimum_matches_distribution_requirement(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        minimum_requirements = (root / "requirements-ha-test.txt").read_text(
-            encoding="utf-8"
-        )
+        minimum = _exact_core_pin(root / "requirements-ha-test.txt")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            f"homeassistant=={hacs['homeassistant']}", minimum_requirements.strip()
-        )
+        self.assertEqual(hacs["homeassistant"], minimum)
 
     def test_windows_wrapper_forwards_explicit_worktree_git_directory(self) -> None:
         root = Path(__file__).resolve().parents[1]

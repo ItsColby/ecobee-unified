@@ -2858,6 +2858,22 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 CONF_ECOBEE_STALE_SECONDS: 1200,
                 CONF_CONFIRMATION_SECONDS: 721,
             },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 10**400,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: -(10**400),
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 10**400,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: -(10**400),
+            },
         ):
             with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
                 _validate_timing_options(invalid)
@@ -3628,6 +3644,18 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             (
                 entity.async_create_vacation(
                     "Trip", 28.0, 15.0, "2026-9-01", "08:00:00"
+                ),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-W01-1", "08:00:00"
+                ),
+                "invalid_vacation_period",
+            ),
+            (
+                entity.async_create_vacation(
+                    "Trip", 28.0, 15.0, "2026-09-01", "T080000Z"
                 ),
                 "invalid_vacation_period",
             ),

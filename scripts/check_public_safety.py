@@ -58,8 +58,8 @@ REVIEWED_BINARY_SHA256 = {
 REVIEWED_BINARY_HASHES = frozenset(REVIEWED_BINARY_SHA256.values())
 
 
-def _git_command(*arguments: str) -> list[str]:
-    local_names = {
+LOCAL_GIT_OVERRIDE_NAMES = frozenset(
+    {
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_CONFIG",
         "GIT_CONFIG_PARAMETERS",
@@ -77,9 +77,13 @@ def _git_command(*arguments: str) -> list[str]:
         "GIT_CEILING_DIRECTORIES",
         "GIT_DISCOVERY_ACROSS_FILESYSTEM",
     }
+)
+
+
+def _git_command(*arguments: str) -> list[str]:
     # GIT_CONFIG_KEY/VALUE entries are inert without GIT_CONFIG_COUNT; native
     # hook cleanup unsets the count and may leave those unused entries behind.
-    inherited = sorted(name for name in os.environ if name in local_names)
+    inherited = sorted(name for name in os.environ if name in LOCAL_GIT_OVERRIDE_NAMES)
     if inherited:
         raise ValueError(
             "Inherited local Git overrides are not supported: " + ", ".join(inherited)

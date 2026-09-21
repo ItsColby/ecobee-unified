@@ -37,10 +37,10 @@ _CLASSES = {
     "weather_humidity": "humidity",
 }
 _SENSOR_SPECS = {
-    "temperature": ("temperature", "include_temperature", "°F"),
-    "co2": ("co2_concentration", "include_co2", "ppm"),
-    "aqi": ("air_quality", "include_air_quality", "%"),
-    "voc": ("voc_concentration", "include_voc", "ppb"),
+    "temperature": ("temperature", "include_temperature"),
+    "co2": ("co2_concentration", "include_co2"),
+    "aqi": ("air_quality", "include_air_quality"),
+    "voc": ("voc_concentration", "include_voc"),
 }
 SOURCE_TIMING_FIELDS = frozenset(
     {
@@ -640,7 +640,7 @@ def _configured_matches(
         ]
     if quantity not in _SENSOR_SPECS:
         return []
-    suffix, flag, _unit = _SENSOR_SPECS[quantity]
+    suffix, flag = _SENSOR_SPECS[quantity]
     found = []
     for row in sensors:
         if (

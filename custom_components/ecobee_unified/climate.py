@@ -70,9 +70,8 @@ ECOBEE_BUILT_IN_PROFILE_NAMES = {
 def _date_string(value: Any) -> str:
     result = cv.string(value)
     try:
-        if len(result) != 10:
+        if dt_date.fromisoformat(result).isoformat() != result:
             raise ValueError
-        dt_date.fromisoformat(result)
     except ValueError as err:
         raise vol.Invalid("Date must use YYYY-MM-DD") from err
     return result
@@ -81,9 +80,8 @@ def _date_string(value: Any) -> str:
 def _time_string(value: Any) -> str:
     result = cv.string(value)
     try:
-        if len(result) != 8:
+        if len(result) != 8 or dt_time.fromisoformat(result).isoformat() != result:
             raise ValueError
-        dt_time.fromisoformat(result)
     except ValueError as err:
         raise vol.Invalid("Time must use HH:MM:SS") from err
     return result

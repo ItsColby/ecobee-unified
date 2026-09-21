@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from homeassistant import loader
 from homeassistant.components.sensor import SensorDeviceClass
@@ -136,9 +137,9 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
         await self.hass.async_stop(force=True)
 
     async def _wait_for_fixture_event(
-        self, task: asyncio.Task[None], started: asyncio.Event
+        self, task: asyncio.Task[Any], started: asyncio.Event
     ) -> None:
-        """Report an early command result instead of waiting on its absent writer."""
+        """Report an early task result instead of waiting on its absent event."""
         waiter = asyncio.create_task(started.wait())
         try:
             done, _ = await asyncio.wait(
@@ -146,13 +147,13 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
             )
             if task in done:
                 await task
-                self.fail("Command completed before reaching the fixture writer")
-            self.assertIn(waiter, done, "Command did not reach the fixture writer")
+                self.fail("Task completed before reaching the fixture event")
+            self.assertIn(waiter, done, "Task did not reach the fixture event")
         finally:
             waiter.cancel()
             await asyncio.gather(waiter, return_exceptions=True)
 
-    async def _settle_fixture_tasks(self, *tasks: asyncio.Task[None] | None) -> None:
+    async def _settle_fixture_tasks(self, *tasks: asyncio.Task[Any] | None) -> None:
         """Cancel and retrieve only the caller tasks created by a gated fixture."""
         owned = [task for task in tasks if task is not None]
         for task in owned:
@@ -162,7 +163,7 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
         for task in done:
             if not task.cancelled():
                 task.exception()
-        self.assertFalse(pending, "Fixture command tasks did not settle")
+        self.assertFalse(pending, "Fixture tasks did not settle")
 
     def _source(
         self,

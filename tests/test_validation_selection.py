@@ -138,6 +138,139 @@ class ValidationSelectionTests(unittest.TestCase):
                     planner.lane_command({}, "unit")
                 read.assert_not_called()
 
+    @unittest.skipUnless(shutil.which("git"), "requires Git")
+    def test_pyproject_changes_select_native_consumers_from_real_git_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            configuration = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+            # An unchanged unknown tool does not invalidate mapped configuration.
+            configuration += "\n[tool.future]\nsetting = 1\nunavailable = nan\n"
+            target = root / "pyproject.toml"
+            target.write_text(configuration, encoding="utf-8")
+            sources = {
+                f"{planner.PRODUCT}/probe.py": "VALUE = 1\n",
+                "tests/test_integration_ha.py": "# Native HA collection target.\n",
+                "tests/test_validation_selection.py": "# Native unit collection target.\n",
+                "scripts/probe.py": "# Native static-check target.\n",
+            }
+            for path, content in sources.items():
+                file = root / path
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(content, encoding="utf-8")
+            environment = dict(
+                os.environ,
+                GIT_AUTHOR_NAME="Validation",
+                GIT_COMMITTER_NAME="Validation",
+                GIT_AUTHOR_EMAIL="validation@example.com",
+                GIT_COMMITTER_EMAIL="validation@example.com",
+            )
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", str(root), *args], env=environment, text=True
+                ).strip()
+
+            git("-c", "init.templateDir=", "init", "-q")
+            git("add", ".")
+            base = git("commit-tree", git("write-tree"), "-m", "configuration base")
+            git("update-ref", "HEAD", base)
+            ruff = configuration.replace("line-length = 88", "line-length = 100")
+            cases = (
+                ("comment", "# Editorial change\n" + configuration, set()),
+                ("ruff", ruff, {"ruff"}),
+                ("format", configuration.replace(" = ", "="), set()),
+                (
+                    "ruff-list",
+                    configuration.replace('  "ASYNC",', '  "ASYNC",\n  "UP",'),
+                    {"ruff"},
+                ),
+                (
+                    "mypy",
+                    configuration.replace("strict = true", "strict = false"),
+                    {"mypy"},
+                ),
+                (
+                    "typed-value",
+                    configuration.replace("strict = true", "strict = 1"),
+                    {"mypy"},
+                ),
+                (
+                    "pytest",
+                    configuration.replace(
+                        'asyncio_mode = "auto"', 'asyncio_mode = "strict"'
+                    ),
+                    {"pytest"},
+                ),
+                (
+                    "unknown",
+                    configuration.replace("setting = 1", "setting = 2"),
+                    {"unresolved"},
+                ),
+                (
+                    "mixed-unknown",
+                    ruff.replace("setting = 1", "setting = 2"),
+                    {"unresolved"},
+                ),
+                ("malformed", "[tool.ruff\n", {"unresolved"}),
+                ("invalid-table", 'tool.ruff = "invalid"\n', {"unresolved"}),
+                ("deletion", None, {"unresolved"}),
+                ("mixed-source", ruff, {"ruff", "source"}),
+            )
+            for name, after, expected in cases:
+                with self.subTest(name=name):
+                    if after is None:
+                        target.unlink()
+                    else:
+                        target.write_text(after, encoding="utf-8")
+                    native_test = root / "tests/test_integration_ha.py"
+                    native_test.write_text(
+                        sources["tests/test_integration_ha.py"]
+                        + ("# Changed consumer\n" if "source" in expected else ""),
+                        encoding="utf-8",
+                    )
+                    git("add", "-A")
+                    head = git("commit-tree", git("write-tree"), "-p", base, "-m", name)
+                    git("update-ref", "HEAD", head)
+                    with patch.object(planner, "ROOT", root):
+                        paths = planner.changed_paths(base, head, None)
+                        plan = planner.build_plan(paths, base=base)
+                    self.assertIn("pyproject.toml", paths)
+                    self.assertEqual("unresolved" in expected, bool(plan["unresolved"]))
+                    if "unresolved" in expected:
+                        continue
+                    self.assertTrue(plan["safety"])
+                    self.assertTrue(plan["jobs"]["unit"])
+                    self.assertFalse(plan["jobs"]["release"])
+                    self.assertFalse(plan["jobs"]["hacs"])
+                    self.assertFalse(plan["workflow"])
+                    self.assertFalse(plan["shell"])
+                    self.assertEqual([], plan["unit_tests"])
+                    self.assertEqual(
+                        sorted(sources) if "ruff" in expected else [], plan["python"]
+                    )
+                    for lane in ("minimum", "current"):
+                        typing = "mypy" in expected and lane in ("minimum", "current")
+                        tests = "pytest" in expected or (
+                            "source" in expected and lane == "current"
+                        )
+                        self.assertEqual(typing or tests, plan["jobs"][lane])
+                        self.assertEqual(
+                            [f"{planner.PRODUCT}/probe.py"] if typing else [],
+                            plan["lane_typing"][lane],
+                        )
+                        self.assertEqual(
+                            ["tests/test_integration_ha.py"] if tests else [],
+                            plan["lane_tests"][lane],
+                        )
+            # A valid candidate cannot hide malformed configuration in its base.
+            target.write_text("[tool.ruff\n", encoding="utf-8")
+            git("add", "pyproject.toml")
+            malformed_base = git("commit-tree", git("write-tree"), "-m", "bad base")
+            target.write_text(configuration, encoding="utf-8")
+            with patch.object(planner, "ROOT", root):
+                plan = planner.build_plan(["pyproject.toml"], base=malformed_base)
+            self.assertTrue(plan["unresolved"])
+
     def test_docs_do_not_run_product_or_environment_suites(self):
         plan = planner.build_plan(["README.md"])
         self.assertTrue(plan["jobs"]["unit"])

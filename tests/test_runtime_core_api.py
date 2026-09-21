@@ -2858,6 +2858,22 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 CONF_ECOBEE_STALE_SECONDS: 1200,
                 CONF_CONFIRMATION_SECONDS: 721,
             },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 10**400,
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: -(10**400),
+                CONF_CONFIRMATION_SECONDS: 720,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 10**400,
+            },
+            {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: -(10**400),
+            },
         ):
             with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
                 _validate_timing_options(invalid)

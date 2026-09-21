@@ -2012,7 +2012,7 @@ def _validate_timing_options(user_input: dict[str, Any]) -> dict[str, int]:
             raise vol.Invalid("timing value must be an integer")
         try:
             number = float(value)
-        except (TypeError, ValueError) as err:
+        except (TypeError, ValueError, OverflowError) as err:
             raise vol.Invalid("timing value must be numeric") from err
         if (
             not isfinite(number)

@@ -2,7 +2,6 @@
   "config": {
     "abort": {
       "configuration_changed": "The saved configuration changed while this form was open. Reopen Reconfigure to work from the current configuration.",
-      "one_mapping_required": "This integration needs at least one thermostat mapping. Keep one mapping, or remove the integration entry to remove them all.",
       "invalid_datapoint_identity": "This datapoint identity is missing or repeated in the saved configuration. No changes were saved. Restore one distinct stable identity per datapoint before editing.",
       "datapoint_source_limit": "This saved datapoint has more than three sources. This form supports up to three and cannot edit it without losing sources. No changes were saved.",
       "datapoint_not_supported": "This saved datapoint uses a contract that this form cannot edit. No changes were saved; retain its configuration until a compatible form is available.",

@@ -1509,18 +1509,24 @@ def _datapoint_with_range(
     )
 
 
-def _datapoint_bound(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
+def _finite_float(value: Any, message: str) -> float:
+    """Return one finite non-boolean number or raise one form validation error."""
+
     if isinstance(value, bool):
-        raise vol.Invalid("invalid_accepted_range")
+        raise vol.Invalid(message)
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError) as err:
-        raise vol.Invalid("invalid_accepted_range") from err
+        raise vol.Invalid(message) from err
     if not isfinite(number):
-        raise vol.Invalid("invalid_accepted_range")
+        raise vol.Invalid(message)
     return number
+
+
+def _datapoint_bound(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return _finite_float(value, "invalid_accepted_range")
 
 
 def _validate_datapoint_edit_meaning(
@@ -1581,13 +1587,8 @@ def _datapoint_seconds(
 ) -> int | None:
     if optional and value in (None, ""):
         return None
-    if isinstance(value, bool):
-        raise vol.Invalid("datapoint_invalid_timing")
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError) as err:
-        raise vol.Invalid("datapoint_invalid_timing") from err
-    if not isfinite(number) or number != int(number) or number < minimum:
+    number = _finite_float(value, "datapoint_invalid_timing")
+    if number != int(number) or number < minimum:
         raise vol.Invalid("datapoint_invalid_timing")
     return int(number)
 
@@ -1786,9 +1787,9 @@ def _optional_entity_reference(
     entity_id: Any,
     platform: str,
     domain: str,
-    preserve_reference: str | None = None,
+    preserve_reference: str | None,
     *,
-    required_device_id: str | None = None,
+    required_device_id: str | None,
 ) -> str | None:
     if not entity_id:
         return None

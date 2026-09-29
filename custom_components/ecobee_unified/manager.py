@@ -1329,8 +1329,8 @@ class MappingManager:
         stale_seconds: int | None,
         *,
         require_device: bool = False,
-        now: datetime | None = None,
-        report_times: Mapping[str, datetime] | None = None,
+        now: datetime | None,
+        report_times: Mapping[str, datetime] | None,
     ) -> RawSource:
         """Read a climate source using Core's configured-unit state contract."""
 
@@ -1651,7 +1651,6 @@ class MappingManager:
         elif (
             homekit_entry is not None
             and homekit_device_id is not None
-            and ecobee_device_id is not None
             and physical_identity_status(
                 self.hass, mapping.homekit_entity, mapping.ecobee_entity
             )

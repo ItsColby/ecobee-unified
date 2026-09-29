@@ -488,10 +488,8 @@ async def _configuration(
     """Keep only a bounded projection in the caller's single validation phase."""
     key = f"beestat_configuration:{entry_id}"
     if validation_cache is not None and key in validation_cache:
-        cached = validation_cache[key]
-        if isinstance(cached, dict):
-            return cached
-        raise ValueError("historical_beestat_mapping_invalid")
+        cached: dict[str, Any] = validation_cache[key]
+        return cached
     try:
         async with asyncio.timeout(10):
             response = await hass.services.async_call(
@@ -618,11 +616,9 @@ def _resource_id(value: Any) -> int:
 def _configured_matches(
     response: Mapping[str, Any], statistic_id: str, quantity: str
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    effective = response.get("effective_configuration")
-    if not isinstance(effective, Mapping):
-        raise ValueError("historical_beestat_mapping_invalid")  # noqa: TRY004 - public validation contract
-    thermostats = _rows(effective.get("thermostats"))
-    sensors = _rows(effective.get("sensors"))
+    effective = response["effective_configuration"]
+    thermostats = effective["thermostats"]
+    sensors = effective["sensors"]
     parents = {_resource_id(row.get("thermostat_id")): row for row in thermostats}
     if len(parents) != len(thermostats):
         raise ValueError("historical_beestat_mapping_ambiguous")

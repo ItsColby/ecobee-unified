@@ -258,10 +258,7 @@ def _validate_accepted_range(config: DatapointConfig) -> None:
         raw = getattr(config, field)
         if raw is None:
             continue
-        try:
-            number = _finite_number(raw, "invalid_number")
-        except ValueError as err:
-            raise ValueError("invalid_accepted_range") from err
+        number = _finite_number(raw, "invalid_accepted_range")
         if number < absolute_zero:
             raise ValueError("invalid_accepted_range")
         object.__setattr__(config, field, number)

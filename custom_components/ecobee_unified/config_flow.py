@@ -265,7 +265,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_datapoint_edit_confirm()
         return self.async_show_form(
             step_id="datapoint_edit",
-            data_schema=_datapoint_selection_schema(self._pending_datapoints),
+            data_schema=_row_selection_schema(self._pending_datapoints, "datapoint_id"),
         )
 
     async def async_step_datapoint_edit_confirm(
@@ -330,7 +330,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_datapoint_remove_confirm()
         return self.async_show_form(
             step_id="datapoint_remove",
-            data_schema=_datapoint_selection_schema(self._pending_datapoints),
+            data_schema=_row_selection_schema(self._pending_datapoints, "datapoint_id"),
         )
 
     async def async_step_datapoint_remove_confirm(
@@ -359,12 +359,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _selected_datapoint(self) -> dict[str, Any] | None:
-        matches = [
-            row
-            for row in self._pending_datapoints
-            if row.get("datapoint_id") == self._selected_datapoint_id
-        ]
-        return matches[0] if len(matches) == 1 else None
+        return _single_row(
+            self._pending_datapoints, "datapoint_id", self._selected_datapoint_id
+        )
 
     async def async_step_historical_add(
         self, user_input: dict[str, Any] | None = None
@@ -380,7 +377,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_historical_edit_confirm()
         return self.async_show_form(
             step_id="historical_edit",
-            data_schema=_historical_selection_schema(self._pending_historical),
+            data_schema=_row_selection_schema(self._pending_historical, "family_id"),
         )
 
     async def async_step_historical_edit_confirm(
@@ -445,7 +442,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_historical_remove_confirm()
         return self.async_show_form(
             step_id="historical_remove",
-            data_schema=_historical_selection_schema(self._pending_historical),
+            data_schema=_row_selection_schema(self._pending_historical, "family_id"),
         )
 
     async def async_step_historical_remove_confirm(
@@ -473,12 +470,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     def _selected_historical(self) -> dict[str, Any] | None:
-        matches = [
-            row
-            for row in self._pending_historical
-            if row.get("family_id") == self._selected_family_id
-        ]
-        return matches[0] if len(matches) == 1 else None
+        return _single_row(
+            self._pending_historical, "family_id", self._selected_family_id
+        )
 
     async def async_step_reconfigure_add(
         self, user_input: dict[str, Any] | None = None
@@ -1068,15 +1062,21 @@ def _mapping_schema(
     return vol.Schema(schema)
 
 
-def _datapoint_selection_schema(rows: list[dict[str, Any]]) -> vol.Schema:
+def _single_row(
+    rows: list[dict[str, Any]], key: str, value: Any
+) -> dict[str, Any] | None:
+    """Return the only row whose key matches, or None when absent or ambiguous."""
+    matches = [row for row in rows if row.get(key) == value]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _row_selection_schema(rows: list[dict[str, Any]], key: str) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required("datapoint_id"): SelectSelector(
+            vol.Required(key): SelectSelector(
                 SelectSelectorConfig(
                     options=[
-                        SelectOptionDict(
-                            value=str(row["datapoint_id"]), label=str(row["name"])
-                        )
+                        SelectOptionDict(value=str(row[key]), label=str(row["name"]))
                         for row in rows
                     ]
                 )
@@ -1141,23 +1141,6 @@ def _historical_schema(hass: Any, defaults: dict[str, Any]) -> vol.Schema:
         ] = HISTORICAL_STATISTIC_SELECTOR
     schema[vol.Required("confirm_association", default=False)] = BOOLEAN_SELECTOR
     return vol.Schema(schema)
-
-
-def _historical_selection_schema(rows: list[dict[str, Any]]) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required("family_id"): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(
-                            value=str(row["family_id"]), label=str(row["name"])
-                        )
-                        for row in rows
-                    ],
-                )
-            )
-        }
-    )
 
 
 def _historical_form_defaults(hass: Any, row: dict[str, Any]) -> dict[str, Any]:
@@ -1796,10 +1779,7 @@ def _optional_entity_reference(
     reference = _entity_reference(
         hass, str(entity_id), platform, domain, preserve_reference
     )
-    if (
-        preserve_reference == reference
-        and er.async_resolve_entity_id(er.async_get(hass), reference) is None
-    ):
+    if _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if required_device_id is None:
         # An absent parent can preserve saved intent, but cannot establish the
@@ -1809,6 +1789,16 @@ def _optional_entity_reference(
     elif _reference_device_id(hass, reference) != required_device_id:
         raise vol.Invalid(f"invalid_{platform}_source")
     return reference
+
+
+def _preserved_unresolved(
+    hass: Any, reference: str, preserve_reference: str | None
+) -> bool:
+    """Return whether a saved reference is kept although it no longer resolves."""
+    return (
+        preserve_reference == reference
+        and er.async_resolve_entity_id(er.async_get(hass), reference) is None
+    )
 
 
 def _reference_device_id(hass: Any, reference: str) -> str | None:
@@ -1834,10 +1824,7 @@ def _homekit_action_reference(
         preserve_reference,
         required_device_id=required_device_id,
     )
-    if reference is None or (
-        reference == preserve_reference
-        and er.async_resolve_entity_id(er.async_get(hass), reference) is None
-    ):
+    if reference is None or _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if not homekit_action_contract_valid(hass, reference, role):
         raise vol.Invalid(f"invalid_homekit_{role}_source")
@@ -1861,9 +1848,7 @@ def _temperature_entity_reference(
     )
     if reference is None:
         return None
-    registry = er.async_get(hass)
-    resolved_id = er.async_resolve_entity_id(registry, reference)
-    if resolved_id is None and preserve_reference == reference:
+    if _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if temperature_source_unit(hass, reference) is None:
         raise vol.Invalid("invalid_homekit_temperature_source")
@@ -1889,11 +1874,7 @@ def _air_quality_entity_reference(
     )
     if reference is None:
         return None
-    registry = er.async_get(hass)
-    if (
-        er.async_resolve_entity_id(registry, reference) is None
-        and preserve_reference == reference
-    ):
+    if _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if not sensor_contract_valid(
         hass, reference, AIR_QUALITY_SENSOR_CONTRACTS[contract_name]

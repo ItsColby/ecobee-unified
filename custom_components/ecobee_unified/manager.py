@@ -406,10 +406,7 @@ class MappingManager:
             snapshot = self.snapshot(mapping_id)
             entity_id = self.resolve_entity_id(mapping.homekit_entity)
             if not snapshot.homekit_writable or entity_id is None:
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="homekit_writer_unavailable",
-                )
+                raise_validation("homekit_writer_unavailable")
             self._validate_standard_command(mapping_id, service, service_data)
             await self._async_tracked_call(
                 mapping_id,
@@ -483,10 +480,7 @@ class MappingManager:
             if button_id is None or not self._homekit_action_available(
                 mapping, "clear_hold"
             ):
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="homekit_writer_unavailable",
-                )
+                raise_validation("homekit_writer_unavailable")
             await self._async_tracked_call(
                 mapping_id,
                 "press",
@@ -517,10 +511,7 @@ class MappingManager:
                 or not self._homekit_action_available(mapping, "preset")
                 or preset_mode not in snapshot.preset_modes
             ):
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="unsupported_preset_mode",
-                )
+                raise_validation("unsupported_preset_mode")
             await self._async_tracked_call(
                 mapping_id,
                 "set_preset_mode",
@@ -544,10 +535,7 @@ class MappingManager:
             or not 0 <= numeric_minutes <= 60
             or int(numeric_minutes) % 5 != 0
         ):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="invalid_fan_runtime",
-            )
+            raise_validation("invalid_fan_runtime")
         aligned_minutes = int(numeric_minutes)
         await self.async_vendor_command(
             mapping_id,
@@ -575,10 +563,7 @@ class MappingManager:
                 or not self.snapshot(mapping_id).ecobee_notify_writable
                 or not self.hass.services.has_service("notify", "send_message")
             ):
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="ecobee_notification_unavailable",
-                )
+                raise_validation("ecobee_notification_unavailable")
             try:
                 await self.hass.services.async_call(
                     "notify",
@@ -660,10 +645,7 @@ class MappingManager:
         """A stopped manager can never become a command writer again."""
 
         if self._stopped.is_set():
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="command_unavailable",
-            )
+            raise_validation("command_unavailable")
 
     @asynccontextmanager
     async def _command_slot(self, mapping_id: str) -> AsyncIterator[None]:
@@ -837,10 +819,7 @@ class MappingManager:
             or not source.usable
             or not self.hass.services.has_service("ecobee", service)
         ):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="ecobee_writer_unavailable",
-            )
+            raise_validation("ecobee_writer_unavailable")
         return entity_id
 
     @callback
@@ -1329,7 +1308,7 @@ class MappingManager:
         stale_seconds: int | None,
         *,
         require_device: bool = False,
-        now: datetime | None,
+        now: datetime,
         report_times: Mapping[str, datetime] | None,
     ) -> RawSource:
         """Read a climate source using Core's configured-unit state contract."""

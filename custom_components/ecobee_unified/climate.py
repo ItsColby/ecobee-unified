@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date as dt_date
 from datetime import time as dt_time
-from typing import Any, NoReturn, override
+from typing import Any, override
 
 import voluptuous as vol
 from homeassistant.components.climate import ClimateEntity
@@ -15,13 +15,11 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    DOMAIN,
     SERVICE_CREATE_VACATION,
     SERVICE_DELETE_VACATION,
     SERVICE_RESUME_PROGRAM,
@@ -29,7 +27,7 @@ from .const import (
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
 )
 from .entity import EcobeeUnifiedEntity
-from .manager import MappingManager
+from .manager import MappingManager, raise_validation
 from .models import (
     MappingConfig,
     degradation_advisories,
@@ -368,7 +366,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode.value not in self._snapshot.hvac_modes:
-            self._raise_validation("unsupported_hvac_mode")
+            raise_validation("unsupported_hvac_mode")
         await self._manager.async_standard_command(
             self._mapping.mapping_id,
             "set_hvac_mode",
@@ -397,12 +395,12 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
         low = expected.get("target_temperature_low")
         high = expected.get("target_temperature_high")
         if low is not None and high is not None and low > high:
-            self._raise_validation("invalid_temperature_range")
+            raise_validation("invalid_temperature_range")
         if "hvac_mode" in kwargs:
             mode = kwargs["hvac_mode"]
             mode_value = mode.value if isinstance(mode, HVACMode) else str(mode)
             if mode_value not in self._snapshot.hvac_modes:
-                self._raise_validation("unsupported_hvac_mode")
+                raise_validation("unsupported_hvac_mode")
             expected["hvac_mode"] = mode_value
         await self._manager.async_standard_command(
             self._mapping.mapping_id,
@@ -415,7 +413,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         self._require_feature(ClimateEntityFeature.FAN_MODE)
         if fan_mode not in self._snapshot.fan_modes:
-            self._raise_validation("unsupported_fan_mode")
+            raise_validation("unsupported_fan_mode")
         await self._manager.async_standard_command(
             self._mapping.mapping_id,
             "set_fan_mode",
@@ -438,7 +436,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         self._require_feature(ClimateEntityFeature.PRESET_MODE)
         if preset_mode not in self._snapshot.preset_modes:
-            self._raise_validation("unsupported_preset_mode")
+            raise_validation("unsupported_preset_mode")
         await self._manager.async_set_preset_mode(
             self._mapping.mapping_id, preset_mode, self._context
         )
@@ -484,19 +482,19 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
         name = vacation_name.strip()
         if not name or len(name) > 12:
-            self._raise_validation("invalid_vacation_name")
+            raise_validation("invalid_vacation_name")
         cool = self._validated_vacation_temperature(cool_temp)
         heat = self._validated_vacation_temperature(heat_temp)
         if heat > cool:
-            self._raise_validation("invalid_vacation_temperature_range")
+            raise_validation("invalid_vacation_temperature_range")
         if fan_mode not in {"auto", "on"} or isinstance(fan_min_on_time, bool):
-            self._raise_validation("invalid_vacation_options")
+            raise_validation("invalid_vacation_options")
         if not isinstance(fan_min_on_time, int) or not 0 <= fan_min_on_time <= 60:
-            self._raise_validation("invalid_vacation_options")
+            raise_validation("invalid_vacation_options")
         if (start_date is None) != (start_time is None) or (end_date is None) != (
             end_time is None
         ):
-            self._raise_validation("invalid_vacation_period")
+            raise_validation("invalid_vacation_period")
         try:
             if start_date is not None and start_time is not None:
                 _date_string(start_date)
@@ -505,7 +503,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
                 _date_string(end_date)
                 _time_string(end_time)
         except vol.Invalid:
-            self._raise_validation("invalid_vacation_period")
+            raise_validation("invalid_vacation_period")
         if all(
             value is not None for value in (start_date, start_time, end_date, end_time)
         ):
@@ -519,7 +517,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             )
             end = (dt_date.fromisoformat(end_date), dt_time.fromisoformat(end_time))
             if end <= start:
-                self._raise_validation("invalid_vacation_period")
+                raise_validation("invalid_vacation_period")
         service_data: dict[str, Any] = {
             ATTR_VACATION_NAME: name,
             ATTR_COOL_TEMP: cool,
@@ -551,7 +549,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
         name = vacation_name.strip()
         if not name or len(name) > 12:
-            self._raise_validation("invalid_vacation_name")
+            raise_validation("invalid_vacation_name")
         await self._manager.async_vendor_action(
             self._mapping.mapping_id,
             SERVICE_DELETE_VACATION,
@@ -567,12 +565,12 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
         """Set at least one mapped Ecobee occupancy policy exactly once."""
 
         if auto_away is None and follow_me is None:
-            self._raise_validation("invalid_occupancy_modes")
+            raise_validation("invalid_occupancy_modes")
         if any(
             value is not None and not isinstance(value, bool)
             for value in (auto_away, follow_me)
         ):
-            self._raise_validation("invalid_occupancy_modes")
+            raise_validation("invalid_occupancy_modes")
         service_data = {
             key: value
             for key, value in (
@@ -600,11 +598,11 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             or len(device_ids) != len(set(device_ids))
             or any(not item for item in device_ids)
         ):
-            self._raise_validation("invalid_sensor_selection")
+            raise_validation("invalid_sensor_selection")
         if not self._manager.ecobee_sensor_devices_valid(
             self._mapping.mapping_id, device_ids
         ):
-            self._raise_validation("invalid_sensor_selection")
+            raise_validation("invalid_sensor_selection")
         service_data: dict[str, Any] = {ATTR_DEVICE_IDS: list(device_ids)}
         requested_preset = (
             preset_mode.strip()
@@ -612,7 +610,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             else self._snapshot.climate_mode
         )
         if not requested_preset or len(requested_preset) > 64:
-            self._raise_validation("invalid_sensor_selection")
+            raise_validation("invalid_sensor_selection")
         service_data[ATTR_PRESET_MODE] = ECOBEE_BUILT_IN_PROFILE_NAMES.get(
             requested_preset.casefold(), requested_preset
         )
@@ -625,7 +623,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     def _require_feature(self, feature: ClimateEntityFeature) -> None:
         if not self.supported_features & feature:
-            self._raise_validation("unsupported_command")
+            raise_validation("unsupported_command")
 
     def _validated_temperature(self, value: Any) -> float:
         return self._manager.validated_temperature(self._mapping.mapping_id, value)
@@ -636,11 +634,4 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
     def _validated_vacation_temperature(self, value: Any) -> float:
         return self._manager.validated_vacation_temperature(
             self._mapping.mapping_id, value
-        )
-
-    @staticmethod
-    def _raise_validation(translation_key: str) -> NoReturn:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key=translation_key,
         )

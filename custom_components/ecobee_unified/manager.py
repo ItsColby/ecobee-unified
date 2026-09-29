@@ -100,6 +100,15 @@ UNCONFIRMABLE_VENDOR_ACTIONS = frozenset(
 )
 
 
+def raise_validation(translation_key: str) -> NoReturn:
+    """Raise one translated action validation error."""
+
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key=translation_key,
+    )
+
+
 class MappingManager:
     """Own all state interpretation for one Ecobee Unified config entry."""
 
@@ -292,7 +301,6 @@ class MappingManager:
             now=now,
             report_times=report_times,
             required_device_id=homekit_device_id,
-            require_matching_device=True,
         )
         if (
             homekit_preset is not None
@@ -700,7 +708,7 @@ class MappingManager:
             "turn_off": ClimateEntityFeature.TURN_OFF,
         }.get(service)
         if feature is not None and not snapshot.supported_features & feature:
-            self._raise_validation("unsupported_command")
+            raise_validation("unsupported_command")
         if service == "set_temperature":
             self._validate_temperature_command(mapping_id, service_data)
         if (
@@ -708,12 +716,12 @@ class MappingManager:
             and "hvac_mode" in service_data
             and service_data["hvac_mode"] not in snapshot.hvac_modes
         ):
-            self._raise_validation("unsupported_hvac_mode")
+            raise_validation("unsupported_hvac_mode")
         if (
             service == "set_fan_mode"
             and service_data.get("fan_mode") not in snapshot.fan_modes
         ):
-            self._raise_validation("unsupported_fan_mode")
+            raise_validation("unsupported_fan_mode")
         if service == "set_humidity":
             self.validated_humidity(mapping_id, service_data.get("humidity"))
 
@@ -730,7 +738,7 @@ class MappingManager:
         ):
             if key in service_data:
                 if not snapshot.supported_features & feature:
-                    self._raise_validation("unsupported_command")
+                    raise_validation("unsupported_command")
                 self.validated_temperature(mapping_id, service_data[key])
 
     def _validate_vendor_action(
@@ -749,19 +757,19 @@ class MappingManager:
             if not self.ecobee_sensor_devices_valid(
                 mapping_id, service_data["device_ids"]
             ):
-                self._raise_validation("invalid_sensor_selection")
+                raise_validation("invalid_sensor_selection")
 
     def validated_temperature(self, mapping_id: str, value: Any) -> float:
         """Validate a numeric target using current HomeKit bounds."""
 
         temperature = finite_number(value)
         if temperature is None:
-            self._raise_validation("invalid_temperature")
+            raise_validation("invalid_temperature")
         snapshot = self.snapshot(mapping_id)
         if (snapshot.min_temp is not None and temperature < snapshot.min_temp) or (
             snapshot.max_temp is not None and temperature > snapshot.max_temp
         ):
-            self._raise_validation("invalid_temperature")
+            raise_validation("invalid_temperature")
         return temperature
 
     def validated_humidity(self, mapping_id: str, value: Any) -> int:
@@ -769,7 +777,7 @@ class MappingManager:
 
         humidity = finite_number(value)
         if humidity is None or not humidity.is_integer():
-            self._raise_validation("invalid_humidity")
+            raise_validation("invalid_humidity")
         snapshot = self.snapshot(mapping_id)
         if (
             snapshot.min_humidity is None
@@ -777,7 +785,7 @@ class MappingManager:
             or humidity < snapshot.min_humidity
             or humidity > snapshot.max_humidity
         ):
-            self._raise_validation("invalid_humidity")
+            raise_validation("invalid_humidity")
         return int(humidity)
 
     def validated_vacation_temperature(self, mapping_id: str, value: Any) -> float:
@@ -785,13 +793,13 @@ class MappingManager:
 
         temperature = finite_number(value)
         if temperature is None:
-            self._raise_validation("invalid_vacation_temperature")
+            raise_validation("invalid_vacation_temperature")
         snapshot = self.snapshot(mapping_id)
         minimum = snapshot.ecobee_min_temp
         maximum = snapshot.ecobee_max_temp
         unit = snapshot.ecobee_temperature_unit
         if minimum is None or maximum is None or unit is None:
-            self._raise_validation("ecobee_writer_unavailable")
+            raise_validation("ecobee_writer_unavailable")
         if not minimum <= temperature <= maximum:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
@@ -803,13 +811,6 @@ class MappingManager:
                 },
             )
         return temperature
-
-    @staticmethod
-    def _raise_validation(translation_key: str) -> NoReturn:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key=translation_key,
-        )
 
     def _vendor_writer_entity(self, mapping_id: str, service: str) -> str:
         """Resolve one healthy mapped Ecobee writer for a supported action."""
@@ -1307,8 +1308,7 @@ class MappingManager:
         *,
         now: datetime,
         report_times: Mapping[str, datetime] | None,
-        required_device_id: str | None = None,
-        require_matching_device: bool = False,
+        required_device_id: str | None,
     ) -> RawSource | None:
         return (
             self._raw_source(
@@ -1317,7 +1317,7 @@ class MappingManager:
                 now=now,
                 report_times=report_times,
                 required_device_id=required_device_id,
-                require_matching_device=require_matching_device,
+                require_matching_device=True,
             )
             if entity_reference
             else None
@@ -1369,7 +1369,6 @@ class MappingManager:
             now=now,
             report_times=report_times,
             required_device_id=required_device_id,
-            require_matching_device=True,
         )
         if source is None or not source.usable:
             return source

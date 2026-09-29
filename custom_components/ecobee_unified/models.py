@@ -1118,7 +1118,7 @@ def _optional_source_state(source: RawSource | None) -> str | None:
 
 
 def _optional_source_number(source: RawSource | None) -> float | None:
-    if source is None or not source.usable or source.state is None:
+    if source is None or not source.usable:
         return None
     value = finite_number(source.state, allow_text=True)
     return value if value is not None and value >= 0 else None
@@ -1127,7 +1127,7 @@ def _optional_source_number(source: RawSource | None) -> float | None:
 def _optional_source_temperature(
     source: RawSource | None, homekit: RawSource
 ) -> float | None:
-    if source is None or not source.usable or source.state is None:
+    if source is None or not source.usable:
         return None
     # The manager has converted this state into the climate's unit. Its source
     # attributes may still describe the sensor's original unit.

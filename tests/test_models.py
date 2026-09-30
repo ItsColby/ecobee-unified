@@ -612,6 +612,28 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertFalse(command_matches(fine_step, {"target_temperature": 20.0}))
 
+    def test_silent_precise_temperature_is_stale_not_divergent(self) -> None:
+        homekit = source("heat", {"current_temperature": 23.5})
+        ecobee = source("heat", {"current_temperature": 23.4})
+        silent = RawSource(
+            "22.3",
+            {"unit_of_measurement": "\N{DEGREE SIGN}C"},
+            health=SourceHealth.STALE,
+        )
+
+        snapshot = build_snapshot(
+            "mapping_a", homekit, ecobee, homekit_temperature=silent
+        )
+
+        self.assertEqual(23.5, snapshot.current_temperature)
+        self.assertEqual("homekit", snapshot.provenance["current_temperature"])
+        self.assertIs(SourceHealth.STALE, snapshot.source_health["homekit_temperature"])
+        self.assertIn("homekit_temperature_silent", snapshot.degradation)
+        self.assertNotIn("homekit_temperature_diverged", snapshot.degradation)
+        self.assertIn(
+            "homekit_temperature_silent", degradation_problem_reasons(snapshot)
+        )
+
     def test_explicit_temperature_falls_back_only_on_actual_unavailability(
         self,
     ) -> None:

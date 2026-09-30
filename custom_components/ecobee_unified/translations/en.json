@@ -648,6 +648,25 @@
     "mapping_source_missing": {
       "description": "For {mapping}, review these mapped sources: {source}. A source may be missing, disabled, associated with the wrong device, or incompatible with its assigned role. Open Ecobee Unified → Reconfigure to correct the mapping, or restore the native source. Missing sources are not replaced by matching names. For a retained missing optional source, clear its field to stop using it; otherwise restore the original registry entry. Device association alone does not prove that a generic button is Clear Hold.",
       "title": "Check this thermostat mapping"
+    },
+    "homekit_temperature_silent": {
+      "fix_flow": {
+        "abort": {
+          "source_entry_missing": "The HomeKit Device entry that owns this sensor no longer exists.",
+          "source_reload_failed": "Home Assistant could not reload the HomeKit Device entry. Check its status under Settings → Devices & services."
+        },
+        "step": {
+          "confirm": {
+            "description": "Reload the HomeKit Device entry {source}. Every entity of that HomeKit pairing is briefly unavailable while it reconnects. This Repair clears once the precise temperature sensor reports again.",
+            "title": "Reload the HomeKit source"
+          }
+        }
+      },
+      "title": "Precise temperature for {mapping} stopped reporting"
+    },
+    "homekit_temperature_silent_manual": {
+      "description": "The precise temperature sensor mapped for {mapping} missed rounded climate temperature changes that it should have reported. Ecobee Unified uses the rounded HomeKit reading meanwhile. It cannot identify one HomeKit Device entry that owns both entities, so reload the sensor's source integration from Settings → Devices & services. This Repair clears once the sensor reports again.",
+      "title": "Precise temperature for {mapping} stopped reporting"
     }
   },
   "options": {
@@ -660,14 +679,16 @@
         "data": {
           "confirmation_seconds": "Command confirmation window (seconds)",
           "ecobee_stale_seconds": "Ecobee stale after (seconds)",
-          "configure_read_policy": "Configure per-thermostat read sources"
+          "configure_read_policy": "Configure per-thermostat read sources",
+          "reload_silent_temperature_source": "Reload a silent precise temperature source"
         },
         "data_description": {
           "confirmation_seconds": "After a source call returns successfully, wait this long for matching reports: default 1800 seconds; range 300–1800 in 30-second steps. A match confirms reported settings, not room conditions or equipment performance. Expiry records unconfirmed without retrying. Resume, vacation, occupancy, and comfort-sensor actions record submission only; notifications do not use the tracker.",
           "ecobee_stale_seconds": "Exclude Ecobee climate and air-quality sources once their last Home Assistant report exceeds this age: default 1800 seconds; range 300–7200 in 60-second steps. Stale climate data cannot support reads or climate-based vendor actions. An unchanged report resets age without proving a new physical measurement. HomeKit sources have no age limit from this setting.",
-          "configure_read_policy": "Continue to choose a thermostat and set source precedence for each reading. Timing changes and read policies are saved together after the final form. Command writers remain unchanged."
+          "configure_read_policy": "Continue to choose a thermostat and set source precedence for each reading. Timing changes and read policies are saved together after the final form. Command writers remain unchanged.",
+          "reload_silent_temperature_source": "Off by default. When a mapped precise temperature sensor misses two rounded climate temperature changes from the same HomeKit characteristic, reload its HomeKit Device entry: at most once per six hours, and never during a pending command. Every entity of that pairing is briefly unavailable. When this is off, or a reload did not help, a Repair offers the same reload manually."
         },
-        "description": "These settings control how Ecobee Unified interprets Home Assistant reports. They do not change source polling, thermostat schedules, or the source service-call timeout. Saving reloads the integration; cancellation or unload can end observation while an already-dispatched action still takes effect.",
+        "description": "These settings control how Ecobee Unified interprets Home Assistant reports. Apart from the optional silent-source reload, they do not change source polling, thermostat schedules, or the source service-call timeout. Saving reloads the integration; cancellation or unload can end observation while an already-dispatched action still takes effect.",
         "title": "Freshness and command confirmation"
       },
       "read_policy_mapping": {

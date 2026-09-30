@@ -223,9 +223,16 @@ settings default to 1800 seconds:
 | Ecobee stale after | 300–7200 in steps of 60 | The report age after which Ecobee climate and mapped air-quality readings become unusable to Unified |
 | Command confirmation window | 300–1800 in steps of 30 | The wait for matching evidence after a confirmable source call succeeds |
 
-These options do not set polling cadence, refresh a source, change a hold's
+The timing options do not set polling cadence, refresh a source, change a hold's
 duration, or schedule another write. Choose them from observed reporting
 behavior. HomeKit event silence is not a staleness timeout.
+
+**Reload a silent precise temperature source** is off by default. When it is
+on and a mapped precise temperature sensor stops answering its climate (see
+[When a precise temperature stops being selected](#when-a-precise-temperature-stops-being-selected)),
+Unified reloads that thermostat's HomeKit Device entry: at most once per six
+hours, and never while a command is pending. Every entity of that HomeKit
+pairing is briefly unavailable during the reload.
 
 ## Centralize other datapoints
 
@@ -502,9 +509,21 @@ establish recovery either.
 
 This check can detect inconsistency, not physical accuracy. A faulty comparator
 can reject a good sensor; two agreeing wrong readings can remain eligible.
-Reload/restart clears the remembered rejection and therefore cannot prove a
-repair. Unified does not reload the sources, control the thermostat, or revise
-history in response to this condition.
+Reloading Unified or restarting Home Assistant clears the remembered rejection
+and therefore cannot prove a repair. Unified does not control the thermostat or
+revise history in response to this condition.
+
+`homekit_temperature_silent` means something different: the sensor has stopped
+reporting at all. The rounded climate reading changed twice, the older change
+at least a minute ago, with no report from the sensor. Both come from one
+HomeKit characteristic, so a working sensor would have reported each time. This
+usually means Home Assistant's HomeKit entity stopped updating, not the
+thermostat; refreshing the entity does not help, but reloading its HomeKit
+Device entry does. Unified shows the rounded HomeKit reading meanwhile and
+raises a Repair whose fix reloads that entry, or reloads it automatically when
+**Reload a silent precise temperature source** is on. Reloading the HomeKit
+entry does not clear a remembered rejection: the sensor still needs a different
+agreeing value. Any report from the sensor ends silence.
 
 ### Collect a useful problem report
 

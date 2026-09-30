@@ -670,11 +670,7 @@ def _select_current_temperature(
                 else "homekit_temperature_unverifiable"
             )
     elif homekit_temperature is not None:
-        degradation.add(
-            "homekit_temperature_invalid"
-            if homekit_temperature.health is SourceHealth.HEALTHY
-            else f"homekit_temperature_{_unusable_source_reason(homekit_temperature)}"
-        )
+        degradation.add(_unusable_precise_temperature_reason(homekit_temperature))
 
     value, owner = _select_attribute(
         homekit, ecobee, "current_temperature", "temperature", policy
@@ -684,6 +680,15 @@ def _select_current_temperature(
     if value is None:
         degradation.add("current_temperature_unavailable")
     return value, owner, degradation
+
+
+def _unusable_precise_temperature_reason(source: RawSource) -> str:
+    if source.health is SourceHealth.HEALTHY:
+        return "homekit_temperature_invalid"
+    if source.health is SourceHealth.STALE:
+        # Only the manager's paired-change evidence marks this source stale.
+        return "homekit_temperature_silent"
+    return f"homekit_temperature_{_unusable_source_reason(source)}"
 
 
 def _unusable_source_reason(source: RawSource) -> str:

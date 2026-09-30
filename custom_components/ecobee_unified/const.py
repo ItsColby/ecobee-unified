@@ -47,9 +47,17 @@ RECONFIGURE_MENU_OPTIONS: Final = (
 
 CONF_ECOBEE_STALE_SECONDS: Final = "ecobee_stale_seconds"
 CONF_CONFIRMATION_SECONDS: Final = "confirmation_seconds"
+CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: Final = "reload_silent_temperature_source"
 
 DEFAULT_ECOBEE_STALE_SECONDS: Final = 1800
 DEFAULT_CONFIRMATION_SECONDS: Final = 1800
+DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE: Final = False
+
+# Opt-in recovery reloads the HomeKit source entry at most once per cooldown, so
+# a reload that does not restore the precise sensor escalates to a Repair
+# instead of looping.
+SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS: Final = 6 * 60 * 60
+HOMEKIT_SOURCE_DOMAIN: Final = "homekit_controller"
 
 # HomeKit accessories can emit the climate's serialized whole-degree value and
 # their precise temperature characteristic as separate state changes from one

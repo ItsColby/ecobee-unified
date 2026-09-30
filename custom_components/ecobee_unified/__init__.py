@@ -150,6 +150,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         mapping_id = item.get("mapping_id")
         if mapping_id:
             ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")
+            ir.async_delete_issue(
+                hass, DOMAIN, f"homekit_temperature_silent_{mapping_id}"
+            )
 
 
 def _platforms_for_mappings(

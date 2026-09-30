@@ -43,15 +43,19 @@ from .commands import CommandTracker
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
+    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
+    DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
+    HOMEKIT_SOURCE_DOMAIN,
     SERVICE_CREATE_VACATION,
     SERVICE_DELETE_VACATION,
     SERVICE_SET_OCCUPANCY_MODES,
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
     SIGNAL_SNAPSHOT_UPDATED,
+    SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS,
     SUFFIX_AIR_QUALITY_INDEX,
     SUFFIX_CO2,
     SUFFIX_EQUIPMENT_STAGE,
@@ -84,6 +88,7 @@ from .temperature_quality import (
     SourceIdentity,
     TemperatureObservation,
     TemperatureRecovery,
+    TemperatureSilence,
 )
 
 # Core 2026.8's HomeKit writer honors the accessory's native granularity even
@@ -139,6 +144,8 @@ class MappingManager:
         self._temperature_recovery: dict[str, TemperatureRecovery] = {}
         self._temperature_mismatch_candidates: dict[str, TemperatureObservation] = {}
         self._unsub_temperature_mismatches: dict[str, Callable[[], None]] = {}
+        self._temperature_silence: dict[str, TemperatureSilence] = {}
+        self._silent_source_reloads: dict[str, datetime] = {}
         self._watched_entity_ids: set[str] = set()
         self._watched_entity_references = {
             reference
@@ -199,10 +206,14 @@ class MappingManager:
         self._unsub_temperature_mismatches.clear()
         self._temperature_mismatch_candidates.clear()
         self._temperature_recovery.clear()
+        self._temperature_silence.clear()
         self._watched_entity_ids.clear()
         self._watched_device_ids.clear()
         for mapping in self.mappings:
             ir.async_delete_issue(self.hass, DOMAIN, f"mapping_{mapping.mapping_id}")
+            ir.async_delete_issue(
+                self.hass, DOMAIN, _silent_temperature_issue_id(mapping.mapping_id)
+            )
 
     def snapshot(self, mapping_id: str) -> NormalizedSnapshot:
         """Return the current immutable snapshot."""
@@ -318,12 +329,19 @@ class MappingManager:
             report_times=report_times,
             required_device_id=homekit_device_id,
         )
+        temperature_silent = self._temperature_silent(mapping, homekit_temperature, now)
+        if temperature_silent:
+            assert homekit_temperature is not None
+            homekit_temperature = replace(
+                homekit_temperature, health=SourceHealth.STALE
+            )
         temperature_recovery_pending = self._update_temperature_recovery(
             mapping,
             homekit,
             homekit_temperature,
             pair_settled=homekit_pair_settled,
             confirmation=temperature_confirmation,
+            silent=temperature_silent,
         )
         cloud_sensors = tuple(
             self._air_quality_raw_source(
@@ -389,6 +407,7 @@ class MappingManager:
         )
         self._schedule_stale_refresh(mapping_id, stale_inputs)
         self._refresh_mapping_issue(mapping)
+        self._handle_temperature_silence(mapping, temperature_silent)
         async_dispatcher_send(self.hass, f"{SIGNAL_SNAPSHOT_UPDATED}_{mapping_id}")
 
     async def async_standard_command(
@@ -834,6 +853,7 @@ class MappingManager:
                 if reference and (resolved := self.resolve_entity_id(reference))
             }:
                 continue
+            self._record_climate_temperature_change(mapping, entity_id, event)
             operation = self._tracker.pending_operation(mapping.mapping_id)
             expected_reference = self._confirmation_reference(mapping, operation)
             expected_observer = (
@@ -975,12 +995,18 @@ class MappingManager:
         *,
         pair_settled: bool,
         confirmation: TemperatureObservation | None,
+        silent: bool = False,
     ) -> bool:
         """Keep confirmed rejected values out until this source changes and agrees."""
 
         mapping_id = mapping.mapping_id
         if mapping.homekit_temperature_entity is None:
             self._temperature_recovery.pop(mapping_id, None)
+            self._cancel_temperature_mismatch(mapping_id)
+            return False
+        if silent:
+            # Silence already excludes the sensor and names the cause. Keep any
+            # rejected value: a re-report of it must still not recover precision.
             self._cancel_temperature_mismatch(mapping_id)
             return False
         identity = self._temperature_source_identity(mapping)
@@ -1045,6 +1071,141 @@ class MappingManager:
         if unsubscribe := self._unsub_temperature_mismatches.pop(mapping_id, None):
             unsubscribe()
         self._temperature_mismatch_candidates.pop(mapping_id, None)
+
+    def _record_climate_temperature_change(
+        self,
+        mapping: MappingConfig,
+        entity_id: str,
+        event: Event[EventStateChangedData],
+    ) -> None:
+        """Remember a rounded climate change that the precise sensor must answer."""
+
+        if (
+            mapping.homekit_temperature_entity is None
+            or entity_id != self.resolve_entity_id(mapping.homekit_entity)
+        ):
+            return
+        old_state = event.data.get("old_state")
+        new_state = event.data["new_state"]
+        if old_state is None or new_state is None:
+            return
+        before = finite_number(old_state.attributes.get("current_temperature"))
+        after = finite_number(new_state.attributes.get("current_temperature"))
+        if before is None or after is None or before == after:
+            return
+        self._temperature_silence.setdefault(
+            mapping.mapping_id, TemperatureSilence()
+        ).climate_changed(
+            self._temperature_source_identity(mapping), new_state.last_updated
+        )
+
+    def _temperature_silent(
+        self, mapping: MappingConfig, precise: RawSource | None, now: datetime
+    ) -> bool:
+        """Return whether a readable precise sensor stopped answering the climate."""
+
+        silence = self._temperature_silence.get(mapping.mapping_id)
+        if (
+            silence is None
+            or precise is None
+            or not precise.usable
+            or mapping.homekit_temperature_entity is None
+        ):
+            return False
+        entity_id = self.resolve_entity_id(mapping.homekit_temperature_entity)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return silence.silent(
+            self._temperature_source_identity(mapping),
+            state.last_reported if state is not None else None,
+            now,
+        )
+
+    def _temperature_source_entry_id(self, mapping: MappingConfig) -> str | None:
+        """Return the HomeKit entry that owns both paired temperature entities."""
+
+        if mapping.homekit_temperature_entity is None:
+            return None
+        registry = er.async_get(self.hass)
+        entries = [
+            registry.async_get(entity_id)
+            if (entity_id := self.resolve_entity_id(reference))
+            else None
+            for reference in (
+                mapping.homekit_entity,
+                mapping.homekit_temperature_entity,
+            )
+        ]
+        climate, precise = entries
+        if (
+            climate is None
+            or precise is None
+            or climate.platform != HOMEKIT_SOURCE_DOMAIN
+            or precise.platform != HOMEKIT_SOURCE_DOMAIN
+            or climate.config_entry_id is None
+            or climate.config_entry_id != precise.config_entry_id
+        ):
+            return None
+        source_entry = self.hass.config_entries.async_get_entry(climate.config_entry_id)
+        if source_entry is None or source_entry.domain != HOMEKIT_SOURCE_DOMAIN:
+            return None
+        return source_entry.entry_id
+
+    def _handle_temperature_silence(self, mapping: MappingConfig, silent: bool) -> None:
+        """Reload the silent sensor's source once per cooldown, else raise a Repair."""
+
+        issue_id = _silent_temperature_issue_id(mapping.mapping_id)
+        if not silent:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        source_entry_id = self._temperature_source_entry_id(mapping)
+        if (
+            source_entry_id is not None
+            and self._options.get(
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
+                DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE,
+            )
+            is True
+            and self._tracker.pending_operation(mapping.mapping_id) is None
+        ):
+            now = dt_util.utcnow()
+            last_reload = self._silent_source_reloads.get(source_entry_id)
+            if (
+                last_reload is None
+                or (now - last_reload).total_seconds()
+                >= SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS
+            ):
+                self._silent_source_reloads[source_entry_id] = now
+                # Evidence gathered before the reload cannot describe the
+                # reloaded entity; a still-silent sensor must be caught anew.
+                for other in self.mappings:
+                    silence = self._temperature_silence.get(other.mapping_id)
+                    if (
+                        silence is not None
+                        and self._temperature_source_entry_id(other) == source_entry_id
+                    ):
+                        silence.reset()
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+                self.hass.config_entries.async_schedule_reload(source_entry_id)
+                return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=source_entry_id is not None,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=(
+                "homekit_temperature_silent"
+                if source_entry_id is not None
+                else "homekit_temperature_silent_manual"
+            ),
+            translation_placeholders={"mapping": mapping.name},
+            data=(
+                {"source_entry_id": source_entry_id}
+                if source_entry_id is not None
+                else None
+            ),
+        )
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:
@@ -1747,6 +1908,10 @@ def _source_references(mapping: MappingConfig) -> tuple[str | None, ...]:
         mapping.ecobee_voc_entity,
         mapping.ecobee_notify_entity,
     )
+
+
+def _silent_temperature_issue_id(mapping_id: str) -> str:
+    return f"homekit_temperature_silent_{mapping_id}"
 
 
 def _state_age_seconds(last_reported: datetime, now: datetime) -> int:

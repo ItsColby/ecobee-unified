@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from math import isclose
 
 SourceIdentity = tuple[str, str, str, str]
+
+# The rounded climate reading and the precise sensor serialize one HomeKit
+# characteristic, so every rounded change implies a precise report. Two
+# unanswered changes tolerate one reordered or dropped pair, and the older one
+# must have waited long enough that a burst of transport events cannot qualify.
+SILENT_CLIMATE_CHANGES = 2
+SILENT_MINIMUM_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,3 +65,48 @@ class TemperatureRecovery:
             ):
                 self.rejected = None
         return self.rejected is not None
+
+
+@dataclass(slots=True)
+class TemperatureSilence:
+    """Count rounded climate changes that no precise report has answered."""
+
+    identity: SourceIdentity | None = None
+    changes: list[datetime] = field(default_factory=list)
+
+    def climate_changed(
+        self, identity: SourceIdentity | None, changed_at: datetime
+    ) -> None:
+        """Record one rounded climate change for this source association."""
+
+        if identity != self.identity:
+            self.identity = identity
+            self.changes.clear()
+        if identity is None:
+            return
+        self.changes.append(changed_at)
+        del self.changes[:-SILENT_CLIMATE_CHANGES]
+
+    def silent(
+        self,
+        identity: SourceIdentity | None,
+        precise_reported_at: datetime | None,
+        now: datetime,
+    ) -> bool:
+        """Return whether the precise sensor missed enough paired changes."""
+
+        if identity is None or identity != self.identity:
+            return False
+        if precise_reported_at is not None:
+            self.changes = [
+                changed for changed in self.changes if changed > precise_reported_at
+            ]
+        return (
+            len(self.changes) >= SILENT_CLIMATE_CHANGES
+            and (now - self.changes[0]).total_seconds() >= SILENT_MINIMUM_SECONDS
+        )
+
+    def reset(self) -> None:
+        """Require fresh evidence after a recovery attempt."""
+
+        self.changes.clear()

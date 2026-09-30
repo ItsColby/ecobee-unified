@@ -40,6 +40,7 @@ from custom_components.ecobee_unified.const import (
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
+    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
 )
@@ -381,18 +382,29 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         self.assertIs(FlowResultType.FORM, result["type"])
         self.assertEqual("invalid_timing", result["errors"]["base"])
         displayed = result["data_schema"]({})
-        self.assertEqual(submitted, displayed)
+        self.assertEqual(
+            submitted | {CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: False}, displayed
+        )
         self.assertEqual(original_options, entry.options)
 
         with patch.object(self.hass.config_entries, "async_schedule_reload") as reload:
             result = await self.hass.config_entries.options.async_configure(
-                result["flow_id"], displayed | {CONF_ECOBEE_STALE_SECONDS: 1200}
+                result["flow_id"],
+                displayed
+                | {
+                    CONF_ECOBEE_STALE_SECONDS: 1200,
+                    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True,
+                },
             )
         reload.assert_called_once_with(entry.entry_id)
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
         self.assertEqual(
             original_options
-            | {CONF_ECOBEE_STALE_SECONDS: 1200, CONF_CONFIRMATION_SECONDS: 720},
+            | {
+                CONF_ECOBEE_STALE_SECONDS: 1200,
+                CONF_CONFIRMATION_SECONDS: 720,
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True,
+            },
             entry.options,
         )
         self.assertEqual(original_data, dict(entry.data))

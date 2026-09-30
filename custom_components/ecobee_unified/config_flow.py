@@ -50,8 +50,10 @@ from .const import (
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
+    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
+    DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DOMAIN,
     NAME,
     RECONFIGURE_MENU_OPTIONS,
@@ -905,6 +907,9 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
                 errors["base"] = "invalid_timing"
             else:
                 self._pending_options.update(validated_input)
+                self._pending_options[CONF_RELOAD_SILENT_TEMPERATURE_SOURCE] = (
+                    user_input.get(CONF_RELOAD_SILENT_TEMPERATURE_SOURCE) is True
+                )
                 if user_input.get("configure_read_policy", False):
                     return await self.async_step_read_policy_mapping()
                 return self._save_options()
@@ -917,6 +922,10 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             ),
             CONF_CONFIRMATION_SECONDS: original_options.get(
                 CONF_CONFIRMATION_SECONDS, DEFAULT_CONFIRMATION_SECONDS
+            ),
+            CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: original_options.get(
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
+                DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE,
             ),
         }
         if user_input is not None:
@@ -1976,6 +1985,10 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_CONFIRMATION_SECONDS,
                 default=defaults[CONF_CONFIRMATION_SECONDS],
             ): selector(300, 1800, 30),
+            vol.Required(
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
+                default=defaults[CONF_RELOAD_SILENT_TEMPERATURE_SOURCE],
+            ): BOOLEAN_SELECTOR,
             vol.Optional(
                 "configure_read_policy",
                 description={

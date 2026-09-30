@@ -92,6 +92,7 @@ from custom_components.ecobee_unified.const import (
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
+    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
@@ -2786,6 +2787,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(1800, DEFAULT_CONFIRMATION_SECONDS)
         self.assertEqual(1800, defaults[CONF_ECOBEE_STALE_SECONDS])
         self.assertEqual(1800, defaults[CONF_CONFIRMATION_SECONDS])
+        self.assertIs(False, defaults[CONF_RELOAD_SILENT_TEMPERATURE_SOURCE])
         options = {
             CONF_ECOBEE_STALE_SECONDS: 1200,
             CONF_CONFIRMATION_SECONDS: 720,
@@ -2795,7 +2797,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         self.assertIs(FlowResultType.CREATE_ENTRY, result["type"])
-        self.assertEqual(options | {"future_option": future_option}, entry.options)
+        self.assertEqual(
+            options
+            | {
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: False,
+                "future_option": future_option,
+            },
+            entry.options,
+        )
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
 
     async def test_options_schema_serializes_and_timing_validation_is_exact(
@@ -2805,6 +2814,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             {
                 CONF_ECOBEE_STALE_SECONDS: DEFAULT_ECOBEE_STALE_SECONDS,
                 CONF_CONFIRMATION_SECONDS: DEFAULT_CONFIRMATION_SECONDS,
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: False,
             }
         )
 
@@ -2812,6 +2822,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             {
                 CONF_ECOBEE_STALE_SECONDS: 1200,
                 CONF_CONFIRMATION_SECONDS: 720,
+                CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: False,
             },
             schema(
                 {
@@ -2821,10 +2832,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ),
         )
         serialized = serialize_schema(schema, custom_serializer=cv.custom_serializer)
-        self.assertEqual(3, len(serialized))
-        self.assertEqual("configure_read_policy", serialized[2]["name"])
+        self.assertEqual(4, len(serialized))
+        self.assertEqual(CONF_RELOAD_SILENT_TEMPERATURE_SOURCE, serialized[2]["name"])
         self.assertEqual({"boolean": {}}, serialized[2]["selector"])
-        self.assertFalse(serialized[2]["required"])
+        self.assertTrue(serialized[2]["required"])
+        self.assertIs(False, serialized[2]["default"])
+        self.assertEqual("configure_read_policy", serialized[3]["name"])
+        self.assertEqual({"boolean": {}}, serialized[3]["selector"])
+        self.assertFalse(serialized[3]["required"])
         self.assertEqual(
             {"min": 300.0, "max": 7200.0, "step": 60.0, "mode": "box"},
             serialized[0]["selector"]["number"],
@@ -2906,7 +2921,8 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         self.assertIs(FlowResultType.CREATE_ENTRY, first["type"])
         accepted_options = winning_options | {
-            "future_option": original_options["future_option"]
+            CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: False,
+            "future_option": original_options["future_option"],
         }
         self.assertEqual(accepted_options, entry.options)
 

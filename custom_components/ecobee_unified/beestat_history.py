@@ -111,7 +111,7 @@ def _number(value: Any) -> float | None:
     _require(type(value) in (int, float))
     try:
         result = float(value)
-    except (OverflowError, ValueError) as err:
+    except OverflowError as err:
         raise ValueError(_ERROR) from err
     _require(math.isfinite(result))
     return result

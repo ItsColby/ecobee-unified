@@ -26,10 +26,10 @@ from custom_components.ecobee_unified.config_flow import (
 )
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import ReconfigureFlowTestCase
 
 
-class DatapointConfigurationTests(CoreRuntimeTestCase):
+class DatapointConfigurationTests(ReconfigureFlowTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         for source in (self.homekit, self.ecobee):
@@ -169,35 +169,6 @@ class DatapointConfigurationTests(CoreRuntimeTestCase):
         )
         entry.add_to_hass(self.hass)
         return entry
-
-    async def _open(self, entry: MockConfigEntry) -> dict[str, Any]:
-        return await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-
-    async def _next(self, result: dict[str, Any], step: str) -> dict[str, Any]:
-        return await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {"next_step_id": step},
-        )
-
-    async def _submit(
-        self, result: dict[str, Any], values: dict[str, Any]
-    ) -> dict[str, Any]:
-        return await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], values
-        )
-
-    async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
-        with patch.object(self.hass.config_entries, "async_reload", return_value=True):
-            result = await self._next(result, "reconfigure_finish")
-            if result["type"] == FlowResultType.FORM:
-                self.assertEqual("reconfigure_finish", result["step_id"])
-                result = await self._submit(result, {})
-            await self.hass.async_block_till_done()
-        self.assertEqual("reconfigure_successful", result["reason"])
-        return result
 
     async def test_review_stages_order_policy_and_range_without_saving(self) -> None:
         values = self._physical_temperature_values(

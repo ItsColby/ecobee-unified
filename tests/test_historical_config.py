@@ -21,11 +21,11 @@ from custom_components.ecobee_unified.const import (
     DOMAIN,
 )
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import ReconfigureFlowTestCase
 from .test_beestat_history import contract as history_contract
 
 
-class HistoricalConfigurationTests(CoreRuntimeTestCase):
+class HistoricalConfigurationTests(ReconfigureFlowTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         registry = er.async_get(self.hass)
@@ -138,31 +138,6 @@ class HistoricalConfigurationTests(CoreRuntimeTestCase):
         )
         entry.add_to_hass(self.hass)
         return entry
-
-    async def _open(self, entry: MockConfigEntry) -> dict[str, Any]:
-        return await self.hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "reconfigure", "entry_id": entry.entry_id}
-        )
-
-    async def _submit(
-        self, result: dict[str, Any], values: dict[str, Any]
-    ) -> dict[str, Any]:
-        return await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], values
-        )
-
-    async def _next(self, result: dict[str, Any], step: str) -> dict[str, Any]:
-        return await self._submit(result, {"next_step_id": step})
-
-    async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
-        with patch.object(self.hass.config_entries, "async_reload", return_value=True):
-            result = await self._next(result, "reconfigure_finish")
-            if result["type"] == FlowResultType.FORM:
-                self.assertEqual("reconfigure_finish", result["step_id"])
-                result = await self._submit(result, {})
-            await self.hass.async_block_till_done()
-        self.assertEqual("reconfigure_successful", result["reason"])
-        return result
 
     async def _add(self, entry: MockConfigEntry, **changes: Any) -> dict[str, Any]:
         result = await self._next(await self._open(entry), "historical_add")

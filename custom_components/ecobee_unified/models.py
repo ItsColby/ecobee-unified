@@ -640,8 +640,8 @@ def _select_current_temperature(
     homekit: RawSource,
     ecobee: RawSource,
     *,
-    recovery_pending: bool = False,
-    policy: str = "homekit_first",
+    recovery_pending: bool,
+    policy: str,
 ) -> tuple[float | None, str | None, set[str]]:
     """Use local precision only while the local climate proves its semantics."""
 
@@ -916,7 +916,7 @@ def _source_order(
 
 
 def _select_state(
-    primary: RawSource, fallback: RawSource, policy: str = "homekit_first"
+    primary: RawSource, fallback: RawSource, policy: str
 ) -> tuple[str | None, str | None]:
     for name, source in _source_order(primary, fallback, policy):
         value = _hvac_mode(source.state) if source.usable else None
@@ -930,7 +930,7 @@ def _select_attribute(
     fallback: RawSource,
     key: str,
     value_type: str,
-    policy: str = "homekit_first",
+    policy: str,
 ) -> tuple[Any, str | None]:
     for source_name, source in _source_order(primary, fallback, policy):
         value = _usable_source_attribute(
@@ -1067,8 +1067,6 @@ def finite_temperature(
             ROUNDING_ENVELOPE
             if climate_source == "homekit"
             else ECOBEE_ROUNDING_ENVELOPE
-            if climate_source == "ecobee"
-            else {}
         )
         minimum -= envelope.get(str(unit), 0.0)
     if (
@@ -1118,7 +1116,7 @@ def _optional_source_state(source: RawSource | None) -> str | None:
 
 
 def _optional_source_number(source: RawSource | None) -> float | None:
-    if source is None or not source.usable or source.state is None:
+    if source is None or not source.usable:
         return None
     value = finite_number(source.state, allow_text=True)
     return value if value is not None and value >= 0 else None
@@ -1127,7 +1125,7 @@ def _optional_source_number(source: RawSource | None) -> float | None:
 def _optional_source_temperature(
     source: RawSource | None, homekit: RawSource
 ) -> float | None:
-    if source is None or not source.usable or source.state is None:
+    if source is None or not source.usable:
         return None
     # The manager has converted this state into the climate's unit. Its source
     # attributes may still describe the sensor's original unit.

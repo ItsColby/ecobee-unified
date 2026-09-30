@@ -92,13 +92,8 @@ def _optional_text(value: Any, reason: str) -> str | None:
 
 
 def _nonnegative(value: Any, reason: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(reason)  # noqa: TRY004 -- One public validation error type.
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError) as err:
-        raise ValueError(reason) from err
-    if not isfinite(number) or number < 0:
+    number = _finite_number(value, reason)
+    if number < 0:
         raise ValueError(reason)
     return number
 
@@ -263,10 +258,7 @@ def _validate_accepted_range(config: DatapointConfig) -> None:
         raw = getattr(config, field)
         if raw is None:
             continue
-        try:
-            number = _finite_number(raw)
-        except ValueError as err:
-            raise ValueError("invalid_accepted_range") from err
+        number = _finite_number(raw, "invalid_accepted_range")
         if number < absolute_zero:
             raise ValueError("invalid_accepted_range")
         object.__setattr__(config, field, number)
@@ -1038,7 +1030,7 @@ def _value(config: DatapointConfig, raw: Any, unit: str | None) -> DatapointValu
         if result in _EMPTY:
             raise ValueError("unknown")
         return result
-    return _numeric_value(config, _finite_number(raw), unit)
+    return _numeric_value(config, _finite_number(raw, "invalid_number"), unit)
 
 
 def _numeric_value(config: DatapointConfig, number: float, unit: str | None) -> float:
@@ -1075,15 +1067,15 @@ def _membership(raw: Any) -> tuple[str, ...]:
     return tuple(sorted(members))
 
 
-def _finite_number(raw: Any) -> float:
+def _finite_number(raw: Any, reason: str) -> float:
     if isinstance(raw, bool):
-        raise ValueError("invalid_number")  # noqa: TRY004 -- Public validation contract.
+        raise ValueError(reason)  # noqa: TRY004 -- Public validation contract.
     try:
         number = float(raw)
     except (TypeError, ValueError, OverflowError) as err:
-        raise ValueError("invalid_number") from err
+        raise ValueError(reason) from err
     if not isfinite(number):
-        raise ValueError("invalid_number")
+        raise ValueError(reason)
     return number
 
 

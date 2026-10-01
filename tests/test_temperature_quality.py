@@ -86,7 +86,7 @@ class TemperatureSilenceTests(unittest.TestCase):
         self.assertFalse(silence.silent(IDENTITY, START, first + timedelta(seconds=59)))
         self.assertTrue(silence.silent(IDENTITY, START, first + timedelta(seconds=60)))
 
-    def test_a_later_precise_report_answers_earlier_changes(self) -> None:
+    def test_a_later_precise_value_change_answers_earlier_changes(self) -> None:
         silence = TemperatureSilence()
         silence.climate_changed(IDENTITY, START + timedelta(minutes=5))
         silence.climate_changed(IDENTITY, START + timedelta(minutes=20))

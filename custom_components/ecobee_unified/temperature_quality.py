@@ -9,9 +9,11 @@ from math import isclose
 SourceIdentity = tuple[str, str, str, str]
 
 # The rounded climate reading and the precise sensor serialize one HomeKit
-# characteristic, so every rounded change implies a precise report. Two
-# unanswered changes tolerate one reordered or dropped pair, and the older one
-# must have waited long enough that a burst of transport events cannot qualify.
+# characteristic, so every rounded change implies a new precise value. Only a
+# value change answers: a frozen entity can keep re-reporting its old value.
+# Two unanswered changes tolerate one reordered or dropped pair, and the older
+# one must have waited long enough that a burst of transport events cannot
+# qualify.
 SILENT_CLIMATE_CHANGES = 2
 SILENT_MINIMUM_SECONDS = 60
 
@@ -90,16 +92,16 @@ class TemperatureSilence:
     def silent(
         self,
         identity: SourceIdentity | None,
-        precise_reported_at: datetime | None,
+        precise_changed_at: datetime | None,
         now: datetime,
     ) -> bool:
-        """Return whether the precise sensor missed enough paired changes."""
+        """Return whether the precise value missed enough paired changes."""
 
         if identity is None or identity != self.identity:
             return False
-        if precise_reported_at is not None:
+        if precise_changed_at is not None:
             self.changes = [
-                changed for changed in self.changes if changed > precise_reported_at
+                changed for changed in self.changes if changed > precise_changed_at
             ]
         return (
             len(self.changes) >= SILENT_CLIMATE_CHANGES

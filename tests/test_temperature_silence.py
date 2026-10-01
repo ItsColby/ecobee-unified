@@ -42,9 +42,11 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
             mapping_id=mapping_id,
             homekit_temperature_entity=self.homekit_temperature.id,
         )
-        # Place the last precise report an hour ago so climate changes can be
-        # spread over minutes, as a real frozen sensor's evidence is.
+        # Place the last precise value change an hour ago so climate changes
+        # can be spread over minutes, as a real frozen sensor's evidence is.
+        # Removing the fixture's equal value first makes this a real change.
         self.base = time() - 3600
+        self.hass.states.async_remove(self.homekit_temperature.entity_id)
         self.hass.states.async_set(
             self.homekit_temperature.entity_id,
             "20.04",
@@ -83,7 +85,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
         )
 
     async def test_frozen_sensor_becomes_silent_then_recovers_on_report(self) -> None:
-        """Two unanswered climate changes replace divergence with silence."""
+        """Two climate changes without a new precise value replace divergence."""
 
         manager = await self._start("temperature_silent")
         mapping_id = self.silence_mapping.mapping_id
@@ -130,8 +132,18 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                 )
                 schedule_reload.assert_not_called()
 
-                # A re-report of the frozen value ends silence but not rejection.
+                # A frozen entity can keep re-reporting its old value; that
+                # refreshes its report time but answers no climate change.
                 await self._precise(manager, "20.04")
+                rereported = manager.snapshot(mapping_id)
+                self.assertIn("homekit_temperature_silent", rereported.degradation)
+                self.assertEqual(
+                    "homekit", rereported.provenance["current_temperature"]
+                )
+                self.assertIsNotNone(self._issue())
+
+                # A new value ends silence but not rejection.
+                await self._precise(manager, "20.22")
                 reported = manager.snapshot(mapping_id)
                 self.assertNotIn("homekit_temperature_silent", reported.degradation)
                 self.assertIn(

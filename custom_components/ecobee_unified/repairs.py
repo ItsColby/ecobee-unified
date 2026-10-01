@@ -12,7 +12,7 @@ from .const import HOMEKIT_SOURCE_DOMAIN
 
 
 class ReloadSilentTemperatureSourceFlow(RepairsFlow):
-    """Reload the HomeKit entry whose precise temperature stopped reporting."""
+    """Reload the HomeKit entry whose precise temperature stopped updating."""
 
     def __init__(self, source_entry_id: str) -> None:
         self._source_entry_id = source_entry_id
@@ -36,7 +36,7 @@ class ReloadSilentTemperatureSourceFlow(RepairsFlow):
             )
         if not await self.hass.config_entries.async_reload(source_entry.entry_id):
             return self.async_abort(reason="source_reload_failed")
-        # The manager removes the Repair once the reloaded sensor reports again.
+        # The manager removes the Repair once the reloaded sensor reports a new value.
         return self.async_create_entry(data={})
 
 

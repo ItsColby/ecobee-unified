@@ -657,16 +657,16 @@
         },
         "step": {
           "confirm": {
-            "description": "Reload the HomeKit Device entry {source}. Every entity of that HomeKit pairing is briefly unavailable while it reconnects. This Repair clears once the precise temperature sensor reports again.",
+            "description": "Reload the HomeKit Device entry {source}. Every entity of that HomeKit pairing is briefly unavailable while it reconnects. This Repair clears once the precise temperature sensor reports a new value.",
             "title": "Reload the HomeKit source"
           }
         }
       },
-      "title": "Precise temperature for {mapping} stopped reporting"
+      "title": "Precise temperature for {mapping} stopped updating"
     },
     "homekit_temperature_silent_manual": {
-      "description": "The precise temperature sensor mapped for {mapping} missed rounded climate temperature changes that it should have reported. Ecobee Unified uses the rounded HomeKit reading meanwhile. It cannot identify one HomeKit Device entry that owns both entities, so reload the sensor's source integration from Settings → Devices & services. This Repair clears once the sensor reports again.",
-      "title": "Precise temperature for {mapping} stopped reporting"
+      "description": "The precise temperature sensor mapped for {mapping} kept its value through rounded climate temperature changes that it should have reported. Ecobee Unified uses the rounded HomeKit reading meanwhile. It cannot identify one HomeKit Device entry that owns both entities, so reload the sensor's source integration from Settings → Devices & services. This Repair clears once the sensor reports a new value.",
+      "title": "Precise temperature for {mapping} stopped updating"
     }
   },
   "options": {

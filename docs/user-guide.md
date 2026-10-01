@@ -514,16 +514,17 @@ and therefore cannot prove a repair. Unified does not control the thermostat or
 revise history in response to this condition.
 
 `homekit_temperature_silent` means something different: the sensor has stopped
-reporting at all. The rounded climate reading changed twice, the older change
-at least a minute ago, with no report from the sensor. Both come from one
-HomeKit characteristic, so a working sensor would have reported each time. This
+updating. The rounded climate reading changed twice, the older change at least
+a minute ago, while the sensor's value stayed the same. Both come from one
+HomeKit characteristic, so a working sensor would have changed each time. A
+frozen sensor can keep re-reporting its old value; those reports do not count. This
 usually means Home Assistant's HomeKit entity stopped updating, not the
 thermostat; refreshing the entity does not help, but reloading its HomeKit
 Device entry does. Unified shows the rounded HomeKit reading meanwhile and
 raises a Repair whose fix reloads that entry, or reloads it automatically when
 **Reload a silent precise temperature source** is on. Reloading the HomeKit
 entry does not clear a remembered rejection: the sensor still needs a different
-agreeing value. Any report from the sensor ends silence.
+agreeing value. Any new value from the sensor ends silence.
 
 ### Collect a useful problem report
 

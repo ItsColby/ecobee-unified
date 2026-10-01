@@ -1102,7 +1102,7 @@ class MappingManager:
     def _temperature_silent(
         self, mapping: MappingConfig, precise: RawSource | None, now: datetime
     ) -> bool:
-        """Return whether a readable precise sensor stopped answering the climate."""
+        """Return whether a precise sensor's value stopped following the climate."""
 
         silence = self._temperature_silence.get(mapping.mapping_id)
         if (
@@ -1116,7 +1116,8 @@ class MappingManager:
         state = self.hass.states.get(entity_id) if entity_id else None
         return silence.silent(
             self._temperature_source_identity(mapping),
-            state.last_reported if state is not None else None,
+            # A re-report of an unchanged value is not an answer.
+            state.last_changed if state is not None else None,
             now,
         )
 

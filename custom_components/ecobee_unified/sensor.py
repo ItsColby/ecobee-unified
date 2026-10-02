@@ -42,6 +42,7 @@ class Projection:
     unit: str | None = None
     state_class: SensorStateClass | None = None
     options: tuple[str, ...] | None = None
+    enabled_default: bool = True
 
 
 EQUIPMENT_STAGE_OPTIONS = (
@@ -68,6 +69,8 @@ EQUIPMENT_STAGE_OPTIONS = (
 )
 
 
+# Air-quality outputs mirror vendor estimates that already exist on the source
+# device, so each one is created disabled and the user opts in per entity.
 PROJECTIONS = {
     SUFFIX_EQUIPMENT_STAGE: Projection(
         suffix=SUFFIX_EQUIPMENT_STAGE,
@@ -80,6 +83,7 @@ PROJECTIONS = {
         lambda snapshot: snapshot.air_quality_index,
         SensorDeviceClass.AQI,
         state_class=SensorStateClass.MEASUREMENT,
+        enabled_default=False,
     ),
     SUFFIX_CO2: Projection(
         SUFFIX_CO2,
@@ -87,6 +91,7 @@ PROJECTIONS = {
         SensorDeviceClass.CO2,
         UnitOfRatio.PARTS_PER_MILLION,
         SensorStateClass.MEASUREMENT,
+        enabled_default=False,
     ),
     SUFFIX_VOC: Projection(
         SUFFIX_VOC,
@@ -94,6 +99,7 @@ PROJECTIONS = {
         SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
         UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         SensorStateClass.MEASUREMENT,
+        enabled_default=False,
     ),
 }
 
@@ -143,6 +149,7 @@ class EcobeeCloudSensor(EcobeeUnifiedEntity, SensorEntity):
         self._attr_native_unit_of_measurement = projection.unit
         self._attr_state_class = projection.state_class
         self._attr_options = list(projection.options) if projection.options else None
+        self._attr_entity_registry_enabled_default = projection.enabled_default
 
     @property
     @override

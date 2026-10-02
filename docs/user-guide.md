@@ -107,11 +107,16 @@ including ambiguous reports; `detail_status` explains whether it agrees.
 Report timestamps describe HA receipt, not exact equipment transitions.
 This state is neither electrical metering nor a measurement of performance.
 
-Mapped air-quality entities display the source's values with their source
-measurement or estimate semantics. Unified does not calculate a new AQI, infer
-CO2 from another quantity, or establish independent sensor accuracy. Existing
-room, humidity, occupancy, weather, and Beestat history/context entities retain
-their own uses and owners.
+Mapped air-quality entities are opt-in. Selecting an AQI, CO2, or VOC source
+creates its Unified entity disabled; enable it from the entity's settings when
+a dashboard or automation needs it, and disable it again when nothing does.
+Entities created by an earlier version keep their current setting. To remove
+the entity and stop reading its source, clear the source under **Reconfigure >
+Edit thermostat mapping** and save changes. Once enabled, they display the
+source's values with their source measurement or estimate semantics. Unified
+does not calculate a new AQI, infer CO2 from another quantity, or establish
+independent sensor accuracy. Existing room, humidity, occupancy, weather, and
+Beestat history/context entities retain their own uses and owners.
 
 ## Make a deliberate vendor or schedule change
 

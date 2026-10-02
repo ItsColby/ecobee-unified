@@ -486,6 +486,67 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ),
         )
 
+    def _add_air_quality_entry(self) -> MockConfigEntry:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+            version=1,
+            minor_version=3,
+        )
+        entry.add_to_hass(self.hass)
+        return entry
+
+    async def test_air_quality_outputs_are_opt_in_and_reenable_after_reload(
+        self,
+    ) -> None:
+        entry = self._add_air_quality_entry()
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        registry = er.async_get(self.hass)
+        aqi_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"mapping_a_{SUFFIX_AIR_QUALITY_INDEX}"
+        )
+        stage_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"mapping_a_{SUFFIX_EQUIPMENT_STAGE}"
+        )
+        assert aqi_id is not None and stage_id is not None
+        self.assertIs(
+            er.RegistryEntryDisabler.INTEGRATION, registry.async_get(aqi_id).disabled_by
+        )
+        self.assertIsNone(self.hass.states.get(aqi_id))
+        self.assertIsNone(registry.async_get(stage_id).disabled_by)
+        self.assertIsNotNone(self.hass.states.get(stage_id))
+
+        registry.async_update_entity(aqi_id, disabled_by=None)
+        self.assertTrue(await self.hass.config_entries.async_reload(entry.entry_id))
+        await self.hass.async_block_till_done()
+        state = self.hass.states.get(aqi_id)
+        assert state is not None
+        self.assertEqual("42.0", state.state)
+
+        registry.async_update_entity(aqi_id, disabled_by=er.RegistryEntryDisabler.USER)
+        self.assertTrue(await self.hass.config_entries.async_reload(entry.entry_id))
+        await self.hass.async_block_till_done()
+        self.assertIsNone(self.hass.states.get(aqi_id))
+        self.assertIsNone(registry.async_get(stage_id).disabled_by)
+
+    async def test_existing_enabled_air_quality_output_stays_enabled(self) -> None:
+        entry = self._add_air_quality_entry()
+        registry = er.async_get(self.hass)
+        existing = registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"mapping_a_{SUFFIX_AIR_QUALITY_INDEX}",
+            config_entry=entry,
+        )
+        self.assertIsNone(existing.disabled_by)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+        self.assertIsNone(registry.async_get(existing.entity_id).disabled_by)
+        self.assertIsNotNone(self.hass.states.get(existing.entity_id))
+
     async def test_native_datapoints_setup_reload_unload_and_diagnostics_privacy(
         self,
     ) -> None:

@@ -70,7 +70,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3
 
   hacs:
     name: HACS

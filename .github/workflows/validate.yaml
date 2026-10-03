@@ -77,7 +77,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # zizmor: ignore[stale-action-refs] upstream publishes only from master
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3 # zizmor: ignore[stale-action-refs] upstream publishes only from master
 
   hacs:
     name: HACS

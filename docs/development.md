@@ -4,15 +4,11 @@ Run commands below from the repository root.
 
 ## Validation lanes
 
-The [Validate workflow](../.github/workflows/validate.yaml) runs on pull
-requests, pushes to `main`, and manual dispatch. Its **Release gate** requires
-success from every job:
-
-| Job | What it runs |
-| --- | --- |
-| Unit tests and static validation | `pre-commit run --all-files`: Ruff, ShellCheck, actionlint, zizmor, JSON and whitespace hygiene, and Gitleaks over the current tree and Git history. |
-| Home Assistant integration tests | One job per support lane: the Core pin in [`requirements-ha-test.txt`](../requirements-ha-test.txt) (minimum) or [`requirements-ha-current.txt`](../requirements-ha-current.txt) (current) with its matching harness, `pip check`, strict mypy, and the complete pytest suite. |
-| Hassfest and HACS | The official Home Assistant and HACS validation actions. |
+The [Validate workflow](../.github/workflows/validate.yaml) defines the CI jobs
+and the **Release gate** that requires them,
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) the static hooks, and
+[`.github/dependabot.yml`](../.github/dependabot.yml) the dependency update
+policy.
 
 Local checks do not replace the hosted jobs. Neither route proves physical
 device behavior, authorizes a deployment, or publishes a release.
@@ -96,9 +92,8 @@ Change each Core and harness pair together, verify dependency consistency, and
 rerun the changed support lane. A minimum-version change also affects
 [`hacs.json`](../hacs.json). Keep the workflow job labels and distribution
 minimum aligned, and review the external assumptions in
-[Upstream contracts](upstream-contracts.md). Dependabot updates GitHub Actions
-weekly with a seven-day cooldown; it does not update the coupled Python support
-lanes.
+[Upstream contracts](upstream-contracts.md). [Dependabot](../.github/dependabot.yml)
+does not update the coupled Python support lanes.
 
 Record candidate-specific results with the exact commit in the pull request or
 release record. Preserve past release evidence in Git history and GitHub

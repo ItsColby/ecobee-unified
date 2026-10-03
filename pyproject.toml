@@ -32,7 +32,6 @@ extend-select = [
 max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/**" = ["T20"]
 "tests/**" = ["S101"]
 
 [tool.pytest.ini_options]
@@ -43,3 +42,6 @@ python_version = "3.14"
 strict = true
 warn_unused_configs = true
 show_error_codes = true
+
+[dependency-groups]
+dev = ["pre-commit==4.6.2"]

@@ -1,101 +1,49 @@
 # Development
 
-Use the checked-in validation runner to check a candidate, and a separate Python
-environment for focused development. Run commands below from the repository root.
+Run commands below from the repository root.
 
 ## Validation lanes
 
-Every pull request and `main` push runs every validation lane: static/unit
-checks, both maintained Home Assistant environments, Hassfest, and HACS. Manual
-workflow dispatch runs the same lanes. The stable **Release gate** requires all
-of them to succeed. Locally, `all` runs the unit, both Home Assistant, and
-Hassfest lanes; `unit`, `minimum`, `current`, and `release` run one complete
-lane. Reuse evidence whose source and environment have not changed; a merge
-alone does not invalidate it. Local checks do not replace HACS, authorize
-publication, or establish live behavior.
+The [Validate workflow](../.github/workflows/validate.yaml) runs on pull
+requests, pushes to `main`, and manual dispatch. Its **Release gate** requires
+success from every job:
 
-## Check the complete candidate
-
-On Linux, provide Git, Bash, tar, Podman, and an existing host Python 3.14 for
-snapshot admission (found through `python3.14`, an installed uv runtime, or
-`VALIDATION_PYTHON`), then run:
-
-```bash
-bash scripts/verify-release-local.sh all container
-```
-
-On Windows, the wrapper requires Git for Windows, WSL with a distribution named
-`Ubuntu-24.04`, and Podman available inside that distribution:
-
-```powershell
-.\scripts\verify-release-local.ps1 -Mode all
-```
-
-The public-safety guard's link policy runs before the snapshot is copied. The
-public-safety unit check needs complete, non-shallow Git history.
-HA-only and Hassfest-only modes do not prepare or require a history mirror.
-Execution needs network access to fetch the pinned tools and dependencies. The
-Windows wrapper resolves the checkout's actual Git directory before entering WSL, including for linked worktrees.
-
-The container runner captures the tracked and nonignored untracked working-tree
-files, including uncommitted edits, into one read-only validation payload. It
-preserves the original Git history separately only when the unit lane runs the
-public-safety scan. The minimum and current Home Assistant lanes run concurrently in separate containers
-after the static checks pass; both finish before Hassfest or temporary-file
-cleanup. On interruption, the runner waits for active lanes before removing
-that payload and returns the interrupt status; this wait has no shutdown deadline.
-The named pip cache volume is retained for later runs. Only the unit container
-provisions Git; the Home Assistant lanes do not run the Git-dependent checks.
-
-Use a mode for a narrower check:
-
-| Mode | What it runs |
+| Job | What it runs |
 | --- | --- |
-| `unit` | Actionlint, Zizmor, ShellCheck, Ruff formatting and lint, public-safety and runner-orchestration unit tests, Python compilation, and the public-safety guard. |
-| `minimum` | The minimum Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
-| `current` | The current Core/harness pair, dependency consistency, strict mypy, and all product tests through pytest. |
-| `release` | Hassfest only. |
-| `all` | `unit`, both Home Assistant lanes, and `release`. |
+| Unit tests and static validation | `pre-commit run --all-files`: Ruff, ShellCheck, actionlint, zizmor, JSON and whitespace hygiene, and Gitleaks over the current tree and Git history. |
+| Home Assistant integration tests | One job per support lane: the Core pin in [`requirements-ha-test.txt`](../requirements-ha-test.txt) (minimum) or [`requirements-ha-current.txt`](../requirements-ha-current.txt) (current) with its matching harness, `pip check`, strict mypy, and the complete pytest suite. |
+| Hassfest and HACS | The official Home Assistant and HACS validation actions. |
 
-Public-safety and runner-orchestration tests execute once in `unit`; they do not
-depend on Core and are excluded from the two Home Assistant lanes.
-
-For example, replace `all` with `current` in the Bash command or use
-`-Mode current` in PowerShell. The `native` Bash backend is used by CI. It
-requires Python 3.14 with pip and venv, Git, Go for Actionlint, and Docker for
-the `release` mode. Each Python lane creates and removes its own temporary
-environment, including the sequential minimum and current lanes in `all native`.
-Actionlint uses a separate temporary environment with the runner's pinned
-ShellCheck version, so workflow-shell analysis does not depend on a caller's
-ShellCheck installation. The lane environments run without a login shell
-overriding their executable paths.
+Local checks do not replace the hosted jobs. Neither route proves physical
+device behavior, authorizes a deployment, or publishes a release.
 
 ## Work on one change
 
-The supported test environments are deliberately paired:
+Install the static checks once and run them before pushing:
 
-| Lane | Home Assistant Core | `pytest-homeassistant-custom-component` | Core requirements |
-| --- | --- | --- | --- |
-| Minimum | `2026.8.0` | `0.13.354` | [`requirements-ha-test.txt`](../requirements-ha-test.txt) |
-| Current | `2026.9.3` | `0.13.366` | [`requirements-ha-current.txt`](../requirements-ha-current.txt) |
+```bash
+python -m pip install --group dev
+pre-commit install
+pre-commit run --all-files
+```
 
-For a focused edit, create a Python 3.14 environment on Linux or inside WSL. This
-example installs the current pair in the same order as the runner:
+The Home Assistant tests need Linux (or WSL) and Python 3.14. Use a separate
+environment for each support lane and install it the way its workflow job does:
+the harness and mypy pins first, then the lane's requirements file, then
+`python -m pip check`. Installing only the harness does not establish the
+intended Core version.
 
 ```bash
 python3.14 -m venv .venv
 source .venv/bin/activate
-python -m pip install "pytest-homeassistant-custom-component==0.13.366"
-python -m pip install --upgrade -r requirements-ha-current.txt
-python -m pip install "ruff==0.16.1" "mypy==2.3.0"
+# install the lane's pins as its workflow job does, then:
 python -m pip check
-python -m pytest tests/test_commands.py tests/test_command_lifecycle.py -q
+python -m mypy custom_components/ecobee_unified
+python -m pytest tests
 ```
 
-Use the minimum harness and requirements file from the table to investigate a
-minimum-version issue. Keep the two environments separate, or use the container
-runner to check both. Installing only the harness does not establish the intended
-Core version; the requirements installation and `pip check` are part of the lane.
+Use pytest for the complete suite: unittest discovery alone does not collect the
+module-level async Home Assistant tests. Focused tests speed up iteration.
 
 Choose regression coverage by the contract being changed:
 
@@ -110,25 +58,13 @@ Choose regression coverage by the contract being changed:
 | Mapping validation or source identity | [`test_configuration_source_contracts.py`](../tests/test_configuration_source_contracts.py), [`test_homekit_action_roles.py`](../tests/test_homekit_action_roles.py), [`test_source_device_identity.py`](../tests/test_source_device_identity.py) | Live metadata, missing saved references, device association, role drift, and recovery. |
 | Writer routing or command state | [`test_commands.py`](../tests/test_commands.py), [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py) | Exact target and call count, observations before acceptance, superseded revisions, cancellation, and unload. |
 | Core APIs, configuration flows, or entity behavior | [`test_runtime_core_api.py`](../tests/test_runtime_core_api.py), [`test_integration_ha.py`](../tests/test_integration_ha.py), [`test_setup_lifecycle.py`](../tests/test_setup_lifecycle.py) | Native registry, state, service, setup, reload, repair, and serialized entity behavior. |
-| Validation tooling or distribution content | [`test_public_safety.py`](../tests/test_public_safety.py), [`test_parallel_validation.py`](../tests/test_parallel_validation.py) | Working-tree versus staged bytes, complete original history, both support lanes, failure propagation, and cleanup. |
+| Public metadata and help text | [`test_metadata.py`](../tests/test_metadata.py) | Distribution minimum, complete runtime translations, and nonblank field descriptions. |
 
 The Home Assistant fixtures use real Core registries, state machines, and service
 dispatch with controlled source entities and writers. They do not connect to a
 thermostat or an Ecobee account. Add a regression at the boundary where the defect
 appears; for timing and lifecycle changes, include the interrupted or late-event
 case as well as successful completion.
-
-Check formatting and types during development:
-
-```bash
-python -m ruff format custom_components tests scripts
-python -m ruff check custom_components tests scripts
-python -m mypy --strict custom_components/ecobee_unified
-python -m pytest tests -q
-```
-
-Use pytest for the complete suite: unittest discovery alone does not collect the
-module-level async Home Assistant tests. Focused tests speed up iteration; run the applicable candidate checks before handing off a code change.
 
 ### Maintain the native help alongside behavior
 
@@ -139,46 +75,30 @@ Keep this single runtime translation owner; do not add a `strings.json` mirror.
 editor names, descriptions, and selectors, while Python owns executable input
 validation. Preserve stable keys and placeholders when changing explanations.
 The current date/time schema-format errors in `climate.py` are direct Python
-messages and are an explicit exception to the translation owner. The existing
-public-content tests check the runtime language file and help completeness.
+messages and are an explicit exception to the translation owner. [`test_metadata.py`](../tests/test_metadata.py) checks the runtime language
+file and help completeness.
 
-## Know what the gate proves
+## Keep public content safe
 
-[`Validate`](../.github/workflows/validate.yaml) runs on pull requests, pushes to
-`main`, and manual dispatch. Every run executes all five jobs, and the
-**Release gate** requires success from each: static/unit validation, minimum
-Core, current Core, Hassfest, and HACS.
-The local `all` command includes Hassfest but does **not** run the HACS action;
-local success alone does not satisfy that CI gate. Neither route proves physical
-device behavior, authorizes a deployment, or publishes a release.
-
-[`check_public_safety.py`](../scripts/check_public_safety.py) checks three
-different surfaces: current tracked and nonignored untracked files, an archive
-of Git-index bytes, and available original Git history. In a native checkout,
-that archive contains the original staged bytes. Container mode instead archives
-the synthetic index created from its working-tree snapshot; it does not validate
-an original staged version that differs from the working tree. Validate the exact
-committed candidate before publication. The guard checks content
-and names for private paths, addresses, hostnames, credential-like strings,
-non-example email addresses, and unreviewed binary content. A clean working tree
-scan cannot substitute for the history or staged-archive scan. Ignored files are
-outside its working-tree scope; keep private fixtures and deployment evidence
-out of distributable source. The guard is a bounded pattern check, so review
-new public material as well.
+Gitleaks uses its default credential rules plus the repository's
+[`.gitleaks.toml`](../.gitleaks.toml) rules for private paths, addresses,
+hostnames, and non-example email addresses, over both the working tree and Git
+history. Ignored files are outside its scope; keep private fixtures and
+deployment evidence out of distributable source. It is a bounded pattern check,
+so review new public material as well.
 
 Installation acceptance and consumer migration are covered in the
 [operating guide](user-guide.md#verify-an-installation-before-moving-its-consumers).
 
 ## Maintain the support contract
 
-Change each Core and harness pair together, verify dependency consistency, and rerun
-the changed support lane. Reuse unchanged sibling-lane evidence. A minimum-version change also affects [`hacs.json`](../hacs.json).
-Keep the runner, CI job labels, and distribution minimum aligned;
-review the external assumptions in [Upstream contracts](upstream-contracts.md).
-Tool versions and container digests are owned by
-[`verify-release-local.sh`](../scripts/verify-release-local.sh). Dependabot updates
-GitHub Actions weekly with a seven-day cooldown; it does not update the coupled
-Python support lanes.
+Change each Core and harness pair together, verify dependency consistency, and
+rerun the changed support lane. A minimum-version change also affects
+[`hacs.json`](../hacs.json). Keep the workflow job labels and distribution
+minimum aligned, and review the external assumptions in
+[Upstream contracts](upstream-contracts.md). Dependabot updates GitHub Actions
+weekly with a seven-day cooldown; it does not update the coupled Python support
+lanes.
 
 Record candidate-specific results with the exact commit in the pull request or
 release record. Preserve past release evidence in Git history and GitHub

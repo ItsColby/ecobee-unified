@@ -1,12 +1,9 @@
+__pycache__/
+*.py[cod]
 .coverage
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-.storage/
-.venv/
-__pycache__/
-*.py[cod]
 .local/
+.venv/
 venv/
-dist/
-build/

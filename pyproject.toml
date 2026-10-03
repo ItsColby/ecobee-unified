@@ -4,35 +4,63 @@ line-length = 88
 
 [tool.ruff.lint]
 extend-select = [
+  "A001",
   "ASYNC",
   "B",
   "BLE",
   "C4",
   "C901",
   "DTZ",
+  "G",
+  "ICN001",
   "LOG",
+  "N804",
+  "N805",
+  "N806",
+  "N815",
   "N818",
   "PERF",
+  "PGH",
+  "PIE",
   "PLC",
   "PLE",
   "PLW",
+  "RET",
+  "RSE",
   "RUF",
+  "S102",
+  "S103",
   "S104",
+  "S107",
+  "S108",
   "S113",
+  "S301",
+  "S306",
+  "S307",
   "S310",
+  "S313",
   "S314",
+  "S315",
+  "S316",
+  "S317",
+  "S318",
+  "S319",
   "S324",
   "S501",
   "S506",
   "S507",
+  "S601",
+  "S602",
+  "S604",
+  "S608",
+  "S609",
+  "T100",
+  "T20",
   "TID",
 ]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -3,72 +3,22 @@
 Use the checked-in validation runner to check a candidate, and a separate Python
 environment for focused development. Run commands below from the repository root.
 
-## Select validation for the change
+## Validation lanes
 
-The default runner mode is `affected`. Preview an exact candidate comparison
-before running it:
-
-```powershell
-.\scripts\verify-release-local.ps1 -Base <base-commit> -Head HEAD -PlanOnly
-.\scripts\verify-release-local.ps1 -Base <base-commit> -Head HEAD
-```
-
-For a working edit, use `-ChangedPath scripts/verify-release-local.sh` instead of
-refs. On Linux, use `bash scripts/verify-release-local.sh affected container ""`
-with `--base <base-commit> --head HEAD`, or repeated `--path <relative-path>`;
-add `--plan-only` to inspect the JSON plan without snapshots or installations.
-Planning and container snapshot admission use an existing host Python 3.14
-to parse source without importing the integration. The Windows `-PlanOnly`
-preview requires `python` on PATH. The Bash runner resolves `python3.14`, an
-installed uv runtime, or `VALIDATION_PYTHON`. The public-safety
-guard's link policy runs before planning reads input sources and before snapshot
-copying. The planner, guard, and interpreter remain trusted executable tooling.
-Neither step downloads a runtime; HA execution keeps its isolated Python 3.14 lane.
-Explicit paths describe the complete change being accepted. The refs mode
-requires the checked-out candidate as its head; it does not include uncommitted
-edits. An empty verified comparison selects no jobs. Missing comparison input
-and unmapped changes fail with an unresolved applicability message.
-
-The product-owned planner traces local Python imports and reviewed direct-file
-consumers. Changed tests run in their native collector; runtime changes include
-the affected success, failure, and recovery consumers in both maintained HA
-environments. A support requirements change selects that environment, without
-invalidating the unchanged sibling lane. Runner and workflow dependency declarations
-are compared against the supplied base, or HEAD for working-path selections;
-changed harness, Python image, action, and tool pins select their actual consumers.
-An unavailable dependency comparison remains unresolved. The Bash runner remains
-the owner of exact local tool versions. Tooling, workflow, public-content and
-metadata checks are selected independently of product tests. Parsed `pyproject.toml`
-changes select Ruff's Python inputs, both maintained typing lanes for mypy, or both
-HA test lanes for pytest settings. Comments and equivalent TOML formatting add no
-tool consumers; normal public-safety validation still applies. Changed unmapped
-configuration, invalid TOML, and unavailable base or candidate content remain
-unresolved instead of selecting an automatic complete run.
-
-Container execution rebuilds the affected plan from the captured payload, retaining
-the preview's resolved dependency baseline and selected paths. That plan contains
-the exact lane commands, which are reused without reading original source files
-again. Ref comparisons also require the captured files to match the clean candidate.
-Keep edits stable while the payload is being copied. Native execution uses one
-captured plan and requires its working tree to remain stable for the run.
-
-Pull requests and main pushes use this same selection. The stable Release gate
-requires the planning job and every selected job to succeed, and accepts skipped
-jobs only when the plan excludes them. Manual workflow dispatch explicitly runs
-the complete lanes. `all`, `unit`, `minimum`, `current`, and `release` remain
-explicit complete-lane requests. Reuse evidence whose source and environment
-have not changed; a merge alone does not invalidate it. Local checks do not
-replace HACS, authorize publication, or establish live behavior.
-
-When both Home Assistant lanes are selected locally, the container runner starts
-them together after selected static checks pass and waits for both before any
-selected Hassfest check or snapshot cleanup. Single-lane selections and native
-runs remain sequential. To limit local concurrency, run selected lanes separately
-with `--only minimum` and `--only current` on the Bash affected route.
+Every pull request and `main` push runs every validation lane: static/unit
+checks, both maintained Home Assistant environments, Hassfest, and HACS. Manual
+workflow dispatch runs the same lanes. The stable **Release gate** requires all
+of them to succeed. Locally, `all` runs the unit, both Home Assistant, and
+Hassfest lanes; `unit`, `minimum`, `current`, and `release` run one complete
+lane. Reuse evidence whose source and environment have not changed; a merge
+alone does not invalidate it. Local checks do not replace HACS, authorize
+publication, or establish live behavior.
 
 ## Check the complete candidate
 
-On Linux, provide Git, Bash, tar, Podman, and the Python 3.14 locator above, then run:
+On Linux, provide Git, Bash, tar, Podman, and an existing host Python 3.14 for
+snapshot admission (found through `python3.14`, an installed uv runtime, or
+`VALIDATION_PYTHON`), then run:
 
 ```bash
 bash scripts/verify-release-local.sh all container
@@ -81,15 +31,16 @@ On Windows, the wrapper requires Git for Windows, WSL with a distribution named
 .\scripts\verify-release-local.ps1 -Mode all
 ```
 
-The selected public-safety unit check needs complete, non-shallow Git history.
-HA-only and Hassfest-only selections do not prepare or require a history mirror.
+The public-safety guard's link policy runs before the snapshot is copied. The
+public-safety unit check needs complete, non-shallow Git history.
+HA-only and Hassfest-only modes do not prepare or require a history mirror.
 Execution needs network access to fetch the pinned tools and dependencies. The
 Windows wrapper resolves the checkout's actual Git directory before entering WSL, including for linked worktrees.
 
 The container runner captures the tracked and nonignored untracked working-tree
 files, including uncommitted edits, into one read-only validation payload. It
-preserves the original Git history separately only when the selected unit lane
-runs the public-safety scan. The minimum and current Home Assistant lanes run concurrently in separate containers
+preserves the original Git history separately only when the unit lane runs the
+public-safety scan. The minimum and current Home Assistant lanes run concurrently in separate containers
 after the static checks pass; both finish before Hassfest or temporary-file
 cleanup. On interruption, the runner waits for active lanes before removing
 that payload and returns the interrupt status; this wait has no shutdown deadline.
@@ -116,7 +67,7 @@ the `release` mode. Each Python lane creates and removes its own temporary
 environment, including the sequential minimum and current lanes in `all native`.
 Actionlint uses a separate temporary environment with the runner's pinned
 ShellCheck version, so workflow-shell analysis does not depend on a caller's
-ShellCheck installation. The selected environments run without a login shell
+ShellCheck installation. The lane environments run without a login shell
 overriding their executable paths.
 
 ## Work on one change
@@ -194,8 +145,9 @@ public-content tests check the runtime language file and help completeness.
 ## Know what the gate proves
 
 [`Validate`](../.github/workflows/validate.yaml) runs on pull requests, pushes to
-`main`, and manual dispatch. A manual full dispatch requires success from all
-five jobs: static/unit validation, minimum Core, current Core, Hassfest, and HACS.
+`main`, and manual dispatch. Every run executes all five jobs, and the
+**Release gate** requires success from each: static/unit validation, minimum
+Core, current Core, Hassfest, and HACS.
 The local `all` command includes Hassfest but does **not** run the HACS action;
 local success alone does not satisfy that CI gate. Neither route proves physical
 device behavior, authorizes a deployment, or publishes a release.

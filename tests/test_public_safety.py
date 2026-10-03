@@ -724,7 +724,7 @@ class PublicSafetyTests(unittest.TestCase):
         wrapper = (root / "scripts/verify-release-local.ps1").read_text(
             encoding="utf-8"
         )
-        # Plan-only wrapper tests cannot exercise the Windows-to-WSL handoff.
+        # Unit tests cannot exercise the Windows-to-WSL handoff.
         self.assertIn("rev-parse --path-format=absolute --git-dir", wrapper)
         self.assertIn("$Mode container $linuxGitDir", wrapper)
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mode="${1:-affected}"
+mode="${1:-all}"
 backend="${2:-container}"
 source_git_dir="${3:-}"
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$source_root"
-# Refuse inherited repository selection before planning or snapshot reads.
+# Refuse inherited repository selection before snapshot reads.
 for variable in GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_INDEX_FILE GIT_REPLACE_REF_BASE GIT_PREFIX GIT_SHALLOW_FILE GIT_COMMON_DIR GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM; do
   if [[ -v "$variable" ]]; then
     echo "Inherited local Git overrides are not supported: $variable" >&2
@@ -26,7 +26,7 @@ if [[ "$(cd "$actual_root" && pwd -P)" != "$(cd "$source_root" && pwd -P)" ]]; t
   echo "Git target root does not match the wrapper source root." >&2; exit 2
 fi
 validation_python="${VALIDATION_PYTHON:-}"
-if [[ ( "$mode" == affected || "$backend" == container ) && -z "$validation_python" ]]; then
+if [[ "$backend" == container && -z "$validation_python" ]]; then
   if command -v python3.14 >/dev/null 2>&1; then
     validation_python="$(command -v python3.14)"
   elif command -v uv >/dev/null 2>&1; then
@@ -34,42 +34,10 @@ if [[ ( "$mode" == affected || "$backend" == container ) && -z "$validation_pyth
   elif [[ -x "$HOME/.local/bin/uv" ]]; then
     validation_python="$("$HOME/.local/bin/uv" python find 3.14 --no-python-downloads)"
   else
-    echo "Source admission and planning require Python 3.14; set VALIDATION_PYTHON to an existing interpreter." >&2
+    echo "Source admission requires Python 3.14; set VALIDATION_PYTHON to an existing interpreter." >&2
     exit 2
   fi
 fi
-affected_args=()
-affected_only=""
-affected_plan=""
-if [[ "$mode" == affected ]]; then
-  if (( $# >= 3 )); then shift 3; else shift "$#"; fi
-  plan_only=false
-  while (( $# )); do
-    case "$1" in
-      --only) affected_only="${2:?Missing lane}"; shift 2 ;;
-      --plan-only) plan_only=true; shift ;;
-      --base|--head)
-        # Reuse immutable input for initial planning and every later lane command.
-        oid="$("${source_git[@]}" rev-parse --verify --end-of-options "${2:?Missing revision}^{commit}")"
-        affected_args+=("$1" "$oid"); shift 2 ;;
-      *) affected_args+=("$1"); shift ;;
-    esac
-  done
-  if [[ -n "$source_git_dir" ]]; then affected_args+=(--git-directory "$source_git_dir"); fi
-  affected_plan="$("$validation_python" "$source_root/scripts/plan_validation.py"  "${affected_args[@]}")"
-
-  if [[ -n "$affected_only" && "$affected_only" != unit && "$affected_only" != minimum && "$affected_only" != current && "$affected_only" != release ]]; then
-    echo "Unknown affected lane: $affected_only" >&2; exit 2
-  fi
-  if [[ -n "$affected_only" && "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["jobs"][sys.argv[1]]).lower())' "$affected_only")" != true ]]; then
-    echo "Plan did not select $affected_only" >&2; exit 2
-  fi
-  if [[ "$plan_only" == true ]]; then printf '%s\n' "$affected_plan"; exit 0; fi
-  if [[ "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(any(json.load(sys.stdin)["jobs"].values()))')" == False ]]; then
-    echo "No validation jobs apply to the verified empty comparison."; exit 0
-  fi
-fi
-
 if [[ "$backend" == container ]]; then
   temporary_root="$(mktemp -d)"
   # An interrupted wait can leave lanes using the snapshot. Drain this
@@ -105,21 +73,9 @@ elif [[ "$backend" != native ]]; then
   echo "Unknown backend: $backend" >&2
   exit 2
 fi
-if [[ "$mode" == affected && "$backend" == container ]]; then
-  planning_git_dir="$("${source_git[@]}" rev-parse --absolute-git-dir)"
-  affected_plan="$(printf '%s' "$affected_plan" |
-    "$validation_python" "$repo_root/scripts/plan_validation.py" --snapshot-plan --git-directory "$planning_git_dir")"
-fi
-
-# Original history is needed only when the selected unit safety scan runs.
+# Original history is needed only when the unit safety scan runs.
 history_mount=()
-needs_history=false
-if [[ "$mode" == all || "$mode" == unit ]]; then
-  needs_history=true
-elif [[ "$mode" == affected && ( -z "$affected_only" || "$affected_only" == unit ) ]]; then
-  needs_history="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; p=json.load(sys.stdin); print(str(p["jobs"]["unit"] and p["safety"]).lower())')"
-fi
-if [[ "$backend" == container && "$needs_history" == true ]]; then
+if [[ "$backend" == container && ( "$mode" == all || "$mode" == unit ) ]]; then
   history_root="$temporary_root/history.git"
   if [[ "$("${source_git[@]}" rev-parse --is-shallow-repository)" != false ]]; then
     echo "Complete original Git history is required; source is unavailable or shallow." >&2
@@ -193,7 +149,7 @@ run_unit() {
     shellcheck scripts/verify-release-local.sh &&
     python -m ruff format --check custom_components tests scripts &&
     python -m ruff check custom_components tests scripts &&
-    python -m unittest tests.test_public_safety tests.test_parallel_validation tests.test_validation_selection &&
+    python -m unittest tests.test_public_safety tests.test_parallel_validation &&
     python -m compileall -q custom_components/ecobee_unified tests scripts &&
     python scripts/check_public_safety.py --history-repository "$PUBLIC_SAFETY_HISTORY_REPOSITORY"
   '
@@ -203,10 +159,7 @@ run_minimum() {
   local checks='    python -m pip install "mypy==2.3.0" &&
     python -m pip check &&
     python -m mypy --strict custom_components/ecobee_unified &&
-    pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py --ignore=tests/test_validation_selection.py'
-  if [[ "$mode" == affected ]]; then
-    checks="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' minimum)"
-  fi
+    pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py'
   run_python '
     python -m pip install "pytest-homeassistant-custom-component==0.13.354" || exit "$?"
     python -m pip install --upgrade -r requirements-ha-test.txt || exit "$?"
@@ -217,10 +170,7 @@ run_current() {
   local checks='    python -m pip install "mypy==2.3.0" &&
     python -m pip check &&
     python -m mypy --strict custom_components/ecobee_unified &&
-    pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py --ignore=tests/test_validation_selection.py'
-  if [[ "$mode" == affected ]]; then
-    checks="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' current)"
-  fi
+    pytest tests -q --ignore=tests/test_public_safety.py --ignore=tests/test_parallel_validation.py'
   run_python '
     python -m pip install "pytest-homeassistant-custom-component==0.13.366" || exit "$?"
     python -m pip install --upgrade -r requirements-ha-current.txt || exit "$?"
@@ -252,43 +202,7 @@ run_release() {
   fi
 }
 
-
-run_affected() {
-  local lane selected command ha_matrix_done=false
-  for lane in unit minimum current release; do
-    [[ -z "$affected_only" || "$lane" == "$affected_only" ]] || continue
-    selected="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["jobs"][sys.argv[1]]).lower())' "$lane")"
-    if [[ "$selected" != true ]]; then
-      if [[ -n "$affected_only" ]]; then echo "Plan did not select $lane" >&2; return 2; fi
-      continue
-    fi
-    # Reuse the isolated matrix only when this plan selects both HA lanes.
-    # Hosted --only and native runs retain their single-lane/sequential behavior.
-    if [[ "$lane" == minimum && "$backend" == container && -z "$affected_only" ]] &&
-       [[ "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["jobs"]["current"]).lower())')" == true ]]; then
-      run_ha_matrix
-      ha_matrix_done=true
-      continue
-    fi
-    case "$lane" in
-      unit)
-        if [[ "$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(str(json.load(sys.stdin)["workflow"]).lower())')" == true ]]; then
-          run_actionlint
-        fi
-        command="$(printf '%s' "$affected_plan" | "$validation_python" -c 'import json,sys; print(json.load(sys.stdin)["commands"][sys.argv[1]])' unit)"
-        run_python "$command"
-        ;;
-      minimum) run_minimum ;;
-      current)
-        if [[ "$ha_matrix_done" != true ]]; then run_current; fi
-        ;;
-      release) run_release ;;
-    esac
-  done
-}
-
 case "$mode" in
-  affected) run_affected ;;
   all) run_unit; run_ha_matrix; run_release ;;
   unit) run_unit ;;
   minimum) run_minimum ;;

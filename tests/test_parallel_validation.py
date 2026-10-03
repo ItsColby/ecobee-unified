@@ -17,25 +17,6 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
-AFFECTED_PLANNER = r"""
-import json
-import os
-import sys
-
-if "--snapshot-plan" in sys.argv and os.environ.get("MATRIX_MUTATE_SOURCE"):
-    from pathlib import Path
-    source = Path(os.environ["MATRIX_MUTATE_SOURCE"])
-    (source / "scripts/plan_validation.py").write_text("raise RuntimeError('changed original')")
-if "--command" in sys.argv:
-    raise RuntimeError("Lane command must come from the captured plan")
-else:
-    selected = os.environ["MATRIX_PLAN_LANES"].split()
-    print(json.dumps({"jobs": {lane: lane in selected for lane in
-          ("unit", "minimum", "current", "release", "hacs")}, "workflow": True,
-          "safety": True, "paths": [], "base": "HEAD",
-          "commands": {lane: "echo snapshot-command" for lane in selected}}))
-"""
-
 PODMAN_STAND_IN = r"""
 import json
 import os
@@ -56,8 +37,6 @@ if any("hassfest@" in arg for arg in args):
         assert (events / (lane + ".done")).exists()
     (events / "release.done").touch()
     sys.exit(0)
-if os.environ.get("MATRIX_MUTATE_SOURCE"):
-    assert "snapshot-command" in args[-1], "Commands did not come from captured plan"
 lane = ("current" if "requirements-ha-current.txt" in args[-1] else
         "minimum" if "requirements-ha-test.txt" in args[-1] else "unit")
 (events / (lane + ".command")).write_text(json.dumps(args))
@@ -432,8 +411,6 @@ class ParallelValidationTests(unittest.TestCase):
         commands: dict[str, list[str]] | None = None,
         mode: str = "all",
         lanes: tuple[str, ...] = ("unit", "minimum", "current", "release"),
-        only: str = "",
-        mutate_source: bool = False,
         shallow: bool = False,
         host_configuration: str = "",
     ) -> tuple[subprocess.CompletedProcess[str], set[str], bool]:
@@ -443,9 +420,6 @@ class ParallelValidationTests(unittest.TestCase):
             (source / "scripts").mkdir(parents=True)
             runner = source / "scripts" / "verify-release-local.sh"
             shutil.copyfile(ROOT / "scripts/verify-release-local.sh", runner)
-            (source / "scripts/plan_validation.py").write_text(
-                AFFECTED_PLANNER, encoding="utf-8"
-            )
             shutil.copyfile(
                 ROOT / "scripts/check_public_safety.py",
                 source / "scripts/check_public_safety.py",
@@ -469,12 +443,10 @@ class ParallelValidationTests(unittest.TestCase):
                 "GIT_CONFIG_GLOBAL": os.devnull,
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "MATRIX_EVENTS": str(events),
-                "MATRIX_PLAN_LANES": " ".join(lanes),
-                "MATRIX_LANES": only or " ".join(lanes),
+                "MATRIX_LANES": " ".join(lanes),
                 "MATRIX_FAIL": failure,
                 "VALIDATION_PYTHON": sys.executable,
                 "MATRIX_INTERRUPT": "1" if interrupt else "",
-                "MATRIX_MUTATE_SOURCE": str(source) if mutate_source else "",
             }
             for arguments in (
                 ("init", "-q"),
@@ -505,14 +477,7 @@ class ParallelValidationTests(unittest.TestCase):
                 for filename in ("README.md", "local-only.txt"):
                     (source / filename).write_text(private_content, encoding="utf-8")
             with subprocess.Popen(
-                [
-                    str(BASH),
-                    str(runner),
-                    mode,
-                    "container",
-                    "",
-                    *(["--only", only] if only else []),
-                ],
+                [str(BASH), str(runner), mode, "container"],
                 cwd=root,
                 env=env,
                 stdout=subprocess.PIPE,
@@ -611,18 +576,12 @@ apt-get() {
                 self.assertEqual(probe.stderr.splitlines(), expected_calls)
 
     def test_history_preparation_follows_the_selected_safety_consumer(self) -> None:
-        for mode, lanes, only in (
-            ("minimum", ("minimum",), ""),
-            ("current", ("current",), ""),
-            ("release", ("release",), ""),
-            ("affected", ("unit", "minimum", "current"), "current"),
-        ):
-            with self.subTest(mode=mode, only=only):
+        for mode in ("minimum", "current", "release"):
+            with self.subTest(mode=mode):
                 commands = {}
                 result, _, remaining = self.run_matrix(
                     mode=mode,
-                    lanes=lanes,
-                    only=only,
+                    lanes=(mode,),
                     shallow=True,
                     commands=commands,
                 )
@@ -632,78 +591,15 @@ apt-get() {
                     self.assertFalse(
                         any("/source-history" in argument for argument in command)
                     )
-        for mode in ("unit", "affected"):
-            with self.subTest(mode=mode):
-                result, events, remaining = self.run_matrix(
-                    mode=mode,
-                    lanes=("unit",),
-                    shallow=True,
-                )
-                self.assertNotEqual(0, result.returncode)
-                self.assertIn(
-                    "Complete original Git history is required", result.stderr
-                )
-                self.assertNotIn("unit.started", events)
-                self.assertFalse(remaining)
-
-    def test_captured_commands_survive_original_planner_changes(self) -> None:
         result, events, remaining = self.run_matrix(
-            mode="affected",
-            mutate_source=True,
+            mode="unit",
+            lanes=("unit",),
+            shallow=True,
         )
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertTrue({"unit.done", "minimum.done", "current.done"} <= events)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Complete original Git history is required", result.stderr)
+        self.assertNotIn("unit.started", events)
         self.assertFalse(remaining)
-
-    def test_affected_selection_preserves_order_overlap_and_exclusions(self) -> None:
-        for lanes, only in (
-            (("unit", "minimum", "current", "release"), ""),
-            (("minimum", "current"), ""),
-            (("unit",), ""),
-            (("minimum",), ""),
-            (("current",), ""),
-            (("release",), ""),
-            (("minimum", "current"), "current"),
-        ):
-            with self.subTest(lanes=lanes, only=only):
-                result, events, remaining = self.run_matrix(
-                    mode="affected", lanes=lanes, only=only
-                )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                expected = set((only,) if only else lanes)
-                self.assertEqual(
-                    {
-                        name.removesuffix(".done")
-                        for name in events
-                        if name.endswith(".done") and name != "actionlint.done"
-                    },
-                    expected,
-                )
-                self.assertFalse(remaining)
-
-    def test_affected_failure_drains_selected_lanes_and_blocks_release(self) -> None:
-        for failure in ("unit", "minimum", "current"):
-            with self.subTest(failure=failure):
-                result, events, remaining = self.run_matrix(failure, mode="affected")
-                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertNotIn("release.done", events)
-                if failure == "unit":
-                    self.assertNotIn("minimum.started", events)
-                    self.assertNotIn("current.started", events)
-                else:
-                    self.assertTrue({"minimum.done", "current.done"} <= events)
-                self.assertFalse(remaining)
-
-    def test_affected_interrupt_drains_selected_lanes(self) -> None:
-        for interrupt in (signal.SIGINT, signal.SIGTERM):
-            with self.subTest(interrupt=interrupt):
-                result, events, remaining = self.run_matrix(
-                    mode="affected", interrupt=interrupt
-                )
-                self.assertEqual(result.returncode, 128 + interrupt)
-                self.assertTrue({"minimum.done", "current.done"} <= events)
-                self.assertNotIn("release.done", events)
-                self.assertFalse(remaining)
 
     def test_either_failure_waits_for_both_lanes_and_blocks_release(self) -> None:
         for failure in ("minimum", "current"):

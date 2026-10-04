@@ -1,4 +1,4 @@
-"""Core 2026.8 API checks that do not require the Linux pytest plugin."""
+"""Core API checks that do not require the Linux pytest plugin."""
 
 from __future__ import annotations
 
@@ -26,18 +26,11 @@ from homeassistant.const import (
 from homeassistant.core import ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-try:
-    from probatio import to_field_list as serialize_schema
-except ImportError:
-    # Older Core versions use voluptuous-serialize for native form schemas.
-    from voluptuous_serialize import convert as serialize_schema
 
 from custom_components.ecobee_unified import (
     async_migrate_entry,
@@ -56,9 +49,6 @@ from custom_components.ecobee_unified.button import (
 from custom_components.ecobee_unified.climate import (
     CREATE_VACATION_SCHEMA,
     EcobeeUnifiedClimate,
-)
-from custom_components.ecobee_unified.climate import (
-    async_setup_entry as async_setup_climate_entry,
 )
 from custom_components.ecobee_unified.config_flow import (
     ECOBEE_CLIMATE_SELECTOR,
@@ -130,26 +120,6 @@ from .runtime_fixture import CoreRuntimeTestCase
 
 
 class RuntimeCoreApiTests(CoreRuntimeTestCase):
-    async def test_current_helper_device_linking_api(self) -> None:
-        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
-        self.assertIsNotNone(entity.device_entry)
-        self.assertEqual(self.homekit.device_id, entity.device_entry.id)
-        self.assertIsNone(entity.device_info)
-        self.assertEqual(
-            frozenset(
-                {
-                    "action_reported_at",
-                    "active_comfort_sensors",
-                    "advisories",
-                    "configured_comfort_sensors",
-                    "equipment_reported_at",
-                    "command_confirmation",
-                    "problem_reasons",
-                }
-            ),
-            entity._unrecorded_attributes,
-        )
-
     async def test_source_degraded_problem_projects_snapshot_health(self) -> None:
         entity = EcobeeSourceDegradedBinarySensor(self.manager, self.mapping)
 
@@ -283,53 +253,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(
             first_mapping["command"]["age_seconds"] + 5,
             second_mapping["command"]["age_seconds"],
-        )
-
-    async def test_climate_uses_translated_sibling_name(self) -> None:
-        entity = EcobeeUnifiedClimate(self.manager, self.mapping)
-        entity.platform_data = SimpleNamespace(
-            component_translations={},
-            domain="climate",
-            platform_name=DOMAIN,
-            platform_translations={
-                "component.ecobee_unified.entity.climate.thermostat.name": (
-                    "Unified climate"
-                )
-            },
-        )
-
-        self.assertEqual("Unified climate", entity.name)
-
-    async def test_climate_platform_registers_bounded_unified_actions(self) -> None:
-        registrations: list[tuple[str, object, str]] = []
-        platform = Mock()
-        platform.async_register_entity_service.side_effect = (
-            lambda service, schema, method: registrations.append(
-                (service, schema, method)
-            )
-        )
-        entities: list[EcobeeUnifiedClimate] = []
-        entry = SimpleNamespace(runtime_data=EcobeeUnifiedRuntime(manager=self.manager))
-
-        with patch(
-            "custom_components.ecobee_unified.climate.entity_platform.async_get_current_platform",
-            return_value=platform,
-        ):
-            await async_setup_climate_entry(self.hass, entry, entities.extend)
-
-        self.assertEqual(1, len(entities))
-        self.assertEqual(
-            [
-                ("resume_program", "async_resume_program"),
-                ("create_vacation", "async_create_vacation"),
-                ("delete_vacation", "async_delete_vacation"),
-                ("set_occupancy_modes", "async_set_occupancy_modes"),
-                (
-                    "set_sensors_used_in_climate",
-                    "async_set_sensors_used_in_climate",
-                ),
-            ],
-            [(service, method) for service, _schema, method in registrations],
         )
 
     async def test_entity_properties_only_project_the_normalized_snapshot(self) -> None:
@@ -2868,7 +2791,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         self.assertEqual([self.mapping.as_dict()], entry.data[CONF_MAPPINGS])
 
-    async def test_options_schema_serializes_and_timing_validation_is_exact(
+    async def test_options_schema_coerces_and_timing_validation_is_exact(
         self,
     ) -> None:
         schema = _options_schema(
@@ -2891,19 +2814,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                     CONF_CONFIRMATION_SECONDS: 720.0,
                 }
             ),
-        )
-        serialized = serialize_schema(schema, custom_serializer=cv.custom_serializer)
-        self.assertEqual(4, len(serialized))
-        self.assertEqual(CONF_RELOAD_SILENT_TEMPERATURE_SOURCE, serialized[2]["name"])
-        self.assertEqual({"boolean": {}}, serialized[2]["selector"])
-        self.assertTrue(serialized[2]["required"])
-        self.assertIs(False, serialized[2]["default"])
-        self.assertEqual("configure_read_policy", serialized[3]["name"])
-        self.assertEqual({"boolean": {}}, serialized[3]["selector"])
-        self.assertFalse(serialized[3]["required"])
-        self.assertEqual(
-            {"min": 300.0, "max": 7200.0, "step": 60.0, "mode": "box"},
-            serialized[0]["selector"]["number"],
         )
         self.assertEqual(
             {

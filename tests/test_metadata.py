@@ -8,6 +8,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 def _exact_core_pin(path: Path) -> str:
     """Read one unconditional exact Core pin, allowing other requirements."""
@@ -29,21 +31,6 @@ def _exact_core_pin(path: Path) -> str:
     if len(pins) != 1:
         raise AssertionError(f"{path.name} must contain exactly one Home Assistant pin")
     return pins[0]
-
-
-def _has_description_text(value: str) -> bool:
-    """Check the maintained single-line plain or quoted description format."""
-    value = re.sub(
-        r"""("(?:\\.|[^"\\])*"|'(?:''|[^'])*')|(?<!\S)#.*""",
-        lambda match: match[1] or "",
-        value,
-    ).strip()
-    if value.startswith(("'", '"')):
-        try:
-            value = ast.literal_eval(value)
-        except SyntaxError, ValueError:
-            return False
-    return isinstance(value, str) and bool(value.strip())
 
 
 class MetadataTests(unittest.TestCase):
@@ -76,34 +63,6 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(set(menu_options), set(labels))
         self.assertTrue(all(label.strip() for label in labels.values()))
 
-    def test_description_text_rejects_empty_scalars_and_preserves_quoted_hashes(
-        self,
-    ) -> None:
-        for value in (
-            "",
-            "   ",
-            "# comment",
-            '""',
-            "''",
-            '"   " # comment',
-            "'  ' # comment",
-            '"\\t"',
-        ):
-            with self.subTest(value=value):
-                self.assertFalse(_has_description_text(value))
-        for value in (
-            "A description",
-            "A description # comment",
-            '"# content"',
-            "'# content' # comment",
-            '"A description" # comment',
-            "A #comment-free word",
-            '" # content"',
-            '"A \\"quoted\\" description"',
-        ):
-            with self.subTest(value=value):
-                self.assertTrue(_has_description_text(value))
-
     def test_user_facing_fields_have_nonblank_descriptions(self) -> None:
         root = (
             Path(__file__).resolve().parents[1] / "custom_components" / "ecobee_unified"
@@ -122,37 +81,12 @@ class MetadataTests(unittest.TestCase):
                     (path, step_name),
                 )
 
-        services_lines = (
-            (root / "services.yaml").read_text(encoding="utf-8").splitlines()
-        )
-        field_descriptions: dict[str, bool] = {}
-        in_fields = False
-        current_action = ""
-        current_field: str | None = None
-        for line in services_lines:
-            if line and not line.startswith(" ") and line.endswith(":"):
-                current_action = line[:-1]
-                in_fields = False
-                current_field = None
-            elif line == "  fields:":
-                in_fields = True
-                current_field = None
-            elif (
-                in_fields and line.startswith("    ") and not line.startswith("      ")
-            ):
-                if line.endswith(":"):
-                    current_field = line.strip()[:-1]
-                    field_descriptions[f"{current_action}.{current_field}"] = False
-            elif (
-                in_fields
-                and current_field is not None
-                and line.startswith("      description:")
-            ):
-                field_descriptions[f"{current_action}.{current_field}"] = (
-                    _has_description_text(line.partition(":")[2])
-                )
-        self.assertTrue(field_descriptions)
-        self.assertTrue(
-            all(field_descriptions.values()),
-            [name for name, described in field_descriptions.items() if not described],
-        )
+        services = yaml.safe_load((root / "services.yaml").read_text(encoding="utf-8"))
+        self.assertTrue(services)
+        undescribed = [
+            f"{action}.{field}"
+            for action, spec in services.items()
+            for field, field_spec in spec.get("fields", {}).items()
+            if not str(field_spec.get("description", "")).strip()
+        ]
+        self.assertEqual([], undescribed)

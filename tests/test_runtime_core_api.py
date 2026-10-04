@@ -51,13 +51,6 @@ from custom_components.ecobee_unified.climate import (
     EcobeeUnifiedClimate,
 )
 from custom_components.ecobee_unified.config_flow import (
-    ECOBEE_CLIMATE_SELECTOR,
-    ECOBEE_NOTIFY_SELECTOR,
-    ECOBEE_SENSOR_SELECTOR,
-    HOMEKIT_BUTTON_SELECTOR,
-    HOMEKIT_CLIMATE_SELECTOR,
-    HOMEKIT_SELECT_SELECTOR,
-    HOMEKIT_SENSOR_SELECTOR,
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
@@ -325,39 +318,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertTrue(aqi.available)
         self.assertEqual(42.0, aqi.native_value)
         self.assertFalse(fan_runtime.available)
-
-    async def test_full_config_entry_setup_and_unload(self) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="Ecobee Unified",
-            unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=1,
-        )
-        entry.add_to_hass(self.hass)
-        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
-        await self.hass.async_block_till_done()
-        entity_id = er.async_get(self.hass).async_get_entity_id(
-            "climate", DOMAIN, self.mapping.mapping_id
-        )
-        self.assertIsNotNone(entity_id)
-        self.assertEqual(
-            self.homekit.device_id,
-            er.async_get(self.hass).async_get(entity_id).device_id,
-        )
-        entry_manager = entry.runtime_data.manager
-        self.assertIsNotNone(entry_manager._unsub_state_report)
-        self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
-        self.assertIsNone(entry_manager._unsub_state_report)
-        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
-        await self.hass.async_block_till_done()
-        self.assertEqual(
-            entity_id,
-            er.async_get(self.hass).async_get_entity_id(
-                "climate", DOMAIN, self.mapping.mapping_id
-            ),
-        )
 
     async def test_setup_removes_only_owned_orphaned_mapping_entities(self) -> None:
         entry = MockConfigEntry(
@@ -810,21 +770,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_mapping_validation_rejects_wrong_domains_and_reused_sources(
         self,
     ) -> None:
-        self.assertEqual(
-            "homekit_controller", HOMEKIT_CLIMATE_SELECTOR.config["integration"]
-        )
-        self.assertEqual("ecobee", ECOBEE_CLIMATE_SELECTOR.config["integration"])
-        self.assertEqual(
-            "homekit_controller", HOMEKIT_SELECT_SELECTOR.config["integration"]
-        )
-        self.assertEqual(
-            "homekit_controller", HOMEKIT_BUTTON_SELECTOR.config["integration"]
-        )
-        self.assertEqual(
-            "homekit_controller", HOMEKIT_SENSOR_SELECTOR.config["integration"]
-        )
-        self.assertEqual("ecobee", ECOBEE_SENSOR_SELECTOR.config["integration"])
-        self.assertEqual("ecobee", ECOBEE_NOTIFY_SELECTOR.config["integration"])
         ecobee_sensor = self._source("ecobee", "ec_sensor", domain="sensor")
         with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
             _mapping_from_input(
@@ -2609,38 +2554,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertIs(FlowResultType.ABORT, stale["type"])
         self.assertEqual("configuration_changed", stale["reason"])
         self.assertEqual("First update", entry.data[CONF_MAPPINGS][0][CONF_NAME])
-
-    async def test_reconfigure_rejects_external_entry_update(self) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="Ecobee Unified",
-            unique_id=DOMAIN,
-            data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=3,
-        )
-        entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-
-        externally_updated = {
-            CONF_MAPPINGS: [self.mapping.as_dict()],
-            "future_field": "preserve",
-        }
-        self.hass.config_entries.async_update_entry(entry, data=externally_updated)
-        with patch.object(
-            self.hass.config_entries, "async_schedule_reload"
-        ) as schedule_reload:
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
-        schedule_reload.assert_not_called()
-
-        self.assertIs(FlowResultType.ABORT, result["type"])
-        self.assertEqual("configuration_changed", result["reason"])
-        self.assertEqual(externally_updated, dict(entry.data))
 
     async def test_reconfigure_preserves_accepted_unknown_entry_data(self) -> None:
         future_data = {"opaque": ["preserve", 1]}

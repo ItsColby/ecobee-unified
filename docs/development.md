@@ -41,21 +41,6 @@ python -m pytest tests
 Use pytest for the complete suite: unittest discovery alone does not collect the
 module-level async Home Assistant tests. Focused tests speed up iteration.
 
-Choose regression coverage by the contract being changed:
-
-| Change | Start with | Check the failure boundary |
-| --- | --- | --- |
-| Values, units, fallback, or precision | [`test_models.py`](../tests/test_models.py), [`test_numeric_validity.py`](../tests/test_numeric_validity.py), [`test_temperature_quality.py`](../tests/test_temperature_quality.py) | Malformed and impossible values, source ownership, serialization tolerance, and recovery from rejected temperature evidence. |
-| Equipment-stage projection | [`test_sensor.py`](../tests/test_sensor.py) | Bounded native enum values, mixed or unknown equipment signals, subordinate fan activity, and complete translations. |
-| Read policies and action/stage coherence | [`test_operating_state.py`](../tests/test_operating_state.py) | Paired mappings, source disagreement, unavailable action, fallback, and unchanged command authority. |
-| Datapoint composition and configuration | [`test_datapoints.py`](../tests/test_datapoints.py), [`test_datapoint_config.py`](../tests/test_datapoint_config.py) | Physical identity, semantic distinctions, metadata timing, source recovery, stable IDs, and concurrent configuration changes. |
-| Native weather aliases and daily forecasts | [`test_weather_source.py`](../tests/test_weather_source.py), [`test_weather.py`](../tests/test_weather.py) | Station drift, provider age, unit conversion, changes during awaited reads, source subscriptions, and unload. |
-| Daily historical families and native report | [`test_historical.py`](../tests/test_historical.py), [`test_history_source.py`](../tests/test_history_source.py), [`test_historical_config.py`](../tests/test_historical_config.py), [`test_history_service.py`](../tests/test_history_service.py) | Calendar bounds, native metadata and identity drift, method acceptance, missing/provisional values, admin context, source changes during reads, and the real named-script response. |
-| Mapping validation or source identity | [`test_configuration_source_contracts.py`](../tests/test_configuration_source_contracts.py), [`test_homekit_action_roles.py`](../tests/test_homekit_action_roles.py), [`test_source_device_identity.py`](../tests/test_source_device_identity.py) | Live metadata, missing saved references, device association, role drift, and recovery. |
-| Writer routing or command state | [`test_commands.py`](../tests/test_commands.py), [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py) | Exact target and call count, observations before acceptance, superseded revisions, cancellation, and unload. |
-| Core APIs, configuration flows, or entity behavior | [`test_runtime_core_api.py`](../tests/test_runtime_core_api.py), [`test_integration_ha.py`](../tests/test_integration_ha.py), [`test_setup_lifecycle.py`](../tests/test_setup_lifecycle.py) | Native registry, state, service, setup, reload, repair, and serialized entity behavior. |
-| Public metadata and help text | [`test_metadata.py`](../tests/test_metadata.py) | Distribution minimum, complete runtime translations, and nonblank field descriptions. |
-
 The Home Assistant fixtures use real Core registries, state machines, and service
 dispatch with controlled source entities and writers. They do not connect to a
 thermostat or an Ecobee account. Add a regression at the boundary where the defect
@@ -71,8 +56,8 @@ Keep this single runtime translation owner; do not add a `strings.json` mirror.
 editor names, descriptions, and selectors, while Python owns executable input
 validation. Preserve stable keys and placeholders when changing explanations.
 The current date/time schema-format errors in `climate.py` are direct Python
-messages and are an explicit exception to the translation owner. [`test_metadata.py`](../tests/test_metadata.py) checks the runtime language
-file and help completeness.
+messages and are an explicit exception to the translation owner. The
+metadata tests check the runtime language file and help completeness.
 
 ## Keep public content safe
 

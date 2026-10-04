@@ -1,4 +1,4 @@
-"""Exact Home Assistant Core 2026.8 integration-contract tests."""
+"""Exact Home Assistant Core integration-contract tests."""
 
 from __future__ import annotations
 

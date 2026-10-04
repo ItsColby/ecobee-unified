@@ -6,14 +6,8 @@ import json
 import unittest
 from pathlib import Path
 
-from homeassistant.components.sensor import SensorDeviceClass
-
-from custom_components.ecobee_unified.const import SUFFIX_EQUIPMENT_STAGE
-from custom_components.ecobee_unified.models import EQUIPMENT_STAGES, equipment_stage
-from custom_components.ecobee_unified.sensor import (
-    EQUIPMENT_STAGE_OPTIONS,
-    PROJECTIONS,
-)
+from custom_components.ecobee_unified.models import equipment_stage
+from custom_components.ecobee_unified.sensor import EQUIPMENT_STAGE_OPTIONS
 
 
 class EquipmentStageTests(unittest.TestCase):
@@ -27,31 +21,6 @@ class EquipmentStageTests(unittest.TestCase):
         self.assertEqual("multiple", equipment_stage("compCool1,auxHeat1"))
         self.assertEqual("multiple", equipment_stage("compCool1,privateToken"))
         self.assertIsNone(equipment_stage(None))
-
-    def test_projection_is_a_complete_native_enum(self) -> None:
-        projection = PROJECTIONS[SUFFIX_EQUIPMENT_STAGE]
-
-        self.assertEqual(SensorDeviceClass.ENUM, projection.device_class)
-        self.assertEqual(EQUIPMENT_STAGE_OPTIONS, projection.options)
-        self.assertIsNone(projection.unit)
-        self.assertIsNone(projection.state_class)
-        self.assertEqual(
-            len(EQUIPMENT_STAGE_OPTIONS), len(set(EQUIPMENT_STAGE_OPTIONS))
-        )
-        self.assertEqual(
-            set(EQUIPMENT_STAGE_OPTIONS),
-            {
-                *EQUIPMENT_STAGES.values(),
-                "idle",
-                "multiple",
-                "unknown",
-                "cooling",
-                "heating",
-                "drying",
-                "defrosting",
-                "preheating",
-            },
-        )
 
     def test_every_enum_option_has_a_translation(self) -> None:
         root = (

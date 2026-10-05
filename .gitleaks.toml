@@ -37,5 +37,5 @@ regexes = [
 ]
 
 [[allowlists]]
-description = "The retired pattern guard's source contained its own detection patterns"
+description = "Git history keeps the retired pattern guard, whose source contained its own detection patterns"
 paths = ['''^scripts/check_public_safety\.py$''']

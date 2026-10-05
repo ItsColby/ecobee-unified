@@ -75,8 +75,7 @@ Installation acceptance and consumer migration are covered in the
 
 Change each Core and harness pair together, verify dependency consistency, and
 rerun the changed support lane. A minimum-version change also affects
-[`hacs.json`](../hacs.json). Keep the workflow job labels and distribution
-minimum aligned, and review the external assumptions in
+[`hacs.json`](../hacs.json). Review the external assumptions in
 [Upstream contracts](upstream-contracts.md). [Dependabot](../.github/dependabot.yml)
 does not update the coupled Python support lanes.
 

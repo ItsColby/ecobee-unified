@@ -27,7 +27,8 @@ from .const import (
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
 )
 from .entity import EcobeeUnifiedEntity
-from .manager import MappingManager, raise_validation
+from .manager import MappingManager
+from .manager_commands import raise_validation
 from .models import (
     MappingConfig,
     degradation_advisories,

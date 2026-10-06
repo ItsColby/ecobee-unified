@@ -130,7 +130,7 @@ async def async_setup_entry(
         entities.extend(
             UnifiedDatapointSensor(datapoints, config)
             for config in datapoints.configs
-            if config.kind not in BINARY_KINDS and config.kind != "weather"
+            if config.kind not in BINARY_KINDS
         )
     async_add_entities(entities)
 

@@ -31,7 +31,6 @@ from .datapoints import (
     validate_datapoint_edit_sources,
 )
 from .flow_common import BOOLEAN_SELECTOR, SOURCE_SLOTS, _resolved_or_reference
-from .weather_source import validate_weather_feed
 
 DATAPOINT_DOMAINS = [
     "sensor",
@@ -39,7 +38,6 @@ DATAPOINT_DOMAINS = [
     "climate",
     "select",
     "number",
-    "weather",
 ]
 DATAPOINT_SOURCE_SELECTOR = EntitySelector(
     EntitySelectorConfig(domain=DATAPOINT_DOMAINS)
@@ -52,7 +50,6 @@ DATAPOINT_KINDS = (
     "battery",
     "profile",
     "configured_membership",
-    "weather",
     "duration",
     "number",
     "text",
@@ -89,7 +86,6 @@ def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
                     options=[
                         "physical_temperature",
                         "control_temperature",
-                        "weather_temperature",
                         "elapsed_duration",
                         "minimum_fan_runtime_per_hour",
                     ],
@@ -216,7 +212,6 @@ def _datapoint_from_input(
             ),
             "max_age_seconds": _datapoint_seconds(user_input.get("max_age_seconds", 0)),
             "fallback": user_input.get("fallback", True),
-            **_weather_datapoint_identity(hass, sources),
         }
     )
     if current is not None:
@@ -345,35 +340,6 @@ def _validate_datapoint_edit_meaning(
     validate_datapoint_edit_sources(hass, previous, current)
 
 
-def _weather_datapoint_identity(
-    hass: Any, sources: list[SourceBinding]
-) -> dict[str, str]:
-    """Capture the native station feed identity for explicitly selected weather aliases."""
-    registry = er.async_get(hass)
-    entries = [
-        registry.async_get(entity_id)
-        if (entity_id := er.async_resolve_entity_id(registry, binding.entity))
-        else None
-        for binding in sources
-    ]
-    if not any(entry is not None and entry.domain == "weather" for entry in entries):
-        return {}
-    if any(entry is None or entry.domain != "weather" for entry in entries):
-        raise ValueError("weather_sources_required")
-    observations = []
-    for entry in entries:
-        assert entry is not None
-        state = hass.states.get(entry.entity_id)
-        if state is None:
-            raise ValueError("source_missing")
-        observations.append((entry, state))
-    identity = validate_weather_feed(observations)
-    return {
-        "weather_station": identity.station,
-        "weather_config_entry_id": identity.config_entry_id,
-    }
-
-
 def _datapoint_seconds(
     value: Any, *, optional: bool = False, minimum: int = 0
 ) -> int | None:
@@ -404,8 +370,6 @@ def _datapoint_contract_changed(
             "unit",
             "time_basis",
             "interval_seconds",
-            "weather_station",
-            "weather_config_entry_id",
         )
     )
 

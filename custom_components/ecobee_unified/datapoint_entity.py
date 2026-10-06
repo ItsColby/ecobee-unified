@@ -33,11 +33,7 @@ class _UnifiedDatapointEntity(Entity):
         self._config = config
         self._attr_unique_id = manager.unique_id(config.datapoint_id)
         self._attr_name = config.name
-        source = (
-            None
-            if config.weather_config_entry_id
-            else manager.resolve_entity_id(config.sources[0].entity)
-        )
+        source = manager.resolve_entity_id(config.sources[0].entity)
         self.device_entry = (
             async_entity_id_to_device(manager.hass, source) if source else None
         )

@@ -31,12 +31,6 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN
 from .source_contracts import homekit_action_contract_valid
-from .weather_source import (
-    WeatherSnapshot,
-    validate_weather_feed,
-    weather_observation,
-    weather_snapshot,
-)
 
 type DatapointKind = Literal[
     "temperature",
@@ -49,9 +43,8 @@ type DatapointKind = Literal[
     "number",
     "text",
     "configured_membership",
-    "weather",
 ]
-type DatapointValue = float | bool | str | tuple[str, ...] | WeatherSnapshot | None
+type DatapointValue = float | bool | str | tuple[str, ...] | None
 type ValueRepresentation = Literal["label", "option", "reference"]
 
 KINDS = frozenset(
@@ -66,7 +59,6 @@ KINDS = frozenset(
         "number",
         "text",
         "configured_membership",
-        "weather",
     }
 )
 BINARY_KINDS = frozenset({"occupancy", "motion"})
@@ -155,8 +147,6 @@ class DatapointConfig:
     max_age_seconds: float = 0
     fallback: bool = True
     semantic: str | None = None
-    weather_station: str | None = None
-    weather_config_entry_id: str | None = None
     minimum_value: float | None = None
     maximum_value: float | None = None
 
@@ -199,7 +189,6 @@ class DatapointConfig:
             raise ValueError("invalid_fallback")  # noqa: TRY004 -- Public validation contract.
         _optional_text(self.semantic, "invalid_semantic")
         _validate_output_unit(self)
-        _validate_weather_config(self)
         _validate_accepted_range(self)
 
     @classmethod
@@ -216,8 +205,6 @@ class DatapointConfig:
             max_age_seconds=value.get("max_age_seconds", 0),
             fallback=value.get("fallback", True),
             semantic=value.get("semantic"),
-            weather_station=value.get("weather_station"),
-            weather_config_entry_id=value.get("weather_config_entry_id"),
             minimum_value=value.get("minimum_value"),
             maximum_value=value.get("maximum_value"),
         )
@@ -235,8 +222,6 @@ class DatapointConfig:
             "max_age_seconds": self.max_age_seconds,
             "fallback": self.fallback,
             "semantic": self.semantic,
-            "weather_station": self.weather_station,
-            "weather_config_entry_id": self.weather_config_entry_id,
             "minimum_value": self.minimum_value,
             "maximum_value": self.maximum_value,
         }
@@ -306,73 +291,20 @@ def _validate_output_unit(config: DatapointConfig) -> None:
     if config.kind == "temperature":
         if config.unit not in _TEMPERATURE_UNITS:
             raise ValueError("invalid_temperature_unit")
-        allowed = (
-            {"weather_temperature"}
-            if config.weather_config_entry_id
-            else {"control_temperature", "physical_temperature"}
-        )
-        if config.semantic not in allowed:
+        if config.semantic not in {"control_temperature", "physical_temperature"}:
             raise ValueError("temperature_semantic_required")
     elif config.kind in {"humidity", "battery"}:
         if config.unit != "%":
             raise ValueError("invalid_percentage_unit")
     elif config.kind == "duration":
         _validate_duration_config(config)
-    elif config.kind in BINARY_KINDS | {
-        "profile",
-        "text",
-        "configured_membership",
-        "weather",
-    }:
+    elif config.kind in BINARY_KINDS | {"profile", "text", "configured_membership"}:
         if config.unit is not None:
             raise ValueError("unexpected_unit")
         if config.kind == "configured_membership" and config.time_basis != "current":
             raise ValueError("invalid_time_basis")
     else:
         _optional_text(config.unit, "invalid_unit")
-
-
-def _validate_weather_config(config: DatapointConfig) -> None:
-    has_weather = (
-        config.weather_station is not None or config.weather_config_entry_id is not None
-    )
-    if not has_weather and config.kind != "weather":
-        return
-    _text(config.weather_station, "weather_identity_required", limit=128)
-    _text(config.weather_config_entry_id, "weather_identity_required")
-    if config.time_basis != "current":
-        raise ValueError("invalid_time_basis")
-    if config.kind == "number" and config.unit is None:
-        raise ValueError("weather_unit_mismatch")
-    role = _weather_role(config)
-    if role == "weather" and any(
-        binding.unit is not None for binding in config.sources
-    ):
-        raise ValueError("weather_unit_mismatch")
-    expected_attribute = None if role in {"condition", "weather"} else role
-    if any(
-        binding.attribute != expected_attribute
-        or binding.timestamp_attribute is not None
-        for binding in config.sources
-    ):
-        raise ValueError("invalid_weather_role")
-
-
-def _weather_role(config: DatapointConfig) -> str:
-    if config.kind == "weather":
-        return "weather"
-    if config.kind in {"temperature", "humidity"}:
-        return config.kind
-    if config.kind == "text":
-        return "condition"
-    if config.kind == "number" and config.sources[0].attribute in {
-        "pressure",
-        "wind_bearing",
-        "wind_speed",
-        "visibility",
-    }:
-        return str(config.sources[0].attribute)
-    raise ValueError("invalid_weather_role")
 
 
 def _validate_duration_config(config: DatapointConfig) -> None:
@@ -405,8 +337,6 @@ class SourceContext:
     profile_ref: str | None = None
     preset_mode: str | None = None
     program_profile_name: str | None = None
-    weather_station: str | None = None
-    provider_reported_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,8 +386,6 @@ def _require_enabled(
 
 def _identity_error(hass: HomeAssistant, config: DatapointConfig) -> str | None:
     """Prove Ecobee origin and a single serial, rejecting association contradictions."""
-    if config.weather_config_entry_id is not None:
-        return None  # Each alias independently proves the persisted weather feed.
     return _source_identity_error(hass, config.sources)
 
 
@@ -519,7 +447,7 @@ def _compare_devices(
 def validate_datapoint_edit_sources(
     hass: HomeAssistant, previous: DatapointConfig, current: DatapointConfig
 ) -> None:
-    """Keep a saved feed/subject and observation roles behind one output identity.
+    """Keep the subject and observation roles behind one output identity.
 
     Unchanged registry bindings retain their meaning without inventing proof for
     an opaque role. Replacing them requires native cross-source evidence; units,
@@ -527,14 +455,6 @@ def validate_datapoint_edit_sources(
     """
     if reason := _observation_role_error(hass, current):
         raise ValueError(reason)
-    previous_feed = (previous.weather_config_entry_id, previous.weather_station)
-    current_feed = (current.weather_config_entry_id, current.weather_station)
-    if previous_feed != current_feed:
-        raise ValueError("datapoint_meaning_change")
-    if current.weather_config_entry_id is not None:
-        if _weather_role(previous) != _weather_role(current):
-            raise ValueError("datapoint_meaning_change")
-        return
     previous_bindings = {(item.entity, item.attribute) for item in previous.sources}
     current_bindings = {(item.entity, item.attribute) for item in current.sources}
     if previous_bindings == current_bindings:
@@ -572,8 +492,6 @@ def _edit_roles(hass: HomeAssistant, config: DatapointConfig) -> set[tuple[str, 
 
 def _observation_role_error(hass: HomeAssistant, config: DatapointConfig) -> str | None:
     """Reject known contradictions independently of individual source availability."""
-    if config.weather_config_entry_id is not None:
-        return None  # Weather configuration already requires one exact feed and role.
     if config.kind == "configured_membership":
         # Both admitted membership bases are intentional alternatives; the selected
         # source retains its active-preset/program context instead of asserting sameness.
@@ -891,9 +809,6 @@ def _validate_unit(config: DatapointConfig, unit: str | None) -> None:
 
 def validate_datapoint(hass: HomeAssistant, config: DatapointConfig) -> None:
     """Validate a new mapping against native public registry and state metadata."""
-    if config.weather_config_entry_id is not None:
-        _validate_weather_datapoint(hass, config)
-        return
     if reason := _identity_error(hass, config) or _observation_role_error(hass, config):
         raise ValueError(reason)
     for binding in config.sources:
@@ -927,78 +842,6 @@ def validate_datapoint(hass: HomeAssistant, config: DatapointConfig) -> None:
                 _timestamp(
                     state.attributes[binding.timestamp_attribute], dt_util.utcnow()
                 )
-
-
-def _validate_weather_datapoint(hass: HomeAssistant, config: DatapointConfig) -> None:
-    sources: list[tuple[er.RegistryEntry, State | None]] = []
-    for binding in config.sources:
-        entry = _registry_entry(hass, binding.entity)
-        if entry is None:
-            raise ValueError("source_missing")
-        _require_enabled(hass, entry, reason="source_missing")
-        sources.append((entry, hass.states.get(entry.entity_id)))
-    role = _weather_role(config)
-    validate_weather_feed(
-        sources,
-        expected_station=config.weather_station,
-        role=None if role == "weather" else role,
-        output_unit=config.unit,
-    )
-    now = dt_util.utcnow()
-    for binding, (entry, state) in zip(config.sources, sources, strict=True):
-        _weather_read(hass, config, binding, entry, state, now)
-
-
-def _weather_read(
-    hass: HomeAssistant,
-    config: DatapointConfig,
-    binding: SourceBinding,
-    entry: er.RegistryEntry,
-    state: State | None,
-    now: datetime,
-) -> _Observation:
-    device = dr.async_get(hass).async_get(entry.device_id) if entry.device_id else None
-    identifiers = (
-        {value for domain, value in device.identifiers if domain == "ecobee"}
-        if isinstance(device, dr.DeviceEntry)
-        else set()
-    )
-    if identifiers != {entry.unique_id}:
-        raise ValueError("weather_device_identity_mismatch")
-    assert (
-        config.weather_station is not None
-        and config.weather_config_entry_id is not None
-    )
-    kwargs = {
-        "expected_station": config.weather_station,
-        "expected_config_entry_id": config.weather_config_entry_id,
-    }
-    role = _weather_role(config)
-    value: DatapointValue
-    if role == "weather":
-        full_weather = weather_snapshot(entry, state, **kwargs, now=now)
-        value = full_weather
-        provider_time = full_weather.provider_reported_at
-        reported = full_weather.ha_reported_at
-    else:
-        reading = weather_observation(
-            entry, state, role, **kwargs, output_unit=config.unit, now=now
-        )
-        if binding.unit is not None:
-            native = weather_observation(entry, state, role, **kwargs, now=now)
-            if native.unit != binding.unit:
-                raise ValueError("source_unit_assertion_mismatch")
-        value = reading.value
-        provider_time = reading.provider_reported_at
-        reported = reading.ha_reported_at
-    context = SourceContext(
-        timing_quality="provider_reported",
-        weather_station=config.weather_station,
-        provider_reported_at=provider_time,
-    )
-    return _Observation(
-        value, entry.entity_id, reported, None, provider_time, context=context
-    )
 
 
 def _value(config: DatapointConfig, raw: Any, unit: str | None) -> DatapointValue:
@@ -1226,11 +1069,7 @@ class DatapointManager:
                 or entity.config_entry_id != self.entry_id
             ):
                 continue
-            source = (
-                None
-                if config.weather_config_entry_id
-                else _registry_entry(self.hass, config.sources[0].entity)
-            )
+            source = _registry_entry(self.hass, config.sources[0].entity)
             device_id = source.device_id if source else None
             if device_id and dr.async_get(self.hass).async_get(device_id) is None:
                 device_id = None
@@ -1324,8 +1163,6 @@ class DatapointManager:
             raise ValueError("missing")
         _require_enabled(self.hass, entry)
         state = self.hass.states.get(entry.entity_id)
-        if config.weather_config_entry_id is not None:
-            return _weather_read(self.hass, config, binding, entry, state, now)
         if state is None:
             raise ValueError("missing")
         if state.state in _EMPTY:

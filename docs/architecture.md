@@ -129,7 +129,7 @@ runtime remain reported thermostat evidence, not measured electrical operation.
 The same config entry stores explicit `DatapointConfig` records with stable IDs,
 ordered registry-backed source bindings, quantity, output unit, time basis and
 fallback policy. An independent read-only `DatapointManager` normalizes these
-into sensor, binary-sensor or weather entities. It has no command writer. Sources may be
+into sensor or binary-sensor entities. It has no command writer. Sources may be
 HomeKit, Ecobee, Beestat Statistics or Battery Notes entities proven to refer to
 the same Ecobee hardware. A common device or matching native serial can prove
 hardware association; the user still confirms that the chosen fields describe
@@ -169,13 +169,13 @@ equivalence confirmation; they are not inferred from values. Intentional
 configured-membership bases retain their separate context. A deleted registry
 binding cannot supply role evidence that no longer exists.
 
-Edits retaining a datapoint ID preserve its quantity, time basis, physical/feed
+Edits retaining a datapoint ID preserve its quantity, time basis, physical
 subject and normalized observation role. Changed typed bindings must prove the
 same native physical identity across the old and new source groups. Native role
 contracts distinguish measured from target humidity and retain known temperature,
 profile, membership and fan-setting semantics. An opaque role keeps its exact
 registry UUID and value attribute; equal units or values do not prove a replacement.
-Weather edits retain the saved station and Ecobee connection. Generic number/text
+Generic number/text
 edits retain their complete binding set. Names, ordering, fallback/freshness and
 compatible temperature/duration output units can change without a new ID.
 These checks use current native identity evidence; they cannot reconstruct an
@@ -212,24 +212,6 @@ Long-term statistics are not silently converted into current sensor inputs.
 Current datapoints do not backfill or reconcile separately stored statistics.
 Each optional output is adopted by consumers explicitly, avoiding duplicate
 physical probes in label-based aggregates.
-
-Native Ecobee weather aliases use a separate station-feed contract. Each source
-must retain its own native thermostat identity, while the group shares one
-Ecobee config entry and one explicit station identifier parsed from the pinned
-native attribution format. The saved station is checked on every read; source
-or station drift cannot silently select a different feed. This proves a common
-provider feed, not independent measurements or permanent geographic identity.
-Weather outputs do not attach the shared feed to either thermostat device.
-
-A whole-weather mapping publishes one coherent selected report and forwards its
-supported daily forecast through the native `weather.get_forecasts` response
-service. It preserves source units and request-generated forecast dates, and
-rejects a response when source, station, provider generation or units change
-during the read. Native forecast subscriptions follow listeners and unload with
-the entity. There is no independent provider connection, polling or forecast cache.
-Seven scalar current-weather roles are also available where a single value is
-useful. Weather age uses the provider forecast timestamp; that timestamp remains
-separate from HA receipt and physical measurement time.
 
 ### Preserve units, reject impossible shapes, and bound derived meaning
 

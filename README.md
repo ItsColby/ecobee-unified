@@ -12,8 +12,6 @@ You can also centralize equivalent room-sensor and contextual readings through
 explicit datapoint mappings, with ordered sources, optional fallback, and source
 and observation-time information. Thermostat read preferences are configurable
 per field and per mapping.
-Native Ecobee weather aliases can share one weather entity, including daily
-forecasts, while keeping their station, units and report timing explicit.
 
 ## Is it suitable for my installation?
 

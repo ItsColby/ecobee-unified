@@ -115,7 +115,7 @@ the entity and stop reading its source, clear the source under **Reconfigure >
 Edit thermostat mapping** and save changes. Once enabled, they display the
 source's values with their source measurement or estimate semantics. Unified
 does not calculate a new AQI, infer CO2 from another quantity, or establish
-independent sensor accuracy. Existing room, humidity, occupancy, weather, and
+independent sensor accuracy. Existing room, humidity, occupancy, and
 Beestat history/context entities retain their own uses and owners.
 
 ## Make a deliberate vendor or schedule change
@@ -245,7 +245,7 @@ Under **Reconfigure**, choose **Add multi-source datapoint**. Select the quantit
 output unit where applicable, and up to three ordered sources. An optional
 attribute selects a public field from a source entity instead of its state.
 The sources must belong to the same proven physical Ecobee thermostat or remote
-sensor, or be native Ecobee weather aliases of the same station feed.
+sensor.
 Confirm they represent the same quantity; similar values or names are
 insufficient. Save the staged changes to reload the entry.
 
@@ -286,7 +286,7 @@ Choose limits for the intended use: a real extreme temperature can also be
 outside an accepted range. This policy does not prove a sensor is faulty,
 calibrate it, or change raw readings and their history. Keep any required raw
 diagnostic or safety consumers. Range checks do not apply to thermostat
-control/display temperatures, weather or interval observations. You can still
+control/display temperatures or interval observations. You can still
 configure a proven source pair while one source is outside the range.
 
 Editing these limits preserves the output identity and existing recorded data;
@@ -307,16 +307,6 @@ room-spread membership uses its metadata-sync time; an unchanged current-profile
 state cannot establish that the list is fresh. Missing metadata time remains
 explicitly unknown and cannot satisfy a positive age cutoff.
 
-For household weather, choose **Weather and daily forecast**, select the two
-native Ecobee weather entities, and leave unit, attribute and timestamp fields
-blank. This creates one weather entity with ordered source selection and daily
-forecasts. Both sources must report the same station through the same Ecobee
-connection. A different station or Ecobee connection requires a new datapoint. The weather
-provider's forecast time is retained separately from Home Assistant receipt;
-neither proves a new physical measurement. Forecast dates retain the native
-adapter's meaning. The aliases share one upstream feed and provide no
-independent weather confirmation.
-
 Use **Edit multi-source datapoint** to change a datapoint while preserving its
 meaning and stable output identity. Name, source priority, fallback, and freshness
 changes retain that identity. Normal source entity renames retain their registry
@@ -331,7 +321,7 @@ the existing entity-and-attribute bindings or add a new datapoint.
 | Change | Required action |
 |---|---|
 | Quantity type or meaning, such as physical versus control temperature or elapsed duration versus a minimum fan setting | Use **Add multi-source datapoint** to create a new identity |
-| Physical item, shared weather feed, or observation role, such as measured versus target humidity | Use **Add multi-source datapoint** to create a new identity |
+| Physical item or observation role, such as measured versus target humidity | Use **Add multi-source datapoint** to create a new identity |
 | Current versus fixed-interval observations, or the duration of a fixed interval | Use **Add multi-source datapoint** to create a new identity |
 | Temperature output between °C, °F, and K, or duration output between s, min, h, and d | Edit the existing datapoint only when its meaning and time basis stay the same, then confirm equivalence |
 | Any other output-unit change, including **Other numeric quantity** | Use **Add multi-source datapoint** to create a new identity |

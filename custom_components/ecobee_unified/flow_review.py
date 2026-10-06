@@ -53,7 +53,7 @@ def _review_entity(
     platform = {
         "homekit_controller": "HomeKit Device",
         "ecobee": "Ecobee",
-        "beestat": "Beestat Statistics",
+        "beestat_statistics": "Beestat Statistics",
         DOMAIN: NAME,
         "battery_notes": "Battery Notes",
     }.get(entry.platform, entry.platform.replace("_", " "))
@@ -121,8 +121,6 @@ def _review_details(
         else f"{lower if lower is not None else 'no minimum'} to "
         f"{upper if upper is not None else 'no maximum'} {row.get('unit') or ''}"
     )
-    if row.get("weather_station"):
-        details["Weather station"] = row["weather_station"]
     return details
 
 

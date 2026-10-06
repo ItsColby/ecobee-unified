@@ -530,7 +530,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.source_mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))

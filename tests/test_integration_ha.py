@@ -437,7 +437,7 @@ def _entry(hass: HomeAssistant, mappings: tuple[MappingConfig, ...]) -> MockConf
         unique_id=DOMAIN,
         data={CONF_MAPPINGS: [mapping.as_dict() for mapping in mappings]},
         version=1,
-        minor_version=1,
+        minor_version=5,
     )
     entry.add_to_hass(hass)
     return entry

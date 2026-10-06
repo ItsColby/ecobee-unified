@@ -50,7 +50,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         pending = asyncio.Event()
@@ -166,7 +166,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         pending = asyncio.Event()
@@ -337,6 +337,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 entry = MockConfigEntry(
                     domain=DOMAIN,
                     data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+                    minor_version=5,
                 )
                 entry.add_to_hass(self.hass)
                 with (
@@ -374,7 +375,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         native_cleanup = Mock(return_value=None)

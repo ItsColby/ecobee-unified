@@ -86,7 +86,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -164,7 +164,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -293,7 +293,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data=original_data,
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         for name, confirm, error in (
@@ -368,7 +368,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             data=original_data,
             options=original_options,
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.options.async_init(entry.entry_id)
@@ -432,7 +432,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data=original_data,
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.flow.async_init(

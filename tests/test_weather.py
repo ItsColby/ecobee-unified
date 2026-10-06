@@ -66,7 +66,7 @@ class WeatherPlatformTests(WeatherSourceFixture):
             domain=DOMAIN,
             unique_id=DOMAIN,
             version=1,
-            minor_version=4,
+            minor_version=5,
             data={
                 CONF_MAPPINGS: [self.mapping.as_dict()],
                 "datapoints": [self.config.as_dict()],

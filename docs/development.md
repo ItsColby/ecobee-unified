@@ -24,17 +24,17 @@ pre-commit run --all-files
 ```
 
 The Home Assistant tests need Linux (or WSL) and Python 3.14. Use a separate
-environment for each support lane and install it the way its workflow job does:
-the harness and mypy pins first, then the lane's requirements file, then
-`python -m pip check`. Installing only the harness does not establish the
-intended Core version.
+environment for each support lane. The `ha-minimum` and `ha-current`
+[dependency groups](../pyproject.toml) pin the lane's Core version, test harness
+and mypy together; installing only the harness does not establish the intended
+Core version.
 
 ```bash
 python3.14 -m venv .venv
 source .venv/bin/activate
-# install the lane's pins as its workflow job does, then:
+python -m pip install --group ha-current  # or ha-minimum
 python -m pip check
-python -m mypy custom_components/ecobee_unified
+python -m mypy
 python -m pytest tests
 ```
 

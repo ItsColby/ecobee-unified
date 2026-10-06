@@ -83,3 +83,8 @@ Record candidate-specific results with the exact commit in the pull request or
 release record. Preserve past release evidence in Git history and GitHub
 releases; this guide describes how to reproduce checks rather than maintaining
 a rolling record of test counts or deployment receipts.
+
+## Prepare a release
+
+Releases are immutable [GitHub Releases](https://github.com/ItsColby/ecobee-unified/releases)
+whose tag matches the manifest version.

@@ -201,8 +201,8 @@ observer assignments and confirmation tolerances, see the [runtime contract](arc
 Open the existing integration entry's **Reconfigure** action to add, rename,
 replace, or remove mappings. Choose **Save changes** after staging the
 edits to review the changes, then submit the review to save and reload. The review
-shows additions, removals, and changed values for thermostat mappings,
-multi-source datapoints, and historical families, including source order and
+shows additions, removals, and changed values for thermostat mappings and
+multi-source datapoints, including source order and
 selection policy. Leaving the flow before the final submit saves nothing.
 Changes to either climate, Current Mode, Clear Hold, or the notification
 writer require the confirmation checkbox. Removal also requires confirmation.
@@ -342,111 +342,6 @@ existing output. Editing or creating a datapoint does not automatically clear,
 relabel, delete, backfill, or merge its historical statistics. History remains
 with its existing owner. Before adopting a new output, review explicit
 references and dynamic labels so an aggregate includes each physical probe once.
-
-## Read daily historical families
-
-Under **Reconfigure**, choose **Add daily history mapping**. Select an existing
-sensor for the physical item, or a native Ecobee weather entity for an outdoor
-feed, then choose the quantity and one to three existing statistics in priority
-order. Supported quantities are physical temperature, humidity, battery,
-CO₂, AQI, VOC, outdoor temperature and outdoor humidity. Save changes to apply
-the staged mappings. This creates an on-demand read configuration; it does not
-create a measurement entity or merge stored series.
-
-The native registry and statistic metadata must match the declared quantity and
-current association. Confirm that association explicitly. Beestat's effective
-mapping can originate from automatic matching: it is an owner association,
-not independent hardware proof. Current bindings do not establish identity
-throughout the retained history. Native and mirrored histories can share one
-upstream; they are alternatives, not independent confirmations.
-
-A composed Unified humidity source or anchor must prove that all its bindings
-represent current measured humidity. Target, mixed, interval and unproven
-compositions cannot enter a measured-humidity history family. Confirmed opaque
-and target mappings can still be used as separate current datapoints. This
-admission check neither repairs old statistics nor proves past source continuity.
-
-**Fixed source** selects only the first source and preserves its gaps. All
-configured candidates are still read and validated. **Ordered daily** chooses
-the first eligible daily row. Accept differing aggregation
-methods explicitly before enabling selection across those methods. A selected
-row supplies all its values; the reader does not combine another source's
-maximum with its mean, fill absent days, or interpolate hourly values.
-
-When Beestat Statistics exposes `hourly_statistics.history_v3` in **Get
-configuration**, its declared measurement `statistic_id` can be selected
-explicitly. Unified checks the declared physical identity, legacy aliases,
-units and method against the current mapping. Existing legacy IDs keep their
-existing behavior. The v3 daily policy uses complete verified point hours,
-otherwise an eligible legacy daily value. Accept this method difference even
-for a fixed source; confirming the physical association is a separate choice.
-Temperature, indoor humidity, CO₂, air quality and outdoor temperature/humidity
-are supported. Runtime, degree days and VOC are not admitted through this adapter.
-
-Run **Ecobee Unified: Get historical configuration** in **Developer tools →
-Actions** to obtain the saved family IDs. Run **Get daily history** with the
-integration entry, an included start date and an excluded end date. Omit family
-IDs to read all configured families when there are at most 16; otherwise choose
-a subset. Each request supports at most 31 calendar days and 16 families. Older
-dates remain readable in bounded requests where Recorder retains data.
-
-Dates use Home Assistant's configured timezone, with actual 23/25-hour DST
-days. A timezone change requires explicit rebinding. Calendars whose midnight
-does not align with UTC hourly bins are rejected. Administrator access follows
-the same native authorization rules as `recorder.get_statistics`.
-
-For a reusable report, create a native script using
-[`ecobee_daily_history_report.yaml`](../examples/ecobee_daily_history_report.yaml).
-Call its named action directly to receive the response. Another script can set
-`response_variable` on that call; `script.turn_on` does not return the report.
-The example has no notification destination, scheduled acquisition or history
-write. Standard history and statistics cards do not consume this response;
-the configured family ID is not a Recorder statistic alias.
-
-The response preserves candidate values, native units, source and statistic
-IDs, aggregation methods, missing measures and coverage. Recorder hourly-bin
-coverage does not establish complete samples. Legacy Beestat daily aggregates
-remain labeled as daily values stored in an hourly table; one such row is not
-one hour of a 24-hour observation record. Provider window end, importer timing
-and response acquisition remain separate. Open dates and dates whose available
-provider watermark precedes their end are provisional and excluded by default.
-Absent settling evidence remains **unknown**, including for elapsed dates.
-
-For a v3 source, each candidate includes the producer's chosen `source_basis`,
-`method_basis`, reasons, eligible intervals and original qualified bucket.
-Point slot/hour counts remain point evidence even when a legacy day supplies
-the chosen value. A partial point mean stays inspectable but is never selected,
-including when provisional observations are requested. It is never added to a
-legacy value. Query summaries describe verified point hours and appear once in
-`producer_reads`; they do not summarize the selected legacy daily values.
-Pending, conflicting or unverified buckets remain ineligible. A fresh request
-can see newly committed proof without a source entity update.
-
-AQI uses two distinct calculations: a native raw daily aggregate can be scaled
-linearly by `100 / 350`; Beestat aggregates samples normalized and rounded
-before aggregation. The scaled daily mean does not reproduce those missing
-sample-level operations. Accepting fallback permits the documented method
-difference; it does not make the methods equal. VOC candidates retain their
-native declared units and values, but equivalent-source selection remains
-blocked until authoritative unit/calibration evidence resolves them.
-
-Metadata, identity, calendar or configuration changes during a read fail the
-request instead of relabeling the result. An unavailable native read service is
-a failed read, not a successful empty history. Only one read per entry runs at
-a time, with a timeout and no automatic retry. Beestat retains import and
-interval-repair ownership; this interface does not migrate legacy IDs or admit
-future successor series merely because their names have a particular suffix.
-
-The v3 reader uses only the producer's configuration and coverage actions,
-pins paginated responses to one view and rechecks that view before returning.
-Changed or unavailable views fail the request without an automatic import,
-refresh or retry. Each read supports up to 40 distinct v3 quantities per
-Beestat entry within the existing family/day limits. A saved v3 binding needs
-a compatible producer; losing that capability does not silently restore a
-legacy binding. To change the declared identity or aliases, explicitly rebind
-the source. Before adopting a new version, retain a restorable Home Assistant
-backup including configuration and Recorder; a code-only downgrade cannot undo
-configuration or history changes made by other integrations.
 
 ## Verify an installation before moving its consumers
 

@@ -33,10 +33,6 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 from custom_components.ecobee_unified.config_flow import _datapoint_form_defaults
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.datapoints import DatapointConfig, SourceBinding
-from custom_components.ecobee_unified.history_source import (
-    async_capture_source,
-    async_validate_source,
-)
 
 pytestmark = [
     pytest.mark.usefixtures("recorder_mock"),
@@ -727,28 +723,6 @@ async def test_consistent_humidity_add_records_native_fallback(
 ) -> None:
     """Current values stay usable; only proven measurements supply history."""
     entry, _ = await _setup(hass, sources, "humidity")
-    native_entry = hass.config_entries.async_get_entry(
-        sources.secondary.config_entry_id
-    )
-    assert native_entry is not None
-    anchor = er.async_get(hass).async_get_or_create(
-        "sensor",
-        "ecobee",
-        "thermostat_a-humidity",
-        config_entry=native_entry,
-        device_id=sources.secondary.device_id,
-        original_device_class="humidity",
-        unit_of_measurement="%",
-    )
-    hass.states.async_set(
-        anchor.entity_id,
-        "42",
-        {
-            "device_class": "humidity",
-            "unit_of_measurement": "%",
-            "state_class": "measurement",
-        },
-    )
     for source, value in (
         (sources.primary, first_value),
         (sources.secondary, fallback_value),
@@ -796,79 +770,6 @@ async def test_consistent_humidity_add_records_native_fallback(
         for value, attributes, _ in (await _history(hass, [entity_id], 2))[entity_id]
         if value not in {"unavailable", "unknown"}
     } == {"humidity"}
-
-    # Native Recorder metadata exists for both the composed output and anchor.
-    native_rows = (await _statistics(hass, [anchor.entity_id], 2))[anchor.entity_id]
-    assert [row["mean"] for row in native_rows] == [42, 42]
-    native_contract = await async_capture_source(
-        hass, anchor.entity_id, "humidity", anchor.id
-    )
-    composed = er.async_get(hass).async_get(entity_id)
-    assert composed is not None
-    original_data = deepcopy(dict(entry.data))
-    manager = entry.runtime_data.datapoints
-    for statistic_id, selected_anchor in (
-        (entity_id, anchor),
-        (anchor.entity_id, composed),
-    ):
-        if attribute == "current_humidity":
-            captured = await async_capture_source(
-                hass, statistic_id, "humidity", selected_anchor.id
-            )
-            assert captured["statistic_id"] == statistic_id
-            assert captured["anchor_ref"] == selected_anchor.id
-            assert captured["method"] == "recorder_hourly_time_weighted"
-            assert captured["native_unit"] == "%"
-            assert (
-                await async_validate_source(
-                    hass, captured, "humidity", selected_anchor.id
-                )
-                == captured
-            )
-        else:
-            with pytest.raises(ValueError, match="historical_source_role_mismatch"):
-                await async_capture_source(
-                    hass, statistic_id, "humidity", selected_anchor.id
-                )
-            with pytest.raises(ValueError, match="historical_source_role_mismatch"):
-                await async_validate_source(
-                    hass,
-                    native_contract | {"statistic_id": statistic_id},
-                    "humidity",
-                    selected_anchor.id,
-                )
-
-        flow = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "reconfigure", "entry_id": entry.entry_id}
-        )
-        flow = await hass.config_entries.flow.async_configure(
-            flow["flow_id"], {"next_step_id": "historical_add"}
-        )
-        result = await hass.config_entries.flow.async_configure(
-            flow["flow_id"],
-            {
-                "name": "Daily measured humidity",
-                "quantity": "humidity",
-                "unit": "%",
-                "timezone": hass.config.time_zone,
-                "anchor_ref": selected_anchor.entity_id,
-                "primary_statistic": statistic_id,
-                "policy": "fixed_source",
-                "accept_cross_method": False,
-                "confirm_association": True,
-            },
-        )
-        if attribute == "current_humidity":
-            assert result["type"] is FlowResultType.MENU
-        else:
-            assert result["type"] is FlowResultType.FORM
-            assert result["errors"] == {"base": "historical_source_role_mismatch"}
-        hass.config_entries.flow.async_abort(flow["flow_id"])
-    assert entry.data == original_data
-    assert entry.runtime_data.datapoints is manager
-    assert float(hass.states.get(entity_id).state) == fallback_value
-    assert await _metadata(hass, [entity_id]) == metadata
-    assert (await _statistics(hass, [entity_id], 2))[entity_id] == rows
 
 
 @pytest.mark.parametrize(

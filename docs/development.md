@@ -39,6 +39,8 @@ python -m mypy
 python -m pytest tests
 ```
 
+CI runs mypy only in the `current` lane; run it locally in that environment.
+
 Use pytest for the complete suite: unittest discovery alone does not collect the
 module-level async Home Assistant tests. Focused tests speed up iteration.
 

@@ -17,7 +17,6 @@ PLATFORMS: Final = [
 ]
 
 CONF_MAPPINGS: Final = "mappings"
-CONF_HISTORICAL_FAMILIES: Final = "historical_families"
 CONF_MAPPING_ID: Final = "mapping_id"
 CONF_NAME: Final = "name"
 CONF_HOMEKIT_ENTITY: Final = "homekit_entity"
@@ -39,9 +38,6 @@ RECONFIGURE_MENU_OPTIONS: Final = (
     "datapoint_add",
     "datapoint_edit",
     "datapoint_remove",
-    "historical_add",
-    "historical_edit",
-    "historical_remove",
     "reconfigure_finish",
 )
 

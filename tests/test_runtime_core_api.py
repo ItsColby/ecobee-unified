@@ -2261,8 +2261,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 not in {
                     "datapoint_edit",
                     "datapoint_remove",
-                    "historical_edit",
-                    "historical_remove",
                 }
             ),
             tuple(result["menu_options"]),
@@ -2855,8 +2853,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         retained_datapoint.pop("minimum_value", None)
         retained_datapoint.pop("maximum_value", None)
         legacy = self.mapping.as_dict() | {
-            "scheduled_profile_entity": "",
-            "next_transition_entity": "",
             "future_mapping_field": {"opaque": "preserve"},
         }
         entry = MockConfigEntry(
@@ -2871,8 +2867,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             version=1,
             minor_version=0,
             options={
-                "homekit_stale_seconds": 300,
-                "beestat_stale_seconds": 24_000,
                 "future_option": {"opaque": "preserve"},
             },
         )

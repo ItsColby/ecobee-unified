@@ -78,7 +78,7 @@ underlying library behavior on which a writer relies. Preserve the existing
 support pins until the new Core/harness pair is intentionally adopted.
 
 Use [`source_contracts.py`](../custom_components/ecobee_unified/source_contracts.py)
-for accepted source metadata, [`manager.py`](../custom_components/ecobee_unified/manager.py)
+for accepted source metadata, [`manager.py`](../custom_components/ecobee_unified/manager.py) and its source and command modules
 for observation and dispatch, and [`models.py`](../custom_components/ecobee_unified/models.py)
 for normalization and confirmation rules. A compatibility change needs a
 regression at the affected native boundary: mapping identity or role drift,

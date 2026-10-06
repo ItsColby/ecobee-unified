@@ -10,7 +10,6 @@ from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 try:
@@ -40,99 +39,6 @@ class DatapointConfigurationTests(ReconfigureFlowTestCase):
                 state.state,
                 dict(state.attributes) | {"current_humidity": 42, "humidity": 55},
             )
-
-    async def test_weather_mapping_preserves_feed_and_requires_new_identity_on_drift(
-        self,
-    ) -> None:
-        """Different thermostat aliases share only their explicitly proven station feed."""
-        source_entry = self.hass.config_entries.async_get_entry(
-            self.ecobee.config_entry_id
-        )
-        assert source_entry is not None
-        registry = er.async_get(self.hass)
-        aliases = []
-        for serial in (
-            "weather_thermostat_a",
-            "weather_thermostat_b",
-            "weather_thermostat_c",
-        ):
-            device = dr.async_get(self.hass).async_get_or_create(
-                config_entry_id=source_entry.entry_id,
-                identifiers={("ecobee", serial)},
-            )
-            alias = registry.async_get_or_create(
-                "weather",
-                "ecobee",
-                serial,
-                config_entry=source_entry,
-                device_id=device.id,
-            )
-            self.hass.states.async_set(
-                alias.entity_id,
-                "sunny",
-                {
-                    "temperature": 22,
-                    "temperature_unit": "°C",
-                    "attribution": "Ecobee weather provided by STATION-A at "
-                    + dt_util.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-                    "supported_features": 1,
-                },
-            )
-            aliases.append(alias)
-        entry = self._entry()
-        result = await self._next(await self._open(entry), "datapoint_add")
-        values = self._values(
-            name="Shared weather",
-            kind="weather",
-            unit="",
-            primary_entity=aliases[0].entity_id,
-            secondary_entity=aliases[1].entity_id,
-            primary_attribute="",
-            secondary_attribute="",
-        )
-        result = await self._submit(result, values)
-        self.assertEqual(FlowResultType.MENU, result["type"])
-        await self._save(result)
-        saved = entry.data["datapoints"][0]
-        self.assertEqual("STATION-A", saved["weather_station"])
-        self.assertEqual(source_entry.entry_id, saved["weather_config_entry_id"])
-        rebound = _datapoint_from_input(
-            self.hass,
-            values
-            | {
-                "primary_entity": aliases[2].entity_id,
-                "name": "Same station through another alias",
-                "fallback": False,
-            },
-            saved,
-        )
-        self.assertEqual(saved["datapoint_id"], rebound["datapoint_id"])
-        self.assertEqual("STATION-A", rebound["weather_station"])
-        self.assertEqual(aliases[2].id, rebound["sources"][0]["entity"])
-        for alias in aliases:
-            state = self.hass.states.get(alias.entity_id)
-            assert state is not None
-            self.hass.states.async_set(
-                alias.entity_id,
-                state.state,
-                dict(state.attributes)
-                | {
-                    "attribution": state.attributes["attribution"].replace(
-                        "STATION-A", "STATION-B"
-                    )
-                },
-            )
-        for confirmed in (False, True):
-            with (
-                self.subTest(confirmed=confirmed),
-                self.assertRaisesRegex(ValueError, "datapoint_meaning_change"),
-            ):
-                _datapoint_from_input(
-                    self.hass, values | {"confirm_equivalence": confirmed}, saved
-                )
-        added = _datapoint_from_input(self.hass, values)
-        self.assertNotEqual(saved["datapoint_id"], added["datapoint_id"])
-        self.assertEqual("STATION-B", added["weather_station"])
 
     def _values(self, **changes: Any) -> dict[str, Any]:
         return {

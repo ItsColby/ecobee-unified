@@ -124,7 +124,6 @@ def _platforms_for_mappings(
     enabled_optional_platforms = {
         "button": any(mapping.homekit_clear_hold_entity for mapping in mappings),
         "notify": any(mapping.ecobee_notify_entity for mapping in mappings),
-        "weather": any(config.kind == "weather" for config in datapoints),
     }
     return [
         platform
@@ -144,11 +143,7 @@ def _remove_orphaned_entities(
     expected: set[tuple[str, str]] = set()
     expected.update(
         (
-            "binary_sensor"
-            if item.kind in BINARY_KINDS
-            else "weather"
-            if item.kind == "weather"
-            else "sensor",
+            "binary_sensor" if item.kind in BINARY_KINDS else "sensor",
             f"{entry.entry_id}_datapoint_{item.datapoint_id}",
         )
         for item in datapoints

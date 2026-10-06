@@ -10,7 +10,6 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -28,7 +27,6 @@ from custom_components.ecobee_unified.datapoints import (
     validate_datapoint,
     validate_datapoint_edit_sources,
 )
-from custom_components.ecobee_unified.weather_source import WeatherSnapshot
 
 
 def _source(
@@ -276,45 +274,6 @@ async def test_unknown_attribute_and_missing_old_binding_cannot_authorize_replac
     )
     with pytest.raises(ValueError, match="datapoint_meaning_change"):
         validate_datapoint_edit_sources(hass, original, changed)
-
-
-def _weather_sources(hass: HomeAssistant) -> tuple[er.RegistryEntry, er.RegistryEntry]:
-    config = MockConfigEntry(domain="ecobee", minor_version=5)
-    config.add_to_hass(hass)
-    entries = []
-    for serial in ("100000000001", "100000000002"):
-        device = dr.async_get(hass).async_get_or_create(
-            config_entry_id=config.entry_id,
-            identifiers={("ecobee", serial)},
-        )
-        entries.append(
-            er.async_get(hass).async_get_or_create(
-                "weather",
-                "ecobee",
-                serial,
-                config_entry=config,
-                device_id=device.id,
-            )
-        )
-    return entries[0], entries[1]
-
-
-def _weather_attributes(timestamp: datetime, **changes: Any) -> dict[str, Any]:
-    return {
-        "temperature": 20,
-        "temperature_unit": "°C",
-        "humidity": 50,
-        "pressure": 1013,
-        "pressure_unit": "hPa",
-        "wind_speed": 4,
-        "wind_speed_unit": "km/h",
-        "wind_bearing": 90,
-        "visibility": 10,
-        "visibility_unit": "km",
-        "precipitation_unit": "mm",
-        "supported_features": 1,
-        "attribution": f"Ecobee weather provided by Example Station at {timestamp:%Y-%m-%d %H:%M:%S} UTC",
-    } | changes
 
 
 async def test_primary_order_conversion_invalid_unit_fallback_and_recovery(
@@ -1286,6 +1245,25 @@ def test_saved_config_roundtrip_and_required_interval_observation() -> None:
         replace(config, sources=(config.sources[0], config.sources[0]))
 
 
+def test_saved_config_ignores_removed_weather_keys() -> None:
+    """Entries saved before weather removal persisted these keys as null."""
+    config = DatapointConfig(
+        "humidity_a",
+        "Humidity",
+        "humidity",
+        (SourceBinding("first"), SourceBinding("second")),
+        unit="%",
+    )
+    stale = config.as_dict() | {
+        "weather_station": None,
+        "weather_config_entry_id": None,
+    }
+    restored = DatapointConfig.from_dict(stale)
+    assert restored == config
+    assert "weather_station" not in restored.as_dict()
+    assert "weather_config_entry_id" not in restored.as_dict()
+
+
 async def test_configured_membership_preserves_selected_labels_and_explicit_empty(
     hass: HomeAssistant,
 ) -> None:
@@ -1456,182 +1434,4 @@ async def test_profile_member_unknown_metadata_time_is_explicit_not_ha_freshness
     )
     await hass.async_block_till_done()
     assert not manager.snapshot(bounded.datapoint_id).available
-    await manager.async_stop()
-
-
-async def test_weather_whole_snapshot_station_fallback_and_missing_primary(
-    hass: HomeAssistant,
-) -> None:
-    first, second = _weather_sources(hass)
-    issued = datetime(2026, 9, 1, tzinfo=UTC)
-    hass.states.async_set(first.entity_id, "sunny", _weather_attributes(issued))
-    hass.states.async_set(
-        second.entity_id, "cloudy", _weather_attributes(issued, temperature=25)
-    )
-    config = _config(
-        first,
-        second,
-        kind="weather",
-        unit=None,
-        weather_station="Example Station",
-        weather_config_entry_id=first.config_entry_id,
-    )
-    assert DatapointConfig.from_dict(config.as_dict()) == config
-    validate_datapoint(hass, config)
-    manager = DatapointManager(hass, "unified", (config,))
-    await manager.async_start()
-    snapshot = manager.snapshot(config.datapoint_id)
-    assert isinstance(snapshot.value, WeatherSnapshot)
-    assert snapshot.value.temperature == 20
-    assert snapshot.value.condition == "sunny"
-    assert snapshot.value.wind_speed_unit == "km/h"
-    assert snapshot.observed_at is None
-    assert snapshot.source_context.provider_reported_at == issued
-    attrs = _weather_attributes(issued)
-    attrs["attribution"] = attrs["attribution"].replace(
-        "Example Station", "Other Station"
-    )
-    hass.states.async_set(first.entity_id, "sunny", attrs)
-    await hass.async_block_till_done()
-    snapshot = manager.snapshot(config.datapoint_id)
-    assert snapshot.fallback_used
-    assert snapshot.value.condition == "cloudy"
-    assert snapshot.value.temperature == 25
-    assert snapshot.source_statuses[0].status == "weather_station_mismatch"
-    er.async_get(hass).async_remove(first.entity_id)
-    await hass.async_block_till_done()
-    assert manager.snapshot(config.datapoint_id).available
-    assert manager.snapshot(config.datapoint_id).selected_source == second.entity_id
-    await manager.async_stop()
-
-
-async def test_weather_edit_rejects_new_provider_entry_even_at_same_station(
-    hass: HomeAssistant,
-) -> None:
-    first, second = _weather_sources(hass)
-    issued = dt_util.utcnow()
-    for source in (first, second):
-        hass.states.async_set(source.entity_id, "sunny", _weather_attributes(issued))
-    original = _config(
-        first,
-        second,
-        kind="weather",
-        unit=None,
-        weather_station="Example Station",
-        weather_config_entry_id=first.config_entry_id,
-    )
-    validate_datapoint(hass, original)
-    provider = MockConfigEntry(domain="ecobee", minor_version=5)
-    provider.add_to_hass(hass)
-    replacements = []
-    for serial in ("200000000001", "200000000002"):
-        device = dr.async_get(hass).async_get_or_create(
-            config_entry_id=provider.entry_id,
-            identifiers={("ecobee", serial)},
-        )
-        replacement = er.async_get(hass).async_get_or_create(
-            "weather",
-            "ecobee",
-            serial,
-            config_entry=provider,
-            device_id=device.id,
-        )
-        hass.states.async_set(
-            replacement.entity_id, "sunny", _weather_attributes(issued)
-        )
-        replacements.append(SourceBinding(replacement.id))
-    changed = replace(
-        original,
-        weather_config_entry_id=provider.entry_id,
-        sources=tuple(replacements),
-    )
-    validate_datapoint(hass, changed)
-    with pytest.raises(ValueError, match="datapoint_meaning_change"):
-        validate_datapoint_edit_sources(hass, original, changed)
-
-
-async def test_weather_scalar_temperature_and_native_device_proof(
-    hass: HomeAssistant,
-) -> None:
-    first, second = _weather_sources(hass)
-    issued = datetime(2026, 9, 1, tzinfo=UTC)
-    hass.states.async_set(
-        first.entity_id,
-        "sunny",
-        _weather_attributes(issued, temperature=68, temperature_unit="°F"),
-    )
-    hass.states.async_set(
-        second.entity_id, "sunny", _weather_attributes(issued, temperature=25)
-    )
-    config = _config(
-        kind="temperature",
-        unit="°C",
-        semantic="weather_temperature",
-        weather_station="Example Station",
-        weather_config_entry_id=first.config_entry_id,
-        sources=(
-            SourceBinding(first.id, "temperature"),
-            SourceBinding(second.id, "temperature"),
-        ),
-    )
-    validate_datapoint(hass, config)
-    manager = DatapointManager(hass, "unified", (config,))
-    await manager.async_start()
-    sensor = UnifiedDatapointSensor(manager, config)
-    assert sensor.device_entry is None
-    assert sensor.native_value == 20
-    assert first.device_id is not None
-    dr.async_get(hass).async_update_device(
-        first.device_id, new_identifiers={("ecobee", "wrong_thermostat")}
-    )
-    await hass.async_block_till_done()
-    assert sensor.native_value == 25
-    assert (
-        manager.snapshot(config.datapoint_id).source_statuses[0].status
-        == "weather_device_identity_mismatch"
-    )
-    with pytest.raises(ValueError, match="weather_device_identity_mismatch"):
-        validate_datapoint(hass, config)
-    await manager.async_stop()
-
-
-async def test_weather_provider_clock_not_ha_heartbeat_controls_freshness(
-    hass: HomeAssistant,
-    freezer: Any,
-) -> None:
-    now = datetime(2026, 9, 1, tzinfo=UTC)
-    freezer.move_to(now)
-    first, second = _weather_sources(hass)
-    attrs = _weather_attributes(now)
-    hass.states.async_set(first.entity_id, "sunny", attrs)
-    hass.states.async_set(second.entity_id, "cloudy", attrs)
-    config = _config(
-        first,
-        second,
-        kind="weather",
-        unit=None,
-        max_age_seconds=30,
-        weather_station="Example Station",
-        weather_config_entry_id=first.config_entry_id,
-    )
-    manager = DatapointManager(hass, "unified", (config,))
-    await manager.async_start()
-    freezer.move_to(now + timedelta(seconds=20))
-    hass.states.async_set(
-        second.entity_id, "cloudy", _weather_attributes(now + timedelta(seconds=20))
-    )
-    await hass.async_block_till_done()
-    freezer.move_to(now + timedelta(seconds=31))
-    hass.states.async_set(first.entity_id, "sunny", attrs)
-    async_fire_time_changed_exact(hass, now + timedelta(seconds=31))
-    await hass.async_block_till_done()
-    snapshot = manager.snapshot(config.datapoint_id)
-    assert snapshot.fallback_used
-    assert snapshot.source_statuses[0].status == "stale"
-    assert snapshot.source_context.provider_reported_at == now + timedelta(seconds=20)
-    hass.states.async_set(
-        first.entity_id, "sunny", _weather_attributes(now + timedelta(seconds=31))
-    )
-    await hass.async_block_till_done()
-    assert not manager.snapshot(config.datapoint_id).fallback_used
     await manager.async_stop()

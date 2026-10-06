@@ -13,7 +13,6 @@ PLATFORMS: Final = [
     "notify",
     "number",
     "sensor",
-    "weather",
 ]
 
 CONF_MAPPINGS: Final = "mappings"

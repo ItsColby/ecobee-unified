@@ -61,7 +61,7 @@ jobs:
           python -m pip check
         env:
           MATRIX_LANE: ${{ matrix.lane }}
-      - if: ${{ matrix.lane == 'current' }}
+      - if: matrix.lane == 'current'
         run: python -m mypy
       - run: python -m pytest tests
 

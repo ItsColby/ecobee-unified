@@ -17,7 +17,7 @@ forecasts, while keeping their station, units and report timing explicit.
 
 ## Is it suitable for my installation?
 
-You need Home Assistant Core **2026.8.0 or later**, plus a working HomeKit Device
+You need Home Assistant Core **2026.9.4 or later**, plus a working HomeKit Device
 climate and Ecobee climate for each thermostat. Their registry identities must
 match the same physical thermostat. Unified accepts no account credentials and
 cannot replace an unavailable source integration.

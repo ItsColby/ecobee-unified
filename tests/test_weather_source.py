@@ -168,7 +168,7 @@ class WeatherSourceTests(WeatherSourceFixture):
         )
         self.assertEqual(self.native_entry.entry_id, identity.config_entry_id)
         self.assertEqual("STATION-A", identity.station)
-        other_entry = MockConfigEntry(domain="ecobee")
+        other_entry = MockConfigEntry(domain="ecobee", minor_version=5)
         other_entry.add_to_hass(self.hass)
         other = self.registry.async_get_or_create(
             "weather",

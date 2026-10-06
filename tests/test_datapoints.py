@@ -25,7 +25,6 @@ from custom_components.ecobee_unified.datapoints import (
     DatapointConfig,
     DatapointManager,
     SourceBinding,
-    datapoint_observation_role,
     validate_datapoint,
     validate_datapoint_edit_sources,
 )
@@ -187,14 +186,6 @@ async def test_homogeneous_humidity_and_known_opaque_equivalence_preserve_fallba
     ):
         config = _config(sources=(SourceBinding(first.id, attribute), secondary))
         validate_datapoint(hass, config)
-        expected_role = (
-            "measured_humidity"
-            if attribute == "current_humidity"
-            else "target_humidity"
-        )
-        assert datapoint_observation_role(hass, config) == (
-            None if secondary.attribute == "opaque_percent" else expected_role
-        )
         manager = DatapointManager(hass, "unified", (config,))
         await manager.async_start()
         assert manager.snapshot(config.datapoint_id).value == 42
@@ -207,37 +198,6 @@ async def test_homogeneous_humidity_and_known_opaque_equivalence_preserve_fallba
         await hass.async_block_till_done()
         assert manager.snapshot(config.datapoint_id).value == 42
         await manager.async_stop()
-
-
-async def test_complete_observation_role_requires_every_native_binding_and_subject(
-    hass: HomeAssistant,
-) -> None:
-    first = _source(hass, "homekit_controller", domain="climate", unit=None)
-    second = _source(hass, "ecobee", domain="climate", unit=None)
-    config = _config(
-        sources=(
-            SourceBinding(first.id, "current_humidity"),
-            SourceBinding(second.id, "current_humidity"),
-        )
-    )
-    # Native roles remain known with no current source state; values are not proof.
-    assert datapoint_observation_role(hass, config) == "measured_humidity"
-    target = replace(
-        config, sources=(config.sources[0], SourceBinding(second.id, "humidity"))
-    )
-    assert datapoint_observation_role(hass, target) is None
-    assert second.device_id is not None
-    devices = dr.async_get(hass)
-    device = devices.async_get(second.device_id)
-    assert isinstance(device, dr.DeviceEntry)
-    devices.async_update_device(
-        device.id, new_identifiers={("ecobee", "different_subject")}
-    )
-    assert datapoint_observation_role(hass, config) is None
-    devices.async_update_device(device.id, new_identifiers={("ecobee", "SENSORA")})
-    assert datapoint_observation_role(hass, config) == "measured_humidity"
-    er.async_get(hass).async_remove(first.entity_id)
-    assert datapoint_observation_role(hass, config) is None
 
 
 @pytest.mark.parametrize("kind", ["humidity", "battery", "duration", "occupancy"])
@@ -319,7 +279,7 @@ async def test_unknown_attribute_and_missing_old_binding_cannot_authorize_replac
 
 
 def _weather_sources(hass: HomeAssistant) -> tuple[er.RegistryEntry, er.RegistryEntry]:
-    config = MockConfigEntry(domain="ecobee")
+    config = MockConfigEntry(domain="ecobee", minor_version=5)
     config.add_to_hass(hass)
     entries = []
     for serial in ("100000000001", "100000000002"):
@@ -719,7 +679,7 @@ async def test_registry_rename_rebinds_and_device_move_detaches_owned_helper(
     hass.states.async_set(first.entity_id, "40")
     hass.states.async_set(second.entity_id, "50")
     config = _config(first, second)
-    entry = MockConfigEntry(domain="ecobee_unified")
+    entry = MockConfigEntry(domain="ecobee_unified", minor_version=5)
     entry.add_to_hass(hass)
     manager = DatapointManager(hass, entry.entry_id, (config,))
     await manager.async_start()
@@ -1561,7 +1521,7 @@ async def test_weather_edit_rejects_new_provider_entry_even_at_same_station(
         weather_config_entry_id=first.config_entry_id,
     )
     validate_datapoint(hass, original)
-    provider = MockConfigEntry(domain="ecobee")
+    provider = MockConfigEntry(domain="ecobee", minor_version=5)
     provider.add_to_hass(hass)
     replacements = []
     for serial in ("200000000001", "200000000002"):

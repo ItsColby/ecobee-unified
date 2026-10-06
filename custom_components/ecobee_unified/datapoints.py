@@ -582,23 +582,6 @@ def _observation_role_error(hass: HomeAssistant, config: DatapointConfig) -> str
     return "source_observation_role_mismatch" if len(roles) > 1 else None
 
 
-def datapoint_observation_role(
-    hass: HomeAssistant, config: DatapointConfig
-) -> str | None:
-    """Prove one native role across all bindings for a stricter typed consumer.
-
-    An opaque or missing source cannot establish a role for the complete output.
-    This describes current registry evidence, not historical subject continuity.
-    """
-    if _identity_error(hass, config) is not None:
-        return None
-    roles = _edit_roles(hass, config)
-    if len(roles) != 1:
-        return None
-    token = next(iter(roles))
-    return token[1] if token[0] == "role" else None
-
-
 def _native_edit_role(
     hass: HomeAssistant,
     config: DatapointConfig,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from asyncio import CancelledError
-from copy import deepcopy
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -27,7 +26,7 @@ from .const import (
 )
 from .datapoints import BINARY_KINDS, DatapointConfig, DatapointManager
 from .manager import MappingManager
-from .models import MappingConfig, merge_mapping_data
+from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,25 +94,14 @@ async def async_unload_entry(
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Normalize supported schema revisions without guessing source identity."""
+    """Reject entries outside the supported schema; Core skips this at the current one."""
 
-    if entry.version != 1 or entry.minor_version > 5:
-        return False
-    normalized = [
-        merge_mapping_data(item, MappingConfig.from_dict(item).as_dict())
-        for item in entry.data.get(CONF_MAPPINGS, [])
-    ]
-    if not normalized:
-        return False
-    updated_data = deepcopy(dict(entry.data))
-    updated_data[CONF_MAPPINGS] = normalized
-    hass.config_entries.async_update_entry(
-        entry,
-        data=updated_data,
-        version=1,
-        minor_version=5,
+    _LOGGER.error(
+        "Unsupported config entry version %s.%s; remove and re-add the integration",
+        entry.version,
+        entry.minor_version,
     )
-    return True
+    return False
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

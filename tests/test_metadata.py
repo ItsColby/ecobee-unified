@@ -12,10 +12,10 @@ from pathlib import Path
 import yaml
 
 
-def _minimum_core_pin(pyproject: Path) -> str:
-    """Read the one stable exact Core pin in the ha-minimum dependency group."""
+def _core_pin(pyproject: Path) -> str:
+    """Read the one stable exact Core pin in the ha-current dependency group."""
     group = tomllib.loads(pyproject.read_text(encoding="utf-8"))["dependency-groups"][
-        "ha-minimum"
+        "ha-current"
     ]
     pins = [
         match.group(1)
@@ -28,16 +28,16 @@ def _minimum_core_pin(pyproject: Path) -> str:
         )
     ]
     if len(pins) != 1:
-        raise AssertionError("ha-minimum must contain one exact Home Assistant pin")
+        raise AssertionError("ha-current must contain one exact Home Assistant pin")
     return pins[0]
 
 
 class MetadataTests(unittest.TestCase):
-    def test_declared_minimum_matches_distribution_requirement(self) -> None:
+    def test_declared_minimum_matches_pinned_core(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        minimum = _minimum_core_pin(root / "pyproject.toml")
+        pinned = _core_pin(root / "pyproject.toml")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
-        self.assertEqual(hacs["homeassistant"], minimum)
+        self.assertEqual(hacs["homeassistant"], pinned)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (

@@ -51,7 +51,6 @@ from custom_components.ecobee_unified.climate import (
     EcobeeUnifiedClimate,
 )
 from custom_components.ecobee_unified.config_flow import (
-    EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
     _options_schema,
@@ -216,7 +215,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         entry.runtime_data = EcobeeUnifiedRuntime(self.manager)
@@ -326,7 +325,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -376,7 +375,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         return entry
@@ -522,7 +521,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             domain=DOMAIN,
             unique_id=DOMAIN,
             version=1,
-            minor_version=4,
+            minor_version=5,
             data={
                 CONF_MAPPINGS: [self.mapping.as_dict()],
                 "datapoints": [point.as_dict() for point in configs],
@@ -631,7 +630,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         with (
@@ -655,7 +654,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             title="Ecobee Unified",
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         start_entry.add_to_hass(self.hass)
         with (
@@ -718,7 +717,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         duplicate_entry = await self.hass.config_entries.flow.async_init(
@@ -2076,7 +2075,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id="optional_lifecycle",
             data={CONF_MAPPINGS: [mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         owner_entry.add_to_hass(self.hass)
         manager = MappingManager(self.hass, owner_entry.entry_id, (mapping,), {})
@@ -2245,7 +2244,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.flow.async_init(
@@ -2336,7 +2335,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
@@ -2426,7 +2425,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.flow.async_init(
@@ -2478,7 +2477,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
@@ -2568,7 +2567,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 "future_field": future_data,
             },
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
@@ -2637,7 +2636,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.flow.async_init(
@@ -2672,7 +2671,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             options={"future_option": future_option},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.options.async_init(entry.entry_id)
@@ -2788,7 +2787,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             options=original_options,
             version=1,
-            minor_version=3,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
@@ -2837,51 +2836,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual("configuration_changed", external["reason"])
         self.assertEqual(externally_updated, entry.options)
 
-    async def test_minor_schema_migration_normalizes_mapping_data(self) -> None:
-        self.assertEqual(5, EcobeeUnifiedConfigFlow.MINOR_VERSION)
-        retained_datapoint = DatapointConfig(
-            "retained_humidity",
-            "Retained humidity",
-            "humidity",
-            (
-                SourceBinding(self.homekit.id, "current_humidity"),
-                SourceBinding(self.ecobee.id, "current_humidity"),
-            ),
-            unit="%",
-        ).as_dict()
-        # Older optional datapoints have no accepted-range policy to enable.
-        retained_datapoint.pop("minimum_value", None)
-        retained_datapoint.pop("maximum_value", None)
-        legacy = self.mapping.as_dict() | {
-            "future_mapping_field": {"opaque": "preserve"},
-        }
-        entry = MockConfigEntry(
-            domain=DOMAIN,
-            title="Ecobee Unified",
-            unique_id=DOMAIN,
-            data={
-                CONF_MAPPINGS: [legacy],
-                "datapoints": [retained_datapoint],
-                "future_field": ["preserve"],
-            },
-            version=1,
-            minor_version=0,
-            options={
-                "future_option": {"opaque": "preserve"},
-            },
-        )
-        entry.add_to_hass(self.hass)
-        self.assertTrue(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(5, entry.minor_version)
-        self.assertEqual(
-            [self.mapping.as_dict() | {"future_mapping_field": {"opaque": "preserve"}}],
-            entry.data[CONF_MAPPINGS],
-        )
-        self.assertEqual(["preserve"], entry.data["future_field"])
-        self.assertEqual([retained_datapoint], entry.data["datapoints"])
-        self.assertEqual({"future_option": {"opaque": "preserve"}}, entry.options)
-
-    async def test_future_schema_fails_closed_without_rewriting_data(self) -> None:
+    async def test_unsupported_schema_fails_closed_without_rewriting_data(self) -> None:
         original_data = {CONF_MAPPINGS: [self.mapping.as_dict()]}
         entry = MockConfigEntry(
             domain=DOMAIN,
@@ -2909,16 +2864,16 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(original_data, future_minor.data)
         self.assertEqual({"future_policy": "preserve"}, future_minor.options)
 
-        empty_entry = MockConfigEntry(
+        old_minor = MockConfigEntry(
             domain=DOMAIN,
-            title="Ecobee Unified",
-            unique_id=DOMAIN,
-            data={CONF_MAPPINGS: []},
+            data=original_data,
             version=1,
-            minor_version=0,
+            minor_version=4,
         )
-        empty_entry.add_to_hass(self.hass)
-        self.assertFalse(await async_migrate_entry(self.hass, empty_entry))
+        old_minor.add_to_hass(self.hass)
+        self.assertFalse(await async_migrate_entry(self.hass, old_minor))
+        self.assertEqual(4, old_minor.minor_version)
+        self.assertEqual(original_data, old_minor.data)
 
     async def test_unrelated_registry_events_do_not_refresh_mappings(self) -> None:
         registry = er.async_get(self.hass)
@@ -4504,7 +4459,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         entry.runtime_data = EcobeeUnifiedRuntime(self.manager)
@@ -4629,7 +4584,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             version=1,
-            minor_version=1,
+            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))

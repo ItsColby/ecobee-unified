@@ -11,9 +11,6 @@ and the **Release gate** that requires them,
 policy. The [Dependabot auto-merge workflow](../.github/workflows/dependabot-auto-merge.yaml)
 merges its Actions and pre-commit updates once required checks pass.
 
-Local checks do not replace the hosted jobs. Neither route proves physical
-device behavior, authorizes a deployment, or publishes a release.
-
 ## Work on one change
 
 Install the static checks once and run them before pushing:

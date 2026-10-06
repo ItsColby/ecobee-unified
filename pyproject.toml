@@ -58,12 +58,6 @@ extend-select = [
   "T20",
   "TID",
 ]
-ignore = [
-  "ASYNC109",
-  "ASYNC110",
-  "ASYNC240",
-  "PLW0108",
-]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12

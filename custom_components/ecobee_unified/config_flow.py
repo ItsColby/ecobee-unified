@@ -26,8 +26,6 @@ from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
-    StatisticSelector,
-    StatisticSelectorConfig,
     TextSelector,
 )
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -42,7 +40,6 @@ from .const import (
     CONF_ECOBEE_NOTIFY_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
     CONF_ECOBEE_VOC_ENTITY,
-    CONF_HISTORICAL_FAMILIES,
     CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
     CONF_HOMEKIT_ENTITY,
     CONF_HOMEKIT_PRESET_ENTITY,
@@ -64,12 +61,6 @@ from .datapoints import (
     SourceBinding,
     validate_datapoint,
     validate_datapoint_edit_sources,
-)
-from .historical import HistoricalFamily
-from .history_source import (
-    SOURCE_CONTRACT_FIELDS,
-    SOURCE_TIMING_FIELDS,
-    async_capture_source,
 )
 from .models import READ_POLICIES, READ_POLICY_FIELDS, MappingConfig, merge_mapping_data
 from .source_contracts import (
@@ -139,20 +130,6 @@ DATAPOINT_KINDS = (
 )
 READ_POLICY_OPTIONS = ("homekit_first", "ecobee_first", "homekit_only", "ecobee_only")
 SOURCE_SLOTS = ("primary", "secondary", "tertiary")
-HISTORICAL_STATISTIC_SELECTOR = StatisticSelector(
-    StatisticSelectorConfig(multiple=False)
-)
-HISTORICAL_ANCHOR_SELECTOR = EntitySelector(
-    EntitySelectorConfig(
-        filter=[
-            {"domain": "sensor", "integration": "ecobee"},
-            {"domain": "sensor", "integration": "homekit_controller"},
-            {"domain": "sensor", "integration": DOMAIN},
-            {"domain": "sensor", "integration": "battery_notes"},
-            {"domain": "weather", "integration": "ecobee"},
-        ]
-    )
-)
 
 
 class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -168,8 +145,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._original_options: dict[str, Any] | None = None
         self._pending_datapoints: list[dict[str, Any]] = []
         self._selected_datapoint_id: str | None = None
-        self._pending_historical: list[dict[str, Any]] = []
-        self._selected_family_id: str | None = None
 
     @staticmethod
     def async_get_options_flow(
@@ -232,9 +207,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._pending_datapoints = deepcopy(
                 self._original_data.get("datapoints", [])
             )
-            self._pending_historical = deepcopy(
-                self._original_data.get(CONF_HISTORICAL_FAMILIES, [])
-            )
         return self.async_show_menu(
             step_id="reconfigure",
             menu_options=[
@@ -244,10 +216,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 and (
                     option not in {"datapoint_edit", "datapoint_remove"}
                     or self._pending_datapoints
-                )
-                and (
-                    option not in {"historical_edit", "historical_remove"}
-                    or self._pending_historical
                 )
             ],
         )
@@ -363,117 +331,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _selected_datapoint(self) -> dict[str, Any] | None:
         return _single_row(
             self._pending_datapoints, "datapoint_id", self._selected_datapoint_id
-        )
-
-    async def async_step_historical_add(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Stage one daily history family with explicit source associations."""
-        return await self._historical_form("historical_add", user_input)
-
-    async def async_step_historical_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if user_input is not None:
-            self._selected_family_id = str(user_input["family_id"])
-            return await self.async_step_historical_edit_confirm()
-        return self.async_show_form(
-            step_id="historical_edit",
-            data_schema=_row_selection_schema(self._pending_historical, "family_id"),
-        )
-
-    async def async_step_historical_edit_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        current = self._selected_historical()
-        if current is None:
-            return self.async_abort(reason="historical_identity_invalid")
-        if len(current.get("sources", [])) > len(SOURCE_SLOTS):
-            return self.async_abort(reason="historical_source_limit")
-        return await self._historical_form(
-            "historical_edit_confirm", user_input, current
-        )
-
-    async def _historical_form(
-        self,
-        step_id: str,
-        user_input: dict[str, Any] | None,
-        current: dict[str, Any] | None = None,
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            try:
-                updated = await _historical_from_input(self.hass, user_input, current)
-                _validate_historical_collection(
-                    [row for row in self._pending_historical if row is not current],
-                    updated,
-                )
-            except (ValueError, vol.Invalid) as err:
-                errors["base"] = str(err)
-            else:
-                if current is None:
-                    self._pending_historical.append(updated)
-                else:
-                    self._pending_historical = [
-                        updated if row is current else row
-                        for row in self._pending_historical
-                    ]
-                self._selected_family_id = None
-                return await self.async_step_reconfigure()
-        try:
-            defaults = (
-                user_input
-                if user_input is not None
-                else (_historical_form_defaults(self.hass, current) if current else {})
-            )
-        except KeyError, TypeError, ValueError:
-            return self.async_abort(reason="historical_not_supported")
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=_historical_schema(self.hass, defaults),
-            errors=errors,
-        )
-
-    async def async_step_historical_remove(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if not self._pending_historical:
-            return await self.async_step_reconfigure()
-        if user_input is not None:
-            self._selected_family_id = str(user_input["family_id"])
-            return await self.async_step_historical_remove_confirm()
-        return self.async_show_form(
-            step_id="historical_remove",
-            data_schema=_row_selection_schema(self._pending_historical, "family_id"),
-        )
-
-    async def async_step_historical_remove_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        current = self._selected_historical()
-        if current is None:
-            return self.async_abort(reason="historical_identity_invalid")
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            if user_input.get(CONF_CONFIRM_CHANGE, False):
-                self._pending_historical = [
-                    row for row in self._pending_historical if row is not current
-                ]
-                self._selected_family_id = None
-                return await self.async_step_reconfigure()
-            errors["base"] = "confirmation_required"
-        return self.async_show_form(
-            step_id="historical_remove_confirm",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_CONFIRM_CHANGE, default=False): BOOLEAN_SELECTOR}
-            ),
-            errors=errors,
-            description_placeholders={"name": str(current["name"])},
-        )
-
-    def _selected_historical(self) -> dict[str, Any] | None:
-        return _single_row(
-            self._pending_historical, "family_id", self._selected_family_id
         )
 
     async def async_step_reconfigure_add(
@@ -639,8 +496,6 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         accepted_data[CONF_MAPPINGS] = deepcopy(self._pending_mappings)
         if self._pending_datapoints or "datapoints" in original_data:
             accepted_data["datapoints"] = deepcopy(self._pending_datapoints)
-        if self._pending_historical or CONF_HISTORICAL_FAMILIES in original_data:
-            accepted_data[CONF_HISTORICAL_FAMILIES] = deepcopy(self._pending_historical)
 
         if user_input is None and accepted_data != original_data:
             return self.async_show_form(
@@ -717,27 +572,13 @@ def _review_sources(
 ) -> str:
     sources = []
     for index, source in enumerate(row.get("sources", []), 1):
-        if "statistic_id" in source:
-            statistic = source["statistic_id"]
-            name = (
-                _review_entity(hass, statistic, ambiguous)
-                if ":" not in statistic
-                else statistic
-            )
-            details = [
-                source.get("method", "").replace("_", " "),
-                source.get("native_unit") or "unitless",
-            ]
-            if source.get("transformation") not in (None, "identity"):
-                details.append(source["transformation"].replace("_", " "))
-        else:
-            name = _review_entity(hass, source.get("entity"), ambiguous)
-            details = [source.get("attribute") or "state"]
-            if source.get("unit"):
-                details.append(f"declared unit: {source['unit']}")
-            if source.get("timestamp_attribute"):
-                details.append(f"timestamp: {source['timestamp_attribute']}")
-            details.append(f"maximum age: {_review_age(source.get('max_age_seconds'))}")
+        name = _review_entity(hass, source.get("entity"), ambiguous)
+        details = [source.get("attribute") or "state"]
+        if source.get("unit"):
+            details.append(f"declared unit: {source['unit']}")
+        if source.get("timestamp_attribute"):
+            details.append(f"timestamp: {source['timestamp_attribute']}")
+        details.append(f"maximum age: {_review_age(source.get('max_age_seconds'))}")
         sources.append(f"{index}. {name} — {', '.join(details)}")
     return "; ".join(sources)
 
@@ -760,43 +601,27 @@ def _review_details(
         ):
             details[label] = _review_entity(hass, row.get(field), ambiguous)
         return details
-    details["Meaning"] = str(
-        row.get("semantic") or row.get("kind") or row.get("quantity")
-    ).replace("_", " ")
+    details["Meaning"] = str(row.get("semantic") or row.get("kind")).replace("_", " ")
     details["Output unit"] = row.get("unit") or "unitless"
     details["Sources in order"] = _review_sources(hass, row, ambiguous)
-    if collection == "datapoints":
-        details["Time basis"] = (
-            f"fixed interval: {row.get('interval_seconds'):g} seconds"
-            if row.get("time_basis") == "interval"
-            else "current observation"
-        )
-        details["Default maximum age"] = _review_age(row.get("max_age_seconds", 0))
-        details["Fallback"] = (
-            "use the next valid source" if row.get("fallback", True) else "primary only"
-        )
-        lower, upper = row.get("minimum_value"), row.get("maximum_value")
-        details["Accepted range"] = (
-            "no additional bounds"
-            if lower is None and upper is None
-            else f"{lower if lower is not None else 'no minimum'} to "
-            f"{upper if upper is not None else 'no maximum'} {row.get('unit') or ''}"
-        )
-        if row.get("weather_station"):
-            details["Weather station"] = row["weather_station"]
-    else:
-        details["Associated item"] = _review_entity(
-            hass, row.get("anchor_ref"), ambiguous
-        )
-        details["Day timezone"] = str(row.get("timezone"))
-        details["Selection"] = (
-            "fixed first source"
-            if row.get("policy", "fixed_source") == "fixed_source"
-            else "ordered whole-day selection"
-        )
-        details["Different aggregation methods"] = (
-            "accepted" if row.get("accept_cross_method", False) else "not accepted"
-        )
+    details["Time basis"] = (
+        f"fixed interval: {row.get('interval_seconds'):g} seconds"
+        if row.get("time_basis") == "interval"
+        else "current observation"
+    )
+    details["Default maximum age"] = _review_age(row.get("max_age_seconds", 0))
+    details["Fallback"] = (
+        "use the next valid source" if row.get("fallback", True) else "primary only"
+    )
+    lower, upper = row.get("minimum_value"), row.get("maximum_value")
+    details["Accepted range"] = (
+        "no additional bounds"
+        if lower is None and upper is None
+        else f"{lower if lower is not None else 'no minimum'} to "
+        f"{upper if upper is not None else 'no maximum'} {row.get('unit') or ''}"
+    )
+    if row.get("weather_station"):
+        details["Weather station"] = row["weather_station"]
     return details
 
 
@@ -813,13 +638,9 @@ def _review_ambiguous_entities(
                 CONF_HOMEKIT_ENTITY,
                 CONF_ECOBEE_ENTITY,
                 *OPTIONAL_SOURCE_KEYS,
-                "anchor_ref",
             )
         ]
-        references.extend(
-            source.get("entity") or source.get("statistic_id")
-            for source in row.get("sources", [])
-        )
+        references.extend(source.get("entity") for source in row.get("sources", []))
         for reference in references:
             if reference:
                 labels.setdefault(_review_entity(hass, reference), set()).add(reference)
@@ -834,7 +655,6 @@ def _reconfigure_summary(
     for collection, identity, label in (
         (CONF_MAPPINGS, CONF_MAPPING_ID, "Thermostat"),
         ("datapoints", "datapoint_id", "Datapoint"),
-        (CONF_HISTORICAL_FAMILIES, "family_id", "Daily history"),
     ):
         before = {row[identity]: row for row in original.get(collection, [])}
         after = {row[identity]: row for row in pending.get(collection, [])}
@@ -1092,171 +912,6 @@ def _row_selection_schema(rows: list[dict[str, Any]], key: str) -> vol.Schema:
             )
         }
     )
-
-
-def _historical_schema(hass: Any, defaults: dict[str, Any]) -> vol.Schema:
-    """Use native statistic selection and an explicit physical sensor anchor."""
-    schema: dict[vol.Marker, Any] = {}
-    for field, selector, default in (
-        ("name", TextSelector(), ""),
-        (
-            "quantity",
-            SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        "temperature",
-                        "humidity",
-                        "co2",
-                        "aqi",
-                        "voc",
-                        "battery",
-                        "weather_temperature",
-                        "weather_humidity",
-                    ],
-                    translation_key="historical_quantity",
-                )
-            ),
-            "temperature",
-        ),
-        (
-            "unit",
-            SelectSelector(
-                SelectSelectorConfig(
-                    options=["°C", "°F", "%", "ppm", "0-100", "native"],
-                )
-            ),
-            "°C",
-        ),
-        ("timezone", TextSelector(), hass.config.time_zone),
-        ("anchor_ref", HISTORICAL_ANCHOR_SELECTOR, ""),
-        (
-            "policy",
-            SelectSelector(
-                SelectSelectorConfig(
-                    options=["fixed_source", "ordered_daily"],
-                    translation_key="historical_policy",
-                )
-            ),
-            "fixed_source",
-        ),
-        ("accept_cross_method", BOOLEAN_SELECTOR, False),
-    ):
-        schema[vol.Required(field, default=defaults.get(field, default))] = selector
-    for slot in SOURCE_SLOTS:
-        key = f"{slot}_statistic"
-        marker = vol.Required if slot == "primary" else vol.Optional
-        schema[
-            marker(key, **({"default": defaults[key]} if key in defaults else {}))
-        ] = HISTORICAL_STATISTIC_SELECTOR
-    schema[vol.Required("confirm_association", default=False)] = BOOLEAN_SELECTOR
-    return vol.Schema(schema)
-
-
-def _historical_form_defaults(hass: Any, row: dict[str, Any]) -> dict[str, Any]:
-    family = HistoricalFamily.from_dict(row)
-    defaults = {
-        key: getattr(family, key)
-        for key in (
-            "name",
-            "quantity",
-            "unit",
-            "timezone",
-            "policy",
-            "accept_cross_method",
-        )
-    }
-    defaults["anchor_ref"] = _resolved_or_reference(
-        er.async_get(hass), family.anchor_ref
-    )
-    for slot, source in zip(SOURCE_SLOTS, family.sources, strict=False):
-        defaults[f"{slot}_statistic"] = source["statistic_id"]
-    return defaults
-
-
-async def _historical_from_input(
-    hass: Any, user_input: dict[str, Any], current: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    """Capture current native contracts without claiming historical continuity."""
-    previous = HistoricalFamily.from_dict(current) if current is not None else None
-    registry = er.async_get(hass)
-    reference = str(user_input.get("anchor_ref", ""))
-    entity_id = er.async_resolve_entity_id(registry, reference)
-    anchor = registry.async_get(entity_id) if entity_id else None
-    if anchor is None:
-        raise ValueError("historical_source_identity_unproven")
-    quantity = str(user_input.get("quantity", ""))
-    timezone = str(user_input.get("timezone", hass.config.time_zone))
-    if timezone != hass.config.time_zone:
-        raise ValueError("historical_timezone_mismatch")
-    statistic_ids = [
-        str(user_input[f"{slot}_statistic"])
-        for slot in SOURCE_SLOTS
-        if user_input.get(f"{slot}_statistic")
-    ]
-    if not user_input.get("primary_statistic") or len(set(statistic_ids)) != len(
-        statistic_ids
-    ):
-        raise ValueError("historical_sources_invalid")
-    old_sources = (
-        {source["statistic_id"]: source for source in previous.sources}
-        if previous
-        else {}
-    )
-    sources = []
-    for statistic_id in statistic_ids:
-        captured = await async_capture_source(hass, statistic_id, quantity, anchor.id)
-        if captured.get("timezone") != timezone:
-            raise ValueError("historical_timezone_mismatch")
-        retained = deepcopy(old_sources.get(statistic_id, {}))
-        # Replace owned optional contract fields as well as populated ones.
-        for key in SOURCE_CONTRACT_FIELDS | SOURCE_TIMING_FIELDS:
-            retained.pop(key, None)
-        source_id = retained.get("source_id", uuid4().hex)
-        sources.append(retained | captured | {"source_id": source_id})
-    family = HistoricalFamily.from_dict(
-        {
-            "family_id": previous.family_id if previous else uuid4().hex,
-            "name": str(user_input.get("name", "")).strip(),
-            "quantity": quantity,
-            "unit": str(user_input.get("unit", "")),
-            "timezone": timezone,
-            "anchor_ref": anchor.id,
-            "sources": sources,
-            "policy": user_input.get("policy", "fixed_source"),
-            "accept_cross_method": user_input.get("accept_cross_method", False),
-        }
-    )
-    if not user_input.get("confirm_association", False) and (
-        previous is None or _historical_contract_changed(previous, family)
-    ):
-        raise ValueError("historical_confirmation_required")
-    return deepcopy(current or {}) | family.as_dict()
-
-
-def _historical_contract_changed(
-    previous: HistoricalFamily, current: HistoricalFamily
-) -> bool:
-    def contract(family: HistoricalFamily) -> dict[str, Any]:
-        result = family.as_dict()
-        result.pop("name", None)
-        for source in result["sources"]:
-            for key in SOURCE_TIMING_FIELDS:
-                source.pop(key, None)
-        return result
-
-    return contract(previous) != contract(current)
-
-
-def _validate_historical_collection(
-    rows: list[dict[str, Any]], candidate: dict[str, Any]
-) -> None:
-    if any(row.get("family_id") == candidate["family_id"] for row in rows):
-        raise ValueError("historical_identity_invalid")
-    if any(
-        str(row.get("name", "")).strip().casefold() == candidate["name"].casefold()
-        for row in rows
-    ):
-        raise ValueError("historical_duplicate_name")
 
 
 class _TemperatureBoundSelector(NumberSelector):

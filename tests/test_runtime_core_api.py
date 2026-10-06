@@ -2261,8 +2261,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 not in {
                     "datapoint_edit",
                     "datapoint_remove",
-                    "historical_edit",
-                    "historical_remove",
                 }
             ),
             tuple(result["menu_options"]),

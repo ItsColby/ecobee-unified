@@ -130,9 +130,7 @@ def merge_mapping_data(
     """Apply a mapping delta without dropping future or unrecognized fields."""
 
     preserved = {
-        key: value
-        for key, value in original.items()
-        if key not in MAPPING_DATA_KEYS
+        key: value for key, value in original.items() if key not in MAPPING_DATA_KEYS
     }
     preserved.update(replacement)
     return preserved

@@ -124,69 +124,6 @@ Recorder attributes to avoid recording heartbeat-only changes. Recorder retains
 actual canonical state changes; earlier history is not rewritten. Stage and
 runtime remain reported thermostat evidence, not measured electrical operation.
 
-### Daily historical reads
-
-Historical families are separate, optional config-entry rows with stable family
-and source IDs, current native identity evidence, metadata signatures, quantity,
-calendar, units and explicit source policy. Reconfigure stages add/edit/remove
-operations and preserves unowned fields; confirmation of a current association
-does not prove historical continuity. Physical temperature is distinct from
-thermostat control/display temperature. Outdoor feeds use native station
-identity rather than thermostat-device equality.
-
-The administrator-only response actions list configured families and perform
-bounded daily reads. The reader groups compatible native units, requests
-`recorder.get_statistics` with the initiating context and normalizes only
-verified quantities. Day reads use the exclusive calendar end minus one
-microsecond because Core expands the containing day; hour reads use the exact
-exclusive end for bin coverage. Dates are bounded to 31 days and 16 selected
-families, using HA's calendar and actual UTC midnight boundaries.
-
-One in-flight read belongs to the entry runtime. Identity, metadata, timezone
-and configuration are rechecked around awaited reads; unload fences pending
-responses. Daily values and hourly coverage remain separate native reads, with
-an acquisition interval rather than a claim of an atomic database snapshot.
-Missing values stay null. A fixed source preserves gaps; accepted ordered
-selection chooses a whole daily source row and exposes all candidate reasons.
-
-Legacy Beestat daily aggregates are never projected into invented hourly
-samples. Native bin completeness, provider-window timing, importer timing,
-sample completeness and settlement are distinct. AQI forward scaling of raw
-daily aggregates retains the difference from provider per-sample rounding.
-VOC native values remain inspectable while equivalent selection is blocked on
-the unresolved units. No provider polling, statistics import, historical
-measurement entity or database is added.
-
-Explicitly bound Beestat v3 measurements use the separate
-qualified producer adapter.
-Discovery reads `hourly_statistics.history_v3`, captures the exact physical and
-representation contract, and resolves its declared legacy aliases through the
-existing association owner. Native Recorder metadata is not required before
-the producer adopts its declared destination. Existing legacy bindings retain
-their Recorder path. Runtime, degree-day and VOC descriptors are not admitted.
-
-The producer owns point reduction, native verification, correction and legacy
-day qualification. Unified consumes its daily buckets and preserves chosen
-basis, eligible intervals, point coverage and provenance separately. The
-`complete_points_else_legacy_day` policy requires explicit method acceptance,
-including for a fixed source. Partial observations cannot become eligible via
-the provisional-read option. Full-query summaries are retained once across
-pages and describe point evidence rather than selected legacy values.
-
-Configuration and coverage actions are read-only. Pagination pins a view token
-and evaluation time; a final page replay after native reads and source
-revalidation rejects stale proof. Root and coverage revisions remain distinct,
-and writer progress/confidence labels do not grant bucket eligibility. The
-schema-1 response retains native candidates and adds producer provenance only
-when requested. The entry's existing timeout, one-read limit, context and
-unload/configuration fences also govern producer reads. No persistent cache,
-polling, retry or write action is introduced.
-
-The [native script](../examples/ecobee_daily_history_report.yaml) consumes and
-returns the action response. Standard statistical cards retain their original
-statistic IDs; family IDs are not aliases in Recorder. See the
-[operating contract](user-guide.md#read-daily-historical-families).
-
 ### Compose other equivalent datapoints
 
 The same config entry stores explicit `DatapointConfig` records with stable IDs,
@@ -232,13 +169,6 @@ equivalence confirmation; they are not inferred from values. Intentional
 configured-membership bases retain their separate context. A deleted registry
 binding cannot supply role evidence that no longer exists.
 
-Historical measured-humidity admission resolves a Unified output to its exact
-saved datapoint and requires current, proven measured roles across every binding,
-plus agreement between those bindings and the output's physical identity. Target,
-mixed, interval, opaque or missing role evidence cannot enter that historical
-family, including as its anchor. The same boundary runs during source revalidation;
-it does not rewrite existing Recorder data or establish past continuity.
-
 Edits retaining a datapoint ID preserve its quantity, time basis, physical/feed
 subject and normalized observation role. Changed typed bindings must prove the
 same native physical identity across the old and new source groups. Native role
@@ -279,8 +209,7 @@ owned projection; source loss never substitutes another entity with the same nam
 This composes existing HA observations. Beestat retains historical acquisition,
 external statistics, imports, forecasts and gaps; Recorder retains storage.
 Long-term statistics are not silently converted into current sensor inputs.
-Historical families use the separate daily read contract; current datapoints
-do not backfill or reconcile separately stored statistics.
+Current datapoints do not backfill or reconcile separately stored statistics.
 Each optional output is adopted by consumers explicitly, avoiding duplicate
 physical probes in label-based aggregates.
 
@@ -385,7 +314,7 @@ The confirmation timer starts after successful writer return when the command is
 
 The native flow owns one config entry with a nonempty mapping collection.
 Reconfigure stages adds, edits, and removals across thermostat mappings,
-datapoints, and daily history. Save opens a changed-only native review with
+and datapoints. Save opens a changed-only native review with
 source labels, order, and material selection policy; submitting that review
 saves only if both entry data and options still match their original snapshots.
 An unchanged save exits without a review or reload. Writer-reference changes

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from asyncio import CancelledError
 from copy import deepcopy
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -27,8 +26,6 @@ from .const import (
     SUFFIX_VOC,
 )
 from .datapoints import BINARY_KINDS, DatapointConfig, DatapointManager
-from .historical import HistoricalFamily, HistoricalManager
-from .history_service import async_register_history_service
 from .manager import MappingManager
 from .models import MappingConfig, merge_mapping_data
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
@@ -36,13 +33,6 @@ from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-
-
-async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Set up the integration package without external I/O."""
-
-    async_register_history_service(hass)
-    return True
 
 
 async def async_setup_entry(
@@ -62,16 +52,7 @@ async def async_setup_entry(
         if datapoint_configs
         else None
     )
-    historical_families = tuple(
-        HistoricalFamily.from_dict(item)
-        for item in entry.data.get("historical_families", [])
-    )
-    history = (
-        HistoricalManager(hass, entry, historical_families)
-        if historical_families
-        else None
-    )
-    entry.runtime_data = EcobeeUnifiedRuntime(manager, datapoints, history)
+    entry.runtime_data = EcobeeUnifiedRuntime(manager, datapoints)
     _remove_orphaned_entities(hass, entry, mappings, datapoint_configs)
     platforms = _platforms_for_mappings(mappings, datapoint_configs)
     try:
@@ -88,8 +69,6 @@ async def async_setup_entry(
             await manager.async_stop()
             if datapoints is not None:
                 await datapoints.async_stop()
-            if history is not None:
-                await history.async_stop()
         raise
     return True
 
@@ -112,8 +91,6 @@ async def async_unload_entry(
     await entry.runtime_data.manager.async_stop()
     if entry.runtime_data.datapoints is not None:
         await entry.runtime_data.datapoints.async_stop()
-    if entry.runtime_data.history is not None:
-        await entry.runtime_data.history.async_stop()
     return True
 
 

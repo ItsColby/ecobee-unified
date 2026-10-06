@@ -29,9 +29,6 @@ TEMPERATURE_CONFIRMATION_FIELDS = frozenset(
 )
 DEFAULT_NUMERIC_CONFIRMATION_TOLERANCE = 0.11
 FLOAT_COMPARISON_EPSILON = 1e-9
-RETIRED_MAPPING_DATA_KEYS = frozenset(
-    {"scheduled_profile_entity", "next_transition_entity"}
-)
 
 ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.500001}
 ECOBEE_ROUNDING_ENVELOPE = {"°C": 0.050001, "°F": 0.050001}
@@ -135,7 +132,7 @@ def merge_mapping_data(
     preserved = {
         key: value
         for key, value in original.items()
-        if key not in MAPPING_DATA_KEYS and key not in RETIRED_MAPPING_DATA_KEYS
+        if key not in MAPPING_DATA_KEYS
     }
     preserved.update(replacement)
     return preserved

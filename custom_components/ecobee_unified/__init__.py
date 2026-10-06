@@ -130,13 +130,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     updated_data = deepcopy(dict(entry.data))
     updated_data[CONF_MAPPINGS] = normalized
-    updated_options = deepcopy(dict(entry.options))
-    for retired_key in ("homekit_stale_seconds", "beestat_stale_seconds"):
-        updated_options.pop(retired_key, None)
     hass.config_entries.async_update_entry(
         entry,
         data=updated_data,
-        options=updated_options,
         version=1,
         minor_version=5,
     )

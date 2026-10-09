@@ -425,8 +425,8 @@
           "ventilating": "Ventilating",
           "multiple": "Multiple",
           "unknown": "Unknown",
-          "cooling": "Cooling (stage unavailable)",
-          "heating": "Heating (stage unavailable)",
+          "cooling": "Cooling",
+          "heating": "Heating",
           "drying": "Drying",
           "defrosting": "Defrosting",
           "preheating": "Preheating"

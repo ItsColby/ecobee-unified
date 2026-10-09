@@ -102,11 +102,12 @@ per hour, from 0 to 60 in five-minute increments. **Equipment stage** follows
 the selected current action and adds a reported stage when the cloud detail
 agrees. Until the cloud's equipment detail confirms a stage (it typically lags
 the local action by a few minutes), the sensor shows the plain action,
-**Cooling** or **Heating**, and `detail_status` says why. Idle cannot simultaneously display a canonical cooling stage.
-The separate `reported_equipment_stage` attribute preserves cloud detail,
-including ambiguous reports; `detail_status` explains whether it agrees.
-Report timestamps describe HA receipt, not exact equipment transitions.
-This state is neither electrical metering nor a measurement of performance.
+**Cooling** or **Heating**, and `detail_status` says why. Idle cannot
+simultaneously display a canonical cooling stage. The separate
+`reported_equipment_stage` attribute preserves cloud detail, including
+ambiguous reports; `detail_status` explains whether it agrees. Report
+timestamps describe HA receipt, not exact equipment transitions. This state is
+neither electrical metering nor a measurement of performance.
 
 Mapped air-quality entities are opt-in. Selecting an AQI, CO2, or VOC source
 creates its Unified entity disabled; enable it from the entity's settings when

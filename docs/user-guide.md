@@ -100,8 +100,9 @@ data:
 Alongside the climate, **Minimum fan runtime** sets Ecobee's minimum fan minutes
 per hour, from 0 to 60 in five-minute increments. **Equipment stage** follows
 the selected current action and adds a reported stage when the cloud detail
-agrees. Cooling without compatible stage evidence displays **Cooling (stage
-unavailable)**. Idle cannot simultaneously display a canonical cooling stage.
+agrees. Until the cloud's equipment detail confirms a stage (it typically lags
+the local action by a few minutes), the sensor shows the plain action,
+**Cooling** or **Heating**, and `detail_status` says why. Idle cannot simultaneously display a canonical cooling stage.
 The separate `reported_equipment_stage` attribute preserves cloud detail,
 including ambiguous reports; `detail_status` explains whether it agrees.
 Report timestamps describe HA receipt, not exact equipment transitions.

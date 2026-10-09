@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import patch
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import EntityCategory
 from homeassistant.core import ServiceCall
@@ -90,7 +90,7 @@ class HomeKitActionRoleTests(CoreRuntimeTestCase):
         ):
             with self.subTest(metadata=metadata):
                 self.registry.async_update_entity(source.entity_id, **metadata)
-                with self.assertRaisesRegex(vol.Invalid, error):
+                with self.assertRaisesRegex(probatio.Invalid, error):
                     _mapping_from_input(self.hass, self._mapping_input())
                 self.registry.async_update_entity(
                     source.entity_id, **dict.fromkeys(metadata)
@@ -114,7 +114,7 @@ class HomeKitActionRoleTests(CoreRuntimeTestCase):
                     self.preset.entity_id, "unknown", {"options": options}
                 )
                 with self.assertRaisesRegex(
-                    vol.Invalid, "invalid_homekit_preset_source"
+                    probatio.Invalid, "invalid_homekit_preset_source"
                 ):
                     _mapping_from_input(self.hass, self._mapping_input())
         self.hass.states.async_set(

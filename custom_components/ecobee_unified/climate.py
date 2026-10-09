@@ -6,7 +6,7 @@ from datetime import date as dt_date
 from datetime import time as dt_time
 from typing import Any, override
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ClimateEntityFeature,
@@ -72,7 +72,7 @@ def _date_string(value: Any) -> str:
         if dt_date.fromisoformat(result).isoformat() != result:
             raise ValueError
     except ValueError as err:
-        raise vol.Invalid("Date must use YYYY-MM-DD") from err
+        raise probatio.Invalid("Date must use YYYY-MM-DD") from err
     return result
 
 
@@ -82,42 +82,42 @@ def _time_string(value: Any) -> str:
         if len(result) != 8 or dt_time.fromisoformat(result).isoformat() != result:
             raise ValueError
     except ValueError as err:
-        raise vol.Invalid("Time must use HH:MM:SS") from err
+        raise probatio.Invalid("Time must use HH:MM:SS") from err
     return result
 
 
-CREATE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Required(ATTR_VACATION_NAME): vol.All(
-        cv.string, str.strip, vol.Length(min=1, max=12)
+CREATE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
+    probatio.Required(ATTR_VACATION_NAME): probatio.All(
+        cv.string, str.strip, probatio.Length(min=1, max=12)
     ),
-    vol.Required(ATTR_COOL_TEMP): vol.Coerce(float),
-    vol.Required(ATTR_HEAT_TEMP): vol.Coerce(float),
-    vol.Inclusive(ATTR_START_DATE, "start"): _date_string,
-    vol.Inclusive(ATTR_START_TIME, "start"): _time_string,
-    vol.Inclusive(ATTR_END_DATE, "end"): _date_string,
-    vol.Inclusive(ATTR_END_TIME, "end"): _time_string,
-    vol.Optional(ATTR_FAN_MODE, default="auto"): vol.In({"auto", "on"}),
-    vol.Optional(ATTR_FAN_MIN_ON_TIME, default=0): vol.All(
-        int, vol.Range(min=0, max=60)
+    probatio.Required(ATTR_COOL_TEMP): probatio.Coerce(float),
+    probatio.Required(ATTR_HEAT_TEMP): probatio.Coerce(float),
+    probatio.Inclusive(ATTR_START_DATE, "start"): _date_string,
+    probatio.Inclusive(ATTR_START_TIME, "start"): _time_string,
+    probatio.Inclusive(ATTR_END_DATE, "end"): _date_string,
+    probatio.Inclusive(ATTR_END_TIME, "end"): _time_string,
+    probatio.Optional(ATTR_FAN_MODE, default="auto"): probatio.In({"auto", "on"}),
+    probatio.Optional(ATTR_FAN_MIN_ON_TIME, default=0): probatio.All(
+        int, probatio.Range(min=0, max=60)
     ),
 }
-DELETE_VACATION_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Required(ATTR_VACATION_NAME): vol.All(
-        cv.string, str.strip, vol.Length(min=1, max=12)
+DELETE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
+    probatio.Required(ATTR_VACATION_NAME): probatio.All(
+        cv.string, str.strip, probatio.Length(min=1, max=12)
     )
 }
-SET_OCCUPANCY_MODES_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Optional(ATTR_AUTO_AWAY): cv.boolean,
-    vol.Optional(ATTR_FOLLOW_ME): cv.boolean,
+SET_OCCUPANCY_MODES_SCHEMA: dict[str | probatio.Marker, Any] = {
+    probatio.Optional(ATTR_AUTO_AWAY): cv.boolean,
+    probatio.Optional(ATTR_FOLLOW_ME): cv.boolean,
 }
-SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | vol.Marker, Any] = {
-    vol.Optional(ATTR_PRESET_MODE): vol.All(
-        cv.string, str.strip, vol.Length(min=1, max=64)
+SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | probatio.Marker, Any] = {
+    probatio.Optional(ATTR_PRESET_MODE): probatio.All(
+        cv.string, str.strip, probatio.Length(min=1, max=64)
     ),
-    vol.Required(ATTR_DEVICE_IDS): vol.All(
+    probatio.Required(ATTR_DEVICE_IDS): probatio.All(
         cv.ensure_list,
         [cv.string],
-        vol.Length(min=1, max=32),
+        probatio.Length(min=1, max=32),
     ),
 }
 
@@ -503,7 +503,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             if end_date is not None and end_time is not None:
                 _date_string(end_date)
                 _time_string(end_time)
-        except vol.Invalid:
+        except probatio.Invalid:
             raise_validation("invalid_vacation_period")
         if all(
             value is not None for value in (start_date, start_time, end_date, end_time)

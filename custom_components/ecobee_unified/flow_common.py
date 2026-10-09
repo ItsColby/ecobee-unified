@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -48,10 +48,10 @@ def _single_row(
     return matches[0] if len(matches) == 1 else None
 
 
-def _row_selection_schema(rows: list[dict[str, Any]], key: str) -> vol.Schema:
-    return vol.Schema(
+def _row_selection_schema(rows: list[dict[str, Any]], key: str) -> probatio.Schema:
+    return probatio.Schema(
         {
-            vol.Required(key): SelectSelector(
+            probatio.Required(key): SelectSelector(
                 SelectSelectorConfig(
                     options=[
                         SelectOptionDict(value=str(row[key]), label=str(row["name"]))

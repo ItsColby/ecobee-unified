@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.core import HomeAssistant
 
@@ -31,7 +31,7 @@ class ReloadSilentTemperatureSourceFlow(RepairsFlow):
         if user_input is None:
             return self.async_show_form(
                 step_id="confirm",
-                data_schema=vol.Schema({}),
+                data_schema=probatio.Schema({}),
                 description_placeholders={"source": source_entry.title},
             )
         if not await self.hass.config_entries.async_reload(source_entry.entry_id):

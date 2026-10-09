@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Any
 from unittest.mock import patch
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import UnitOfDensity, UnitOfRatio
@@ -113,7 +113,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
 
                     for invalid_name in ("   ", f"  {name}x  "):
                         calls.clear()
-                        with self.assertRaises(vol.Invalid):
+                        with self.assertRaises(probatio.Invalid):
                             await self.hass.services.async_call(
                                 DOMAIN,
                                 service,
@@ -590,7 +590,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                     await self.hass.async_block_till_done()
                     await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.01)
                     with self.assertRaisesRegex(
-                        vol.Invalid, "invalid_homekit_temperature_source"
+                        probatio.Invalid, "invalid_homekit_temperature_source"
                     ):
                         _mapping_from_input(self.hass, inputs)
                     snapshot = manager.snapshot(mapping.mapping_id)
@@ -763,7 +763,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                     foreign.entity_id, original_state.state, original_state.attributes
                 )
                 with self.assertRaisesRegex(
-                    vol.Invalid, f"invalid_{original.platform}_source"
+                    probatio.Invalid, f"invalid_{original.platform}_source"
                 ):
                     configure({**defaults, key: foreign.entity_id})
                 self.assertNotIn(key, configure({**defaults, key: None}))

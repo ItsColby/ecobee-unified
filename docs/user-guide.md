@@ -9,7 +9,7 @@ and [ecobee](https://www.home-assistant.io/integrations/ecobee/) instructions.
 
 ## Bring a thermostat into the shared view
 
-Install on Home Assistant Core 2026.9.4 or later. In HACS, add
+Install on Home Assistant Core 2026.10.0 or later. In HACS, add
 `https://github.com/ItsColby/ecobee-unified` as a custom repository of type
 **Integration** and download it. The [HACS dashboard guide](https://hacs.xyz/docs/use/repositories/dashboard/)
 explains custom repositories. Alternatively, copy `custom_components/ecobee_unified`

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import uuid4
 
-import voluptuous as vol
+import probatio
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -68,37 +68,37 @@ def _mapping_schema(
     *,
     include_add: bool = False,
     include_confirmation: bool = False,
-) -> vol.Schema:
-    schema: dict[vol.Marker, Any] = {
-        vol.Required(
+) -> probatio.Schema:
+    schema: dict[probatio.Marker, Any] = {
+        probatio.Required(
             CONF_NAME,
             description={"suggested_value": defaults.get(CONF_NAME, "")},
         ): TextSelector(),
-        vol.Required(
+        probatio.Required(
             CONF_HOMEKIT_ENTITY,
             description={"suggested_value": defaults.get(CONF_HOMEKIT_ENTITY, "")},
         ): HOMEKIT_CLIMATE_SELECTOR,
-        vol.Required(
+        probatio.Required(
             CONF_ECOBEE_ENTITY,
             description={"suggested_value": defaults.get(CONF_ECOBEE_ENTITY, "")},
         ): ECOBEE_CLIMATE_SELECTOR,
-        vol.Optional(
+        probatio.Optional(
             CONF_HOMEKIT_PRESET_ENTITY,
             description={"suggested_value": defaults.get(CONF_HOMEKIT_PRESET_ENTITY)},
         ): HOMEKIT_SELECT_SELECTOR,
-        vol.Optional(
+        probatio.Optional(
             CONF_HOMEKIT_CLEAR_HOLD_ENTITY,
             description={
                 "suggested_value": defaults.get(CONF_HOMEKIT_CLEAR_HOLD_ENTITY)
             },
         ): HOMEKIT_BUTTON_SELECTOR,
-        vol.Optional(
+        probatio.Optional(
             CONF_HOMEKIT_TEMPERATURE_ENTITY,
             description={
                 "suggested_value": defaults.get(CONF_HOMEKIT_TEMPERATURE_ENTITY)
             },
         ): HOMEKIT_SENSOR_SELECTOR,
-        vol.Optional(
+        probatio.Optional(
             CONF_ECOBEE_NOTIFY_ENTITY,
             description={"suggested_value": defaults.get(CONF_ECOBEE_NOTIFY_ENTITY)},
         ): ECOBEE_NOTIFY_SELECTOR,
@@ -109,20 +109,20 @@ def _mapping_schema(
         CONF_ECOBEE_VOC_ENTITY,
     ):
         schema[
-            vol.Optional(
+            probatio.Optional(
                 key,
                 description={"suggested_value": defaults.get(key)},
             )
         ] = ECOBEE_SENSOR_SELECTOR
     if include_add:
         schema[
-            vol.Required(
+            probatio.Required(
                 CONF_ADD_ANOTHER, default=defaults.get(CONF_ADD_ANOTHER, False)
             )
         ] = BOOLEAN_SELECTOR
     if include_confirmation:
-        schema[vol.Required(CONF_CONFIRM_CHANGE, default=False)] = BOOLEAN_SELECTOR
-    return vol.Schema(schema)
+        schema[probatio.Required(CONF_CONFIRM_CHANGE, default=False)] = BOOLEAN_SELECTOR
+    return probatio.Schema(schema)
 
 
 def _mapping_from_input(
@@ -133,7 +133,7 @@ def _mapping_from_input(
 ) -> dict[str, str]:
     name = str(user_input[CONF_NAME]).strip()
     if not name or len(name) > 64:
-        raise vol.Invalid("invalid_name")
+        raise probatio.Invalid("invalid_name")
     _validate_candidate_optional_sources(user_input)
     homekit_entity = _entity_reference(
         hass,
@@ -153,13 +153,13 @@ def _mapping_from_input(
     ecobee_device_id = _reference_device_id(hass, ecobee_entity)
     identity_status = physical_identity_status(hass, homekit_entity, ecobee_entity)
     if identity_status is PhysicalIdentityStatus.MISMATCH:
-        raise vol.Invalid("physical_device_mismatch")
+        raise probatio.Invalid("physical_device_mismatch")
     if identity_status is PhysicalIdentityStatus.UNPROVEN and not (
         preserved is not None
         and homekit_entity == preserved.homekit_entity
         and ecobee_entity == preserved.ecobee_entity
     ):
-        raise vol.Invalid("physical_device_identity_unproven")
+        raise probatio.Invalid("physical_device_identity_unproven")
     mapping = MappingConfig(
         mapping_id=mapping_id or uuid4().hex,
         name=name,
@@ -240,11 +240,11 @@ def _entity_reference(
     if entry is None and preserve_reference and entity_id == preserve_reference:
         return preserve_reference
     if entry is None or entry.platform != platform or entry.domain != domain:
-        raise vol.Invalid(f"invalid_{platform}_source")
+        raise probatio.Invalid(f"invalid_{platform}_source")
     if platform == "homekit_controller" and (
         entry.device_id is None or dr.async_get(hass).async_get(entry.device_id) is None
     ):
-        raise vol.Invalid("homekit_device_required")
+        raise probatio.Invalid("homekit_device_required")
     return entry.id
 
 
@@ -268,9 +268,9 @@ def _optional_entity_reference(
         # An absent parent can preserve saved intent, but cannot establish the
         # physical association of a newly selected optional source.
         if reference != preserve_reference:
-            raise vol.Invalid(f"invalid_{platform}_source")
+            raise probatio.Invalid(f"invalid_{platform}_source")
     elif _reference_device_id(hass, reference) != required_device_id:
-        raise vol.Invalid(f"invalid_{platform}_source")
+        raise probatio.Invalid(f"invalid_{platform}_source")
     return reference
 
 
@@ -310,7 +310,7 @@ def _homekit_action_reference(
     if reference is None or _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if not homekit_action_contract_valid(hass, reference, role):
-        raise vol.Invalid(f"invalid_homekit_{role}_source")
+        raise probatio.Invalid(f"invalid_homekit_{role}_source")
     return reference
 
 
@@ -334,7 +334,7 @@ def _temperature_entity_reference(
     if _preserved_unresolved(hass, reference, preserve_reference):
         return reference
     if temperature_source_unit(hass, reference) is None:
-        raise vol.Invalid("invalid_homekit_temperature_source")
+        raise probatio.Invalid("invalid_homekit_temperature_source")
     return reference
 
 
@@ -362,7 +362,7 @@ def _air_quality_entity_reference(
     if not sensor_contract_valid(
         hass, reference, AIR_QUALITY_SENSOR_CONTRACTS[contract_name]
     ):
-        raise vol.Invalid(error_key)
+        raise probatio.Invalid(error_key)
     return reference
 
 
@@ -373,7 +373,7 @@ def _validate_candidate_optional_sources(candidate: dict[str, Any]) -> None:
         if (reference := candidate.get(key))
     ]
     if len(references) != len(set(references)):
-        raise vol.Invalid("duplicate_optional_source")
+        raise probatio.Invalid("duplicate_optional_source")
 
 
 def _validate_no_duplicate_sources(
@@ -386,16 +386,16 @@ def _validate_no_duplicate_sources(
     }
     for mapping in existing:
         if mapping[CONF_NAME].strip().casefold() == candidate_name:
-            raise vol.Invalid("duplicate_mapping_name")
+            raise probatio.Invalid("duplicate_mapping_name")
         if mapping[CONF_HOMEKIT_ENTITY] == candidate[CONF_HOMEKIT_ENTITY]:
-            raise vol.Invalid("duplicate_homekit_source")
+            raise probatio.Invalid("duplicate_homekit_source")
         if mapping[CONF_ECOBEE_ENTITY] == candidate[CONF_ECOBEE_ENTITY]:
-            raise vol.Invalid("duplicate_ecobee_source")
+            raise probatio.Invalid("duplicate_ecobee_source")
         existing_optional = {
             reference for key in OPTIONAL_SOURCE_KEYS if (reference := mapping.get(key))
         }
         if candidate_optional & existing_optional:
-            raise vol.Invalid("duplicate_optional_source")
+            raise probatio.Invalid("duplicate_optional_source")
 
 
 def _mapping_selector(mappings: list[dict[str, str]]) -> SelectSelector:

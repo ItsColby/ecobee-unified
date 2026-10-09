@@ -8,7 +8,7 @@ from math import isfinite
 from typing import Any
 from uuid import uuid4
 
-import voluptuous as vol
+import probatio
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -61,13 +61,13 @@ class _TemperatureBoundSelector(NumberSelector):
 
     def __call__(self, data: Any) -> float:
         if isinstance(data, bool):
-            raise vol.Invalid("invalid_accepted_range")
+            raise probatio.Invalid("invalid_accepted_range")
         return super().__call__(data)
 
 
-def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
+def _datapoint_schema(defaults: dict[str, Any]) -> probatio.Schema:
     """Describe quantities and each ordered source without guessing names."""
-    schema: dict[vol.Marker, Any] = {}
+    schema: dict[probatio.Marker, Any] = {}
     for field, selector, default in (
         ("name", TextSelector(), ""),
         (
@@ -112,7 +112,9 @@ def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
         ),
         ("fallback", BOOLEAN_SELECTOR, True),
     ):
-        schema[vol.Required(field, default=defaults.get(field, default))] = selector
+        schema[probatio.Required(field, default=defaults.get(field, default))] = (
+            selector
+        )
     for field, selector in (
         ("unit", TextSelector()),
         (
@@ -135,11 +137,13 @@ def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
         ),
     ):
         schema[
-            vol.Optional(field, description={"suggested_value": defaults.get(field)})
+            probatio.Optional(
+                field, description={"suggested_value": defaults.get(field)}
+            )
         ] = selector
     for slot in SOURCE_SLOTS:
         entity_field = f"{slot}_entity"
-        marker = vol.Optional if slot == "tertiary" else vol.Required
+        marker = probatio.Optional if slot == "tertiary" else probatio.Required
         schema[
             marker(
                 entity_field,
@@ -149,20 +153,20 @@ def _datapoint_schema(defaults: dict[str, Any]) -> vol.Schema:
         for suffix in ("attribute", "timestamp_attribute", "unit"):
             field = f"{slot}_{suffix}"
             schema[
-                vol.Optional(
+                probatio.Optional(
                     field, description={"suggested_value": defaults.get(field)}
                 )
             ] = TextSelector()
         age_field = f"{slot}_max_age_seconds"
         schema[
-            vol.Optional(
+            probatio.Optional(
                 age_field, description={"suggested_value": defaults.get(age_field)}
             )
         ] = NumberSelector(
             NumberSelectorConfig(min=0, step=1, mode=NumberSelectorMode.BOX)
         )
-    schema[vol.Required("confirm_equivalence", default=False)] = BOOLEAN_SELECTOR
-    return vol.Schema(schema)
+    schema[probatio.Required("confirm_equivalence", default=False)] = BOOLEAN_SELECTOR
+    return probatio.Schema(schema)
 
 
 def _datapoint_from_input(
@@ -171,18 +175,18 @@ def _datapoint_from_input(
     registry = er.async_get(hass)
     name = str(user_input.get("name", "")).strip()
     if not name or len(name) > 64:
-        raise vol.Invalid("invalid_name")
+        raise probatio.Invalid("invalid_name")
     sources = []
     for slot in SOURCE_SLOTS:
         selected = user_input.get(f"{slot}_entity")
         if not selected:
             if slot != "tertiary":
-                raise vol.Invalid("datapoint_source_missing")
+                raise probatio.Invalid("datapoint_source_missing")
             continue
         entity_id = er.async_resolve_entity_id(registry, str(selected))
         entry = registry.async_get(entity_id) if entity_id else None
         if entry is None or entry.domain not in DATAPOINT_DOMAINS:
-            raise vol.Invalid("datapoint_source_missing")
+            raise probatio.Invalid("datapoint_source_missing")
         sources.append(
             SourceBinding(
                 entry.id,
@@ -223,7 +227,7 @@ def _datapoint_from_input(
     if not user_input.get("confirm_equivalence", False) and (
         current is None or _datapoint_contract_changed(current, config)
     ):
-        raise vol.Invalid("datapoint_equivalence_required")
+        raise probatio.Invalid("datapoint_equivalence_required")
     result = deepcopy(current or {})
     canonical = config.as_dict()
     # Clear nullable owned fields before overlay; retain unknown future fields.
@@ -279,7 +283,7 @@ def _datapoint_with_range(
             getattr(previous, field) is not None for field in bounds
         ):
             if any(bounds[field] != getattr(previous, field) for field in bounds):
-                raise vol.Invalid("datapoint_range_unit_change")
+                raise probatio.Invalid("datapoint_range_unit_change")
             assert previous.unit is not None and config.unit is not None
             bounds = {
                 field: None
@@ -300,13 +304,13 @@ def _finite_float(value: Any, message: str) -> float:
     """Return one finite non-boolean number or raise one form validation error."""
 
     if isinstance(value, bool):
-        raise vol.Invalid(message)
+        raise probatio.Invalid(message)
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError) as err:
-        raise vol.Invalid(message) from err
+        raise probatio.Invalid(message) from err
     if not isfinite(number):
-        raise vol.Invalid(message)
+        raise probatio.Invalid(message)
     return number
 
 
@@ -330,13 +334,13 @@ def _validate_datapoint_edit_meaning(
             and current.kind not in {"temperature", "duration"}
         )
     ):
-        raise vol.Invalid("datapoint_meaning_change")
+        raise probatio.Invalid("datapoint_meaning_change")
     # Generic numbers/text have no narrower native quantity contract. A different
     # binding may carry a different meaning even when its unit or value matches.
     if current.kind in {"number", "text"} and {
         (source.entity, source.attribute) for source in previous.sources
     } != {(source.entity, source.attribute) for source in current.sources}:
-        raise vol.Invalid("datapoint_meaning_change")
+        raise probatio.Invalid("datapoint_meaning_change")
     validate_datapoint_edit_sources(hass, previous, current)
 
 
@@ -347,7 +351,7 @@ def _datapoint_seconds(
         return None
     number = _finite_float(value, "datapoint_invalid_timing")
     if number != int(number) or number < minimum:
-        raise vol.Invalid("datapoint_invalid_timing")
+        raise probatio.Invalid("datapoint_invalid_timing")
     return int(number)
 
 
@@ -378,10 +382,10 @@ def _validate_datapoint_collection(
     rows: list[dict[str, Any]], candidate: dict[str, Any]
 ) -> None:
     if any(row.get("datapoint_id") == candidate["datapoint_id"] for row in rows):
-        raise vol.Invalid("invalid_datapoint_identity")
+        raise probatio.Invalid("invalid_datapoint_identity")
     for row in rows:
         if str(row.get("name", "")).strip().casefold() == candidate["name"].casefold():
-            raise vol.Invalid("duplicate_datapoint_name")
+            raise probatio.Invalid("duplicate_datapoint_name")
 
 
 def _datapoint_form_defaults(hass: Any, row: dict[str, Any]) -> dict[str, Any]:

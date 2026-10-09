@@ -9,7 +9,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
-import voluptuous as vol
+import probatio
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.components.number import NumberDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass
@@ -770,7 +770,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self,
     ) -> None:
         ecobee_sensor = self._source("ecobee", "ec_sensor", domain="sensor")
-        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "invalid_ecobee_source"):
             _mapping_from_input(
                 self.hass,
                 {
@@ -783,7 +783,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         wrong_device_sensor = self._source(
             "ecobee", "other_aqi", domain="sensor", device=True
         )
-        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "invalid_ecobee_source"):
             _mapping_from_input(
                 self.hass,
                 {
@@ -809,14 +809,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ecobee_b.id,
             homekit_preset_entity=self.homekit_preset.id,
         ).as_dict()
-        with self.assertRaisesRegex(vol.Invalid, "duplicate_optional_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "duplicate_optional_source"):
             _validate_no_duplicate_sources([candidate], duplicate_context)
 
         reused_within_mapping = self.mapping.as_dict() | {
             CONF_ECOBEE_CO2_ENTITY: self.ecobee_aqi.id,
             CONF_ECOBEE_VOC_ENTITY: self.ecobee_aqi.id,
         }
-        with self.assertRaisesRegex(vol.Invalid, "duplicate_optional_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "duplicate_optional_source"):
             _validate_no_duplicate_sources([], reused_within_mapping)
 
     async def test_mapping_requires_proven_same_physical_device(self) -> None:
@@ -832,7 +832,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             device=True,
             physical_identity="thermostat_c",
         )
-        with self.assertRaisesRegex(vol.Invalid, "physical_device_mismatch"):
+        with self.assertRaisesRegex(probatio.Invalid, "physical_device_mismatch"):
             _mapping_from_input(
                 self.hass,
                 {
@@ -843,7 +843,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             )
 
         ecobee_unproven = self._source("ecobee", "ec_unproven")
-        with self.assertRaisesRegex(vol.Invalid, "physical_device_identity_unproven"):
+        with self.assertRaisesRegex(
+            probatio.Invalid, "physical_device_identity_unproven"
+        ):
             _mapping_from_input(
                 self.hass,
                 {
@@ -870,7 +872,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             unit_of_measurement=UnitOfTemperature.CELSIUS,
         )
         self.hass.states.async_set(temperature.entity_id, "21.5")
-        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_aqi_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "invalid_ecobee_aqi_source"):
             _mapping_from_input(
                 self.hass,
                 {
@@ -947,7 +949,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 ATTR_UNIT_OF_MEASUREMENT: "°C",
             },
         )
-        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_controller_source"):
+        with self.assertRaisesRegex(
+            probatio.Invalid, "invalid_homekit_controller_source"
+        ):
             _mapping_from_input(
                 self.hass,
                 {
@@ -971,7 +975,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 ATTR_UNIT_OF_MEASUREMENT: "%",
             },
         )
-        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
+        with self.assertRaisesRegex(
+            probatio.Invalid, "invalid_homekit_temperature_source"
+        ):
             _mapping_from_input(
                 self.hass,
                 {
@@ -995,7 +1001,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 ATTR_UNIT_OF_MEASUREMENT: "widgets",
             },
         )
-        with self.assertRaisesRegex(vol.Invalid, "invalid_homekit_temperature_source"):
+        with self.assertRaisesRegex(
+            probatio.Invalid, "invalid_homekit_temperature_source"
+        ):
             _mapping_from_input(
                 self.hass,
                 {
@@ -1009,7 +1017,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         wrong_notify = self._source(
             "ecobee", "wrong_notify", domain="notify", device=True
         )
-        with self.assertRaisesRegex(vol.Invalid, "invalid_ecobee_source"):
+        with self.assertRaisesRegex(probatio.Invalid, "invalid_ecobee_source"):
             _mapping_from_input(
                 self.hass,
                 {
@@ -2771,7 +2779,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 CONF_CONFIRMATION_SECONDS: -(10**400),
             },
         ):
-            with self.subTest(invalid=invalid), self.assertRaises(vol.Invalid):
+            with self.subTest(invalid=invalid), self.assertRaises(probatio.Invalid):
                 _validate_timing_options(invalid)
 
     async def test_options_flow_rejects_concurrent_and_external_updates(self) -> None:
@@ -3559,14 +3567,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual([], calls)
 
     def test_vacation_service_schema_rejects_fractional_fan_runtime(self) -> None:
-        schema = vol.Schema(CREATE_VACATION_SCHEMA)
+        schema = probatio.Schema(CREATE_VACATION_SCHEMA)
         payload = {
             "vacation_name": "Trip",
             "cool_temp": 82,
             "heat_temp": 58,
         }
         self.assertEqual(2, schema(payload | {"fan_min_on_time": 2})["fan_min_on_time"])
-        with self.assertRaises(vol.Invalid):
+        with self.assertRaises(probatio.Invalid):
             schema(payload | {"fan_min_on_time": 2.5})
 
     async def test_vendor_action_requires_registered_service_and_healthy_source(

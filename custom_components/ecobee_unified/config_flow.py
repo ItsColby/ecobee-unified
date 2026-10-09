@@ -6,7 +6,7 @@ from copy import deepcopy
 from math import isfinite
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers.selector import (
@@ -104,7 +104,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 mapping = _mapping_from_input(self.hass, user_input)
                 _validate_no_duplicate_sources(self._pending_mappings, mapping)
-            except vol.Invalid as err:
+            except probatio.Invalid as err:
                 errors["base"] = str(err)
             else:
                 self._pending_mappings.append(mapping)
@@ -194,7 +194,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     [row for row in self._pending_datapoints if row is not current],
                     updated,
                 )
-            except (ValueError, vol.Invalid) as err:
+            except (ValueError, probatio.Invalid) as err:
                 errors["base"] = str(err)
             else:
                 if current is None:
@@ -252,8 +252,12 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "confirmation_required"
         return self.async_show_form(
             step_id="datapoint_remove_confirm",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_CONFIRM_CHANGE, default=False): BOOLEAN_SELECTOR}
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_CONFIRM_CHANGE, default=False
+                    ): BOOLEAN_SELECTOR
+                }
             ),
             errors=errors,
             description_placeholders={"name": str(current["name"])},
@@ -274,7 +278,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 mapping = _mapping_from_input(self.hass, user_input)
                 _validate_no_duplicate_sources(self._pending_mappings, mapping)
-            except vol.Invalid as err:
+            except probatio.Invalid as err:
                 errors["base"] = str(err)
             else:
                 self._pending_mappings.append(mapping)
@@ -295,9 +299,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_reconfigure_edit_confirm()
         return self.async_show_form(
             step_id="reconfigure_edit",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_MAPPING_ID): _mapping_selector(
+                    probatio.Required(CONF_MAPPING_ID): _mapping_selector(
                         self._pending_mappings
                     )
                 }
@@ -329,7 +333,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if mapping[CONF_MAPPING_ID] != current[CONF_MAPPING_ID]
                 ]
                 _validate_no_duplicate_sources(others, updated)
-            except vol.Invalid as err:
+            except probatio.Invalid as err:
                 errors["base"] = str(err)
             else:
                 changes_writer = any(
@@ -374,9 +378,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_reconfigure_remove_confirm()
         return self.async_show_form(
             step_id="reconfigure_remove",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_MAPPING_ID): _mapping_selector(
+                    probatio.Required(CONF_MAPPING_ID): _mapping_selector(
                         self._pending_mappings
                     )
                 }
@@ -402,8 +406,12 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_reconfigure()
         return self.async_show_form(
             step_id="reconfigure_remove_confirm",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_CONFIRM_CHANGE, default=False): BOOLEAN_SELECTOR}
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_CONFIRM_CHANGE, default=False
+                    ): BOOLEAN_SELECTOR
+                }
             ),
             errors=errors,
             description_placeholders={"name": self._selected_mapping()[CONF_NAME]},
@@ -431,7 +439,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None and accepted_data != original_data:
             return self.async_show_form(
                 step_id="reconfigure_finish",
-                data_schema=vol.Schema({}),
+                data_schema=probatio.Schema({}),
                 last_step=True,
                 description_placeholders={
                     "changes": _reconfigure_summary(
@@ -479,7 +487,7 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
                 return self.async_abort(reason="configuration_changed")
             try:
                 validated_input = _validate_timing_options(user_input)
-            except vol.Invalid:
+            except probatio.Invalid:
                 errors["base"] = "invalid_timing"
             else:
                 self._pending_options.update(validated_input)
@@ -536,8 +544,8 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             return await self.async_step_read_policy()
         return self.async_show_form(
             step_id="read_policy_mapping",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_MAPPING_ID): _mapping_selector(mappings)}
+            data_schema=probatio.Schema(
+                {probatio.Required(CONF_MAPPING_ID): _mapping_selector(mappings)}
             ),
         )
 
@@ -567,8 +575,8 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
                     return await self.async_step_read_policy_mapping()
                 return self._save_options()
         defaults = current if user_input is None else user_input
-        schema: dict[vol.Marker, Any] = {
-            vol.Required(
+        schema: dict[probatio.Marker, Any] = {
+            probatio.Required(
                 field, default=defaults.get(field, "homekit_first")
             ): SelectSelector(
                 SelectSelectorConfig(
@@ -577,15 +585,15 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             )
             for field in READ_POLICY_FIELDS
         }
-        schema[vol.Optional("configure_another", default=False)] = BOOLEAN_SELECTOR
+        schema[probatio.Optional("configure_another", default=False)] = BOOLEAN_SELECTOR
         return self.async_show_form(
             step_id="read_policy",
-            data_schema=vol.Schema(schema),
+            data_schema=probatio.Schema(schema),
             errors=errors,
         )
 
 
-def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
+def _options_schema(defaults: dict[str, Any]) -> probatio.Schema:
     def selector(minimum: int, maximum: int, step: int) -> NumberSelector:
         return NumberSelector(
             NumberSelectorConfig(
@@ -596,21 +604,21 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
             )
         )
 
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_ECOBEE_STALE_SECONDS,
                 default=defaults[CONF_ECOBEE_STALE_SECONDS],
             ): selector(300, 7200, 60),
-            vol.Required(
+            probatio.Required(
                 CONF_CONFIRMATION_SECONDS,
                 default=defaults[CONF_CONFIRMATION_SECONDS],
             ): selector(300, 1800, 30),
-            vol.Required(
+            probatio.Required(
                 CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
                 default=defaults[CONF_RELOAD_SILENT_TEMPERATURE_SOURCE],
             ): BOOLEAN_SELECTOR,
-            vol.Optional(
+            probatio.Optional(
                 "configure_read_policy",
                 description={
                     "suggested_value": defaults.get("configure_read_policy", False)
@@ -625,18 +633,18 @@ def _validate_timing_options(user_input: dict[str, Any]) -> dict[str, int]:
 
     def validate(value: Any, minimum: int, maximum: int, step: int) -> int:
         if isinstance(value, bool):
-            raise vol.Invalid("timing value must be an integer")
+            raise probatio.Invalid("timing value must be an integer")
         try:
             number = float(value)
         except (TypeError, ValueError, OverflowError) as err:
-            raise vol.Invalid("timing value must be numeric") from err
+            raise probatio.Invalid("timing value must be numeric") from err
         if (
             not isfinite(number)
             or number != int(number)
             or not minimum <= number <= maximum
             or (int(number) - minimum) % step != 0
         ):
-            raise vol.Invalid(f"timing value must use {step}-second steps")
+            raise probatio.Invalid(f"timing value must use {step}-second steps")
         return int(number)
 
     return {

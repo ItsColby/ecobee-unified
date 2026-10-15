@@ -71,7 +71,7 @@ Installation acceptance and consumer migration are covered in the
 ## Maintain the support contract
 
 Change Core and the harness together, verify dependency consistency, and rerun
-the suite. The supported Core is the one David's instance runs; keep
+the suite. The supported Core is pinned in the `ha-current` dependency group; keep
 [`hacs.json`](../hacs.json) at that version. Review the external assumptions in
 [Upstream contracts](upstream-contracts.md). [Dependabot](../.github/dependabot.yml)
 does not update the coupled Python pins.

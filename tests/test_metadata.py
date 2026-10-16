@@ -44,9 +44,12 @@ class MetadataTests(unittest.TestCase):
             r"(?:github\.com/home-assistant/core/(?:tree|blob)"
             r"|raw\.githubusercontent\.com/home-assistant/core)/([0-9][^/\s)\]]*)"
         )
+        found = 0
         for doc in [root / "README.md", *sorted((root / "docs").glob("*.md"))]:
             for match in core_refs.finditer(doc.read_text(encoding="utf-8")):
+                found += 1
                 self.assertEqual(match.group(1), pinned, doc)
+        self.assertGreater(found, 0)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (

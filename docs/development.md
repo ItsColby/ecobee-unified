@@ -55,7 +55,9 @@ editor names, descriptions, and selectors, while Python owns executable input
 validation. Preserve stable keys and placeholders when changing explanations.
 The current date/time schema-format errors in `climate.py` are direct Python
 messages and are an explicit exception to the translation owner. The
-metadata tests check the runtime language file and help completeness.
+metadata tests check the runtime language file and help completeness, icon,
+action and translation key agreement, and that documentation links name the
+pinned Core.
 
 ## Keep public content safe
 

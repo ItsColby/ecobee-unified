@@ -38,6 +38,8 @@ class MetadataTests(unittest.TestCase):
         pinned = _core_pin(root / "pyproject.toml")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(hacs["homeassistant"], pinned)
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn(hacs["homeassistant"], readme)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (

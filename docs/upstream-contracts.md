@@ -5,9 +5,12 @@ Assistant's `homekit_controller` and `ecobee` integrations. This reference recor
 the external assumptions a maintainer must recheck when changing compatibility
 or source interpretation.
 
-The supported Core is **2026.10.1**, the repository's pinned `ha-current` validation lane. The test harness and commands are in
-[Development](development.md). Source links below are pinned to it; the [HomeKit](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/homekit_controller)
-and [Ecobee](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/ecobee)
+The supported Core is **2026.10.1**, the repository's pinned `ha-current`
+validation lane. The test harness and commands are in
+[Development](development.md). Source links below are pinned to it; the
+[HomeKit](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/homekit_controller)
+and
+[Ecobee](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/ecobee)
 implementations must preserve these same contracts.
 
 ## Source assumptions and their limits

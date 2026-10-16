@@ -61,9 +61,10 @@ metadata tests check the runtime language file and help completeness.
 
 Gitleaks uses its default credential rules plus the repository's
 [`.gitleaks.toml`](../.gitleaks.toml) rules for private paths, addresses,
-hostnames, and non-example email addresses, over Git history. Ignored files are outside its scope; keep private fixtures and
-deployment evidence out of distributable source. It is a bounded pattern check,
-so review new public material as well.
+hostnames, and non-example email addresses, over Git history. Ignored files are
+outside its scope; keep private fixtures and deployment evidence out of
+distributable source. It is a bounded pattern check, so review new public
+material as well.
 
 Installation acceptance and consumer migration are covered in the
 [operating guide](user-guide.md#verify-an-installation-before-moving-its-consumers).

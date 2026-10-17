@@ -50,6 +50,7 @@ class CommandRunner(SourceReader):
     """Admit, validate, and track vendor and standard commands."""
 
     _command_locks: dict[str, Lock]
+    _admitted_commands: dict[str, int]
     _options: Mapping[str, Any]
     _stopped: AsyncEvent
     _tracker: CommandTracker
@@ -75,6 +76,10 @@ class CommandRunner(SourceReader):
         def _replace_timeout(self, mapping_id: str, revision: int) -> None: ...
 
         def _subscribe_state_reports(self) -> None: ...
+
+        def _require_source_available(self, mapping_id: str) -> None: ...
+
+        def _retry_temperature_recovery(self) -> None: ...
 
     async def async_standard_command(
         self,
@@ -337,12 +342,15 @@ class CommandRunner(SourceReader):
         """Keep FIFO dispatch while rejecting queued commands promptly on stop."""
 
         self._require_command_admission()
+        self._require_source_available(mapping_id)
+        self._admitted_commands[mapping_id] += 1
         lock = self._command_locks[mapping_id]
         acquire = create_task(lock.acquire())
         stopped = create_task(self._stopped.wait())
         try:
             await wait((acquire, stopped), return_when=FIRST_COMPLETED)
             self._require_command_admission()
+            self._require_source_available(mapping_id)
             # Source events may still be queued. Read current registry/state
             # contracts after admission, before validating or tracking an effect.
             self.refresh_mapping(mapping_id)
@@ -361,6 +369,8 @@ class CommandRunner(SourceReader):
                     and acquire.result()
                 ):
                     lock.release()
+                self._admitted_commands[mapping_id] -= 1
+                self._retry_temperature_recovery()
 
     def _validate_standard_command(
         self, mapping_id: str, service: str, service_data: Mapping[str, Any]

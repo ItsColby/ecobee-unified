@@ -34,6 +34,87 @@ PRECISE_ATTRIBUTES = {
 
 
 class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
+    async def test_silence_deadline_without_another_source_event(self) -> None:
+        """The earliest projection boundary detects silence and stops on unload."""
+
+        manager = await self._start("temperature_deadline")
+        mapping_id = self.silence_mapping.mapping_id
+        first_change = dt_util.utcnow()
+        self.base = first_change.timestamp()
+        try:
+            with (
+                patch(
+                    "custom_components.ecobee_unified.manager.dt_util.utcnow",
+                    return_value=first_change + timedelta(seconds=20),
+                ) as clock,
+                patch(
+                    "custom_components.ecobee_unified.manager.async_call_later",
+                    side_effect=lambda *args: Mock(),
+                ) as timers,
+            ):
+                await self._climate(manager, 21.0, 0)
+                await self._climate(manager, 22.0, 1 / 6)
+                self.assertNotIn(
+                    "homekit_temperature_silent",
+                    manager.snapshot(mapping_id).degradation,
+                )
+                delay, boundary = timers.call_args.args[1:]
+                self.assertEqual(40, delay)
+                clock.return_value = first_change + timedelta(seconds=59)
+                boundary(clock.return_value)
+                self.assertNotIn(
+                    "homekit_temperature_silent",
+                    manager.snapshot(mapping_id).degradation,
+                )
+                self.assertEqual(1, timers.call_args.args[1])
+                clock.return_value = first_change + timedelta(seconds=60)
+                timers.call_args.args[2](clock.return_value)
+                self.assertIn(
+                    "homekit_temperature_silent",
+                    manager.snapshot(mapping_id).degradation,
+                )
+                self.assertIsNotNone(self._issue())
+                unsubscribe = manager._unsub_stale_refreshes[mapping_id]
+                await manager.async_stop()
+                unsubscribe.assert_called_once()
+                boundary(clock.return_value)
+                self.assertFalse(manager._unsub_stale_refreshes)
+                self.assertIsNone(self._issue())
+        finally:
+            await manager.async_stop()
+
+    async def test_precise_change_cancels_silence_boundary(self) -> None:
+        manager = await self._start("temperature_answered_deadline")
+        first_change = dt_util.utcnow()
+        self.base = first_change.timestamp()
+        try:
+            with (
+                patch(
+                    "custom_components.ecobee_unified.manager.dt_util.utcnow",
+                    return_value=first_change + timedelta(seconds=20),
+                ) as clock,
+                patch(
+                    "custom_components.ecobee_unified.manager.async_call_later",
+                    side_effect=lambda *args: Mock(),
+                ) as timers,
+            ):
+                await self._climate(manager, 21.0, 0)
+                await self._climate(manager, 22.0, 1 / 6)
+                deadline = manager._unsub_stale_refreshes[
+                    self.silence_mapping.mapping_id
+                ]
+                await self._precise(manager, "22.02")
+                deadline.assert_called()
+                self.assertGreater(timers.call_args.args[1], 60)
+                clock.return_value = first_change + timedelta(seconds=61)
+                manager._handle_stale_refresh(self.silence_mapping.mapping_id)
+                self.assertNotIn(
+                    "homekit_temperature_silent",
+                    manager.snapshot(self.silence_mapping.mapping_id).degradation,
+                )
+        finally:
+            await manager.async_stop()
+
     async def _start(
         self, mapping_id: str, options: dict[str, object] | None = None
     ) -> MappingManager:
@@ -70,6 +151,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         manager._handle_homekit_settle(self.silence_mapping.mapping_id)
+        await self.hass.async_block_till_done()
 
     async def _precise(self, manager: MappingManager, state: str) -> None:
         self.hass.states.async_set(
@@ -77,6 +159,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
         )
         await self.hass.async_block_till_done()
         manager._handle_homekit_settle(self.silence_mapping.mapping_id)
+        await self.hass.async_block_till_done()
 
     def _issue(self) -> ir.IssueEntry | None:
         return ir.async_get(self.hass).async_get_issue(
@@ -96,7 +179,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                     return_value=Mock(),
                 ),
                 patch.object(
-                    self.hass.config_entries, "async_schedule_reload"
+                    self.hass.config_entries, "async_reload", return_value=True
                 ) as schedule_reload,
             ):
                 await self._climate(manager, 21.0, 5)
@@ -218,12 +301,12 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                     return_value=Mock(),
                 ),
                 patch.object(
-                    self.hass.config_entries, "async_schedule_reload"
+                    self.hass.config_entries, "async_reload", return_value=True
                 ) as schedule_reload,
             ):
                 await self._climate(manager, 21.0, 5)
                 await self._climate(manager, 22.0, 20)
-                schedule_reload.assert_called_once_with(source_entry_id)
+                schedule_reload.assert_awaited_once_with(source_entry_id)
                 self.assertIsNone(self._issue())
 
                 # Evidence was reset: one further change is not yet silence.
@@ -261,7 +344,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                     return_value=Mock(),
                 ),
                 patch.object(
-                    self.hass.config_entries, "async_schedule_reload"
+                    self.hass.config_entries, "async_reload", return_value=True
                 ) as schedule_reload,
                 patch.object(
                     manager._tracker, "pending_operation", return_value="set_hvac_mode"
@@ -288,7 +371,7 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                     return_value=Mock(),
                 ),
                 patch.object(
-                    self.hass.config_entries, "async_schedule_reload"
+                    self.hass.config_entries, "async_reload", return_value=True
                 ) as schedule_reload,
                 patch.object(
                     manager, "_temperature_source_entry_id", return_value=None

@@ -238,8 +238,10 @@ behavior. HomeKit event silence is not a staleness timeout.
 on and a mapped precise temperature sensor stops answering its climate (see
 [When a precise temperature stops being selected](#when-a-precise-temperature-stops-being-selected)),
 Unified reloads that thermostat's HomeKit Device entry: at most once per six
-hours, and never while a command is pending. Every entity of that HomeKit
-pairing is briefly unavailable during the reload.
+hours, and only after queued or running actions and pending confirmations finish
+for every mapping using that HomeKit entry. Every entity of that HomeKit pairing
+is briefly unavailable during the reload. Requests made during recovery are
+rejected before dispatch; wait for recovery to finish before trying again.
 
 ## Centralize other datapoints
 

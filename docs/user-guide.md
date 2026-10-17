@@ -410,8 +410,9 @@ and therefore cannot prove a repair. Unified does not control the thermostat or
 revise history in response to this condition.
 
 `homekit_temperature_silent` means something different: the sensor has stopped
-updating. The rounded climate reading changed twice, the older change at least
-a minute ago, while the sensor's value stayed the same. Both come from one
+updating. The rounded climate reading changed at least twice, with the oldest
+unanswered change at least a minute old, while the sensor's value stayed the same.
+Further climate changes do not restart the wait. Both come from one
 HomeKit characteristic, so a working sensor would have changed each time. A
 frozen sensor can keep re-reporting its old value; those reports do not count. This
 usually means Home Assistant's HomeKit entity stopped updating, not the

@@ -60,6 +60,14 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                 )
                 delay, boundary = timers.call_args.args[1:]
                 self.assertEqual(40, delay)
+                for seconds, temperature in ((30, 23.0), (45, 24.0), (59, 25.0)):
+                    clock.return_value = first_change + timedelta(seconds=seconds)
+                    await self._climate(manager, temperature, seconds / 60)
+                    self.assertEqual(60 - seconds, timers.call_args.args[1])
+                    self.assertNotIn(
+                        "homekit_temperature_silent",
+                        manager.snapshot(mapping_id).degradation,
+                    )
                 clock.return_value = first_change + timedelta(seconds=59)
                 boundary(clock.return_value)
                 self.assertNotIn(
@@ -112,6 +120,75 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                     "homekit_temperature_silent",
                     manager.snapshot(self.silence_mapping.mapping_id).degradation,
                 )
+        finally:
+            await manager.async_stop()
+
+    async def test_coalesced_precise_answer_keeps_only_fresh_climate_evidence(
+        self,
+    ) -> None:
+        """An answer cancels the old deadline without losing later paired changes."""
+
+        manager = await self._start("temperature_answered_burst")
+        mapping_id = self.silence_mapping.mapping_id
+        first_change = dt_util.utcnow()
+        self.base = first_change.timestamp()
+        try:
+            with (
+                patch(
+                    "custom_components.ecobee_unified.manager.dt_util.utcnow",
+                    return_value=first_change + timedelta(seconds=20),
+                ) as clock,
+                patch(
+                    "custom_components.ecobee_unified.manager.async_call_later",
+                    side_effect=lambda *args: Mock(),
+                ) as timers,
+            ):
+                for seconds, temperature in (
+                    (0, 21.0),
+                    (10, 22.0),
+                    (30, 23.0),
+                    (45, 24.0),
+                ):
+                    clock.return_value = first_change + timedelta(seconds=seconds)
+                    await self._climate(manager, temperature, seconds / 60)
+                old_boundary = timers.call_args.args[2]
+                clock.return_value = first_change + timedelta(seconds=59)
+                self.hass.states.async_set(
+                    self.homekit_temperature.entity_id,
+                    "24.02",
+                    PRECISE_ATTRIBUTES,
+                    timestamp=self.base + 50,
+                )
+                # Deliver both new climate changes before the paired settle runs.
+                for seconds, temperature in ((55, 25.0), (59, 26.0)):
+                    self.hass.states.async_set(
+                        self.homekit.entity_id,
+                        "heat",
+                        self._attributes(temperature),
+                        timestamp=self.base + seconds,
+                    )
+                await self.hass.async_block_till_done()
+                manager._handle_homekit_settle(mapping_id)
+                self.assertEqual(56, timers.call_args.args[1])
+                self.assertEqual(
+                    [first_change + timedelta(seconds=value) for value in (55, 59)],
+                    manager._temperature_silence[mapping_id].changes,
+                )
+                for seconds in (60, 114):
+                    clock.return_value = first_change + timedelta(seconds=seconds)
+                    old_boundary(clock.return_value)
+                    self.assertNotIn(
+                        "homekit_temperature_silent",
+                        manager.snapshot(mapping_id).degradation,
+                    )
+                    self.assertIsNone(self._issue())
+                clock.return_value = first_change + timedelta(seconds=115)
+                timers.call_args.args[2](clock.return_value)
+                self.assertIn(
+                    "homekit_temperature_silent",
+                    manager.snapshot(mapping_id).degradation,
+                )
+                self.assertIsNotNone(self._issue())
         finally:
             await manager.async_stop()
 

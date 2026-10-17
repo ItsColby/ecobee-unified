@@ -87,7 +87,9 @@ class TemperatureSilence:
         if identity is None:
             return
         self.changes.append(changed_at)
-        del self.changes[:-SILENT_CLIMATE_CHANGES]
+        # Keep the oldest unanswered evidence: additional changes cannot postpone
+        # a boundary already established by the first two.
+        del self.changes[SILENT_CLIMATE_CHANGES:]
 
     def silent(
         self,

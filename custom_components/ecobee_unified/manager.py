@@ -641,6 +641,25 @@ class MappingManager(CommandRunner):
         after = finite_number(new_state.attributes.get("current_temperature"))
         if before is None or after is None or before == after:
             return
+        # A precise answer and further climate changes can share a settle window.
+        # Prune answered evidence before bounding the retained climate changes,
+        # using the same validity contract as snapshot construction.
+        now = dt_util.utcnow()
+        homekit = self._climate_raw_source(
+            mapping.homekit_entity,
+            None,
+            require_device=True,
+            now=now,
+            report_times=None,
+        )
+        precise = self._temperature_raw_source(
+            mapping.homekit_temperature_entity,
+            homekit,
+            now=now,
+            report_times=None,
+            required_device_id=self._source_device_id(mapping.homekit_entity),
+        )
+        self._temperature_silent(mapping, precise, now)
         self._temperature_silence.setdefault(
             mapping.mapping_id, TemperatureSilence()
         ).climate_changed(

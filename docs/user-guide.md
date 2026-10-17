@@ -242,6 +242,8 @@ hours, and only after queued or running actions and pending confirmations finish
 for every mapping using that HomeKit entry. Every entity of that HomeKit pairing
 is briefly unavailable during the reload. Requests made during recovery are
 rejected before dispatch; wait for recovery to finish before trying again.
+Unloading or reconfiguring Unified waits for a source recovery already in progress
+to finish, so the HomeKit pairing can complete its reload.
 
 ## Centralize other datapoints
 

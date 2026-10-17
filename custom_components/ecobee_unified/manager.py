@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from asyncio import Event as AsyncEvent
-from asyncio import Lock, Task, gather
+from asyncio import Lock, Task, gather, shield
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -148,7 +148,6 @@ class MappingManager(CommandRunner):
         # A dispatched source call may already have changed the thermostat. Let its
         # caller receive the result, but do not retain confirmation or publish later.
         self._stopped.set()
-        await self._async_stop_temperature_recovery()
         for mapping in self.mappings:
             if (
                 revision := self._tracker.pending_revision(mapping.mapping_id)
@@ -189,6 +188,7 @@ class MappingManager(CommandRunner):
             ir.async_delete_issue(
                 self.hass, DOMAIN, _silent_temperature_issue_id(mapping.mapping_id)
             )
+        await self._async_stop_temperature_recovery()
 
     def snapshot(self, mapping_id: str) -> NormalizedSnapshot:
         """Return the current immutable snapshot."""
@@ -802,7 +802,8 @@ class MappingManager(CommandRunner):
                 return
             self._reloading_sources.add(source_entry_id)
             self._silent_source_reloads[source_entry_id] = dt_util.utcnow()
-            if await self.hass.config_entries.async_reload(source_entry_id):
+            reloaded = await self.hass.config_entries.async_reload(source_entry_id)
+            if reloaded and not self._stopped.is_set():
                 # Pre-reload evidence cannot describe the reloaded source.
                 recovered = tuple(
                     other
@@ -819,12 +820,17 @@ class MappingManager(CommandRunner):
             self._temperature_reload_tasks.pop(source_entry_id, None)
 
     async def _async_stop_temperature_recovery(self) -> None:
-        tasks = tuple(self._temperature_reload_tasks.values())
-        for task in tasks:
-            task.cancel()
-        await gather(*tasks, return_exceptions=True)
-        # A deferred task cancelled before its first step cannot run its finally.
-        self._temperature_reload_tasks.clear()
+        tasks = tuple(self._temperature_reload_tasks.items())
+        for source_entry_id, task in tasks:
+            if source_entry_id not in self._reloading_sources:
+                task.cancel()
+                # A deferred task cancelled before its first step has no finally.
+                self._temperature_reload_tasks.pop(source_entry_id, None)
+        # Cancellation during Core unload/setup can strand the source entry in
+        # a nonrecoverable transition. Let dispatched reloads reach a terminal
+        # state, even if this drain's caller is cancelled. Core owns cancellation
+        # of its tracked tasks during whole-Home-Assistant shutdown.
+        await gather(*(shield(task) for _, task in tasks), return_exceptions=True)
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:

@@ -8,21 +8,28 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 from inspect import iscoroutine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockModule,
+    mock_integration,
+    mock_platform,
+)
 
 from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.const import (
     CONF_MAPPINGS,
     CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DOMAIN,
+    HOMEKIT_SOURCE_DOMAIN,
 )
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
@@ -174,7 +181,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
             self.assertFalse(self.manager._reloading_sources)
 
     async def test_running_recovery_rejects_writers_and_cleans_up(self) -> None:
-        for result in (True, False, "stop"):
+        for result in (True, False):
             with self.subTest(result=result):
                 await self._enable_temperature_recovery()
                 started, release = asyncio.Event(), asyncio.Event()
@@ -211,26 +218,136 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                             "source_recovery_in_progress",
                             error.exception.translation_key,
                         )
-                    if result == "stop":
-                        await self.manager.async_stop()
-                        self.assertTrue(task.cancelled())
-                    else:
-                        release.set()
-                        await task
-                        # A sibling refresh must not resurrect pre-reload evidence.
-                        self.manager.refresh_mapping("mapping_b")
-                        issue = ir.async_get(self.hass).async_get_issue(
-                            DOMAIN, "homekit_temperature_silent_mapping_a"
-                        )
-                        self.assertEqual(result is False, issue is not None)
-                        self.manager.refresh_mapping("mapping_a")
-                        issue = ir.async_get(self.hass).async_get_issue(
-                            DOMAIN, "homekit_temperature_silent_mapping_a"
-                        )
-                        self.assertEqual(result is False, issue is not None)
+                    release.set()
+                    await task
+                    # A sibling refresh must not resurrect pre-reload evidence.
+                    self.manager.refresh_mapping("mapping_b")
+                    issue = ir.async_get(self.hass).async_get_issue(
+                        DOMAIN, "homekit_temperature_silent_mapping_a"
+                    )
+                    self.assertEqual(result is False, issue is not None)
+                    self.manager.refresh_mapping("mapping_a")
+                    issue = ir.async_get(self.hass).async_get_issue(
+                        DOMAIN, "homekit_temperature_silent_mapping_a"
+                    )
+                    self.assertEqual(result is False, issue is not None)
                     self.assertFalse(self.manager._temperature_reload_tasks)
                     self.assertFalse(self.manager._reloading_sources)
                     reload.assert_awaited_once()
+
+    async def test_native_source_reload_finishes_during_unified_unload(self) -> None:
+        """Never strand Core's source unload or setup by cancelling its reload."""
+
+        for phase in ("unload", "setup"):
+            with self.subTest(phase=phase):
+                await self._enable_temperature_recovery()
+                silence = self.manager._temperature_silence["mapping_a"]
+                await self.manager.async_stop()
+                entry = MockConfigEntry(
+                    domain=DOMAIN,
+                    data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+                    options={CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True},
+                    version=1,
+                    minor_version=5,
+                )
+                entry.add_to_hass(self.hass)
+                self.assertTrue(
+                    await self.hass.config_entries.async_setup(entry.entry_id)
+                )
+                self.manager = entry.runtime_data.manager
+                self.manager._temperature_silence["mapping_a"] = silence
+                source = self.hass.config_entries.async_get_entry(
+                    self.homekit.config_entry_id
+                )
+                assert source is not None
+                source.mock_state(self.hass, ConfigEntryState.LOADED)
+                entered, release = asyncio.Event(), asyncio.Event()
+                calls: list[str] = []
+
+                async def boundary(
+                    current: str,
+                    *,
+                    calls=calls,
+                    phase=phase,
+                    entered=entered,
+                    release=release,
+                ) -> bool:
+                    calls.append(current)
+                    if current == phase:
+                        entered.set()
+                        await release.wait()
+                    return True
+
+                async def source_unload(
+                    hass, config_entry, *, boundary=boundary
+                ) -> bool:
+                    return await boundary("unload")
+
+                async def source_setup(
+                    hass, config_entry, *, boundary=boundary
+                ) -> bool:
+                    return await boundary("setup")
+
+                mock_integration(
+                    self.hass,
+                    MockModule(
+                        HOMEKIT_SOURCE_DOMAIN,
+                        async_unload_entry=source_unload,
+                        async_setup_entry=source_setup,
+                    ),
+                    top_level_files={"config_flow.py"},
+                )
+                mock_platform(self.hass, f"{HOMEKIT_SOURCE_DOMAIN}.config_flow", Mock())
+                self.hass.config.components.add(HOMEKIT_SOURCE_DOMAIN)
+                recovery = stop = None
+                with patch.object(source, "async_migrate", return_value=True):
+                    try:
+                        self.manager.refresh_mapping("mapping_a")
+                        recovery = self.manager._temperature_reload_tasks[
+                            source.entry_id
+                        ]
+                        await self._wait_for_fixture_event(recovery, entered)
+                        self.assertIs(
+                            ConfigEntryState.UNLOAD_IN_PROGRESS
+                            if phase == "unload"
+                            else ConfigEntryState.SETUP_IN_PROGRESS,
+                            source.state,
+                        )
+                        stop = asyncio.create_task(
+                            self.hass.config_entries.async_unload(entry.entry_id)
+                        )
+                        # Platform teardown may await Core; wait for manager admission to close.
+                        await self._wait_for_fixture_event(stop, self.manager._stopped)
+                        self._assert_stopped()
+                        self.assertFalse(recovery.done())
+                        self.assertFalse(stop.done())
+                        with self.assertRaises(ServiceValidationError):
+                            await self._command("standard")
+                        with patch(
+                            "custom_components.ecobee_unified.manager.async_dispatcher_send"
+                        ) as publish:
+                            self.manager.refresh_all()
+                            release.set()
+                            self.assertTrue(
+                                await asyncio.wait_for(asyncio.shield(stop), 1)
+                            )
+                            self.assertIsNone(await recovery)
+                            publish.assert_not_called()
+                        self.assertFalse(recovery.cancelled())
+                        self.assertIs(ConfigEntryState.LOADED, source.state)
+                        self.assertTrue(source.state.recoverable)
+                        self.assertFalse(source.setup_lock.locked())
+                        self.assertFalse(self.manager._temperature_reload_tasks)
+                        self.assertFalse(self.manager._reloading_sources)
+                        self.assertEqual(["unload", "setup"], calls)
+                        self.assertTrue(
+                            await self.hass.config_entries.async_reload(source.entry_id)
+                        )
+                        self.assertIs(ConfigEntryState.LOADED, source.state)
+                        self.assertEqual(["unload", "setup"] * 2, calls)
+                    finally:
+                        release.set()
+                        await self._settle_fixture_tasks(recovery, stop)
 
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()

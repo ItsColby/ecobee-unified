@@ -22,7 +22,7 @@ from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
 class SetupLifecycleTests(CoreRuntimeTestCase):
@@ -44,13 +44,10 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
 
     async def test_cancel_after_platform_load_then_retry(self) -> None:
         """Entry cancellation releases ownership and retries after global setup."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         pending = asyncio.Event()
@@ -160,13 +157,10 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
 
     async def test_cancel_cold_global_setup_releases_entry_ownership(self) -> None:
         """Pinned Core retains a cancelled global future; entry cleanup still holds."""
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         pending = asyncio.Event()
@@ -334,10 +328,8 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
         """Failed platform rollback cannot hide the setup result or retain the manager."""
         for error in (RuntimeError("forwarding failed"), asyncio.CancelledError()):
             with self.subTest(error=type(error).__name__):
-                entry = MockConfigEntry(
-                    domain=DOMAIN,
+                entry = unified_entry(
                     data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-                    minor_version=5,
                 )
                 entry.add_to_hass(self.hass)
                 with (
@@ -369,13 +361,10 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 "heat",
                 self._attributes(21.0),
             )
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         native_cleanup = Mock(return_value=None)

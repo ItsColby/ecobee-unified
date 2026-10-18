@@ -8,21 +8,30 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 from homeassistant import loader
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntries
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ecobee_unified.config_flow import EcobeeUnifiedConfigFlow
 from custom_components.ecobee_unified.const import DOMAIN
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig
+
+
+def unified_entry(**kwargs: Any) -> MockConfigEntry:
+    """Build a current-schema entry for this integration."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        version=EcobeeUnifiedConfigFlow.VERSION,
+        minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION,
+        **kwargs,
+    )
 
 
 class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
@@ -231,10 +240,6 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
             "unit_of_measurement": "°C",
         }
 
-
-class ReconfigureFlowTestCase(CoreRuntimeTestCase):
-    """Drive the integration's native reconfigure flow through Core."""
-
     async def _open(self, entry: MockConfigEntry) -> dict[str, Any]:
         return await self.hass.config_entries.flow.async_init(
             DOMAIN,
@@ -250,13 +255,3 @@ class ReconfigureFlowTestCase(CoreRuntimeTestCase):
         return await self.hass.config_entries.flow.async_configure(
             result["flow_id"], values
         )
-
-    async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
-        with patch.object(self.hass.config_entries, "async_reload", return_value=True):
-            result = await self._next(result, "reconfigure_finish")
-            if result["type"] == FlowResultType.FORM:
-                self.assertEqual("reconfigure_finish", result["step_id"])
-                result = await self._submit(result, {})
-            await self.hass.async_block_till_done()
-        self.assertEqual("reconfigure_successful", result["reason"])
-        return result

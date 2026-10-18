@@ -42,6 +42,8 @@ pytestmark = [
 
 START = datetime(2026, 9, 1, 12, tzinfo=UTC)
 
+from .runtime_fixture import unified_entry
+
 
 @pytest.fixture
 def mock_recorder_before_hass(recorder_db_url: str) -> None:
@@ -258,11 +260,8 @@ async def _setup(
         unit="°C" if kind == "temperature" else "%",
         semantic="control_temperature" if kind == "temperature" else None,
     )
-    entry = MockConfigEntry(
-        domain=DOMAIN,
+    entry = unified_entry(
         unique_id=DOMAIN,
-        version=1,
-        minor_version=5,
         data={CONF_MAPPINGS: [], "datapoints": [config.as_dict()]},
     )
     entry.add_to_hass(hass)
@@ -389,11 +388,8 @@ async def test_physical_temperature_range_edit_preserves_recorded_identity_and_f
         unit="°C",
         semantic="physical_temperature",
     )
-    entry = MockConfigEntry(
-        domain=DOMAIN,
+    entry = unified_entry(
         unique_id=DOMAIN,
-        version=1,
-        minor_version=5,
         data={CONF_MAPPINGS: [], "datapoints": [config.as_dict()]},
     )
     entry.add_to_hass(hass)

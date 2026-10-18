@@ -28,6 +28,8 @@ from custom_components.ecobee_unified.datapoints import (
     validate_datapoint_edit_sources,
 )
 
+from .runtime_fixture import unified_entry
+
 
 def _source(
     hass: HomeAssistant,
@@ -638,7 +640,7 @@ async def test_registry_rename_rebinds_and_device_move_detaches_owned_helper(
     hass.states.async_set(first.entity_id, "40")
     hass.states.async_set(second.entity_id, "50")
     config = _config(first, second)
-    entry = MockConfigEntry(domain="ecobee_unified", minor_version=5)
+    entry = unified_entry()
     entry.add_to_hass(hass)
     manager = DatapointManager(hass, entry.entry_id, (config,))
     await manager.async_start()

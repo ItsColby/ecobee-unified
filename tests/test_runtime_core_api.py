@@ -51,6 +51,7 @@ from custom_components.ecobee_unified.climate import (
     EcobeeUnifiedClimate,
 )
 from custom_components.ecobee_unified.config_flow import (
+    EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
     _options_schema,
@@ -2709,36 +2710,40 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data=original_data,
-            version=2,
+            version=EcobeeUnifiedConfigFlow.VERSION + 1,
             minor_version=0,
         )
         entry.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(2, entry.version)
+        self.assertEqual(EcobeeUnifiedConfigFlow.VERSION + 1, entry.version)
         self.assertEqual(original_data, entry.data)
 
         future_minor = MockConfigEntry(
             domain=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=6,
+            version=EcobeeUnifiedConfigFlow.VERSION,
+            minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION + 1,
             options={"future_policy": "preserve"},
         )
         future_minor.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, future_minor))
-        self.assertEqual(6, future_minor.minor_version)
+        self.assertEqual(
+            EcobeeUnifiedConfigFlow.MINOR_VERSION + 1, future_minor.minor_version
+        )
         self.assertEqual(original_data, future_minor.data)
         self.assertEqual({"future_policy": "preserve"}, future_minor.options)
 
         old_minor = MockConfigEntry(
             domain=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=4,
+            version=EcobeeUnifiedConfigFlow.VERSION,
+            minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION - 1,
         )
         old_minor.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, old_minor))
-        self.assertEqual(4, old_minor.minor_version)
+        self.assertEqual(
+            EcobeeUnifiedConfigFlow.MINOR_VERSION - 1, old_minor.minor_version
+        )
         self.assertEqual(original_data, old_minor.data)
 
     async def test_unrelated_registry_events_do_not_refresh_mappings(self) -> None:

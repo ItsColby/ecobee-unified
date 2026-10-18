@@ -18,7 +18,6 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
     MockModule,
     mock_integration,
     mock_platform,
@@ -35,7 +34,7 @@ from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
 from custom_components.ecobee_unified.temperature_quality import TemperatureSilence
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
 class CommandLifecycleTests(CoreRuntimeTestCase):
@@ -243,12 +242,9 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                 await self._enable_temperature_recovery()
                 silence = self.manager._temperature_silence["mapping_a"]
                 await self.manager.async_stop()
-                entry = MockConfigEntry(
-                    domain=DOMAIN,
+                entry = unified_entry(
                     data={CONF_MAPPINGS: [self.mapping.as_dict()]},
                     options={CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True},
-                    version=1,
-                    minor_version=5,
                 )
                 entry.add_to_hass(self.hass)
                 self.assertTrue(
@@ -847,13 +843,10 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
     async def test_native_unload_fences_old_manager_without_waiting_for_writer(
         self,
     ) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.source_mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))

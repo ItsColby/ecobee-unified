@@ -30,6 +30,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN
+from .models import ABSOLUTE_ZERO
 from .source_contracts import homekit_action_contract_valid
 
 type DatapointKind = Literal[
@@ -66,7 +67,6 @@ _PLATFORMS = frozenset(
     {"homekit_controller", "ecobee", "beestat_statistics", "battery_notes"}
 )
 _TEMPERATURE_UNITS = frozenset({"°C", "°F", "K"})
-TEMPERATURE_ABSOLUTE_ZERO = {"°C": -273.15, "°F": -459.67, "K": 0.0}
 _DURATION_SECONDS = {"s": 1, "min": 60, "h": 3600, "d": 86400}
 _EMPTY = frozenset({"unknown", "unavailable"})
 _TEXT_LIMIT = 255
@@ -238,7 +238,7 @@ def _validate_accepted_range(config: DatapointConfig) -> None:
         raise ValueError("accepted_range_not_supported")
     assert config.unit is not None
     # Compare in the declared unit so conversion roundoff cannot reject -459.67°F.
-    absolute_zero = TEMPERATURE_ABSOLUTE_ZERO[config.unit]
+    absolute_zero = ABSOLUTE_ZERO[config.unit]
     for field in ("minimum_value", "maximum_value"):
         raw = getattr(config, field)
         if raw is None:
@@ -281,8 +281,8 @@ def _temperature_endpoint_equal(value: float, bound: float, unit: str) -> bool:
     scale = max(
         abs(value),
         abs(bound),
-        abs(TEMPERATURE_ABSOLUTE_ZERO[unit]),
-        -TEMPERATURE_ABSOLUTE_ZERO["°C"],
+        abs(ABSOLUTE_ZERO[unit]),
+        -ABSOLUTE_ZERO["°C"],
     )
     return abs(value - bound) <= 4 * ulp(scale)
 
@@ -864,7 +864,7 @@ def _numeric_value(config: DatapointConfig, number: float, unit: str | None) -> 
         assert unit is not None and config.unit is not None
         # Native-unit comparison avoids a small negative Kelvin result when
         # converting the exact Fahrenheit absolute-zero endpoint.
-        if number < TEMPERATURE_ABSOLUTE_ZERO[unit]:
+        if number < ABSOLUTE_ZERO[unit]:
             raise ValueError("invalid_temperature")
         number = TemperatureConverter.convert(number, unit, config.unit)
     elif config.kind in {"humidity", "battery"} and not 0 <= number <= 100:

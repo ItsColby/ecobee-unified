@@ -60,7 +60,6 @@ OPTIONAL_SOURCE_KEYS = (
     CONF_ECOBEE_VOC_ENTITY,
     CONF_ECOBEE_NOTIFY_ENTITY,
 )
-READ_POLICY_OPTIONS = ("homekit_first", "ecobee_first", "homekit_only", "ecobee_only")
 
 
 def _mapping_schema(

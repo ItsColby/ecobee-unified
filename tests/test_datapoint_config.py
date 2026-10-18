@@ -20,10 +20,10 @@ from custom_components.ecobee_unified.config_flow import (
 )
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
 
-from .runtime_fixture import ReconfigureFlowTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
-class DatapointConfigurationTests(ReconfigureFlowTestCase):
+class DatapointConfigurationTests(CoreRuntimeTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         for source in (self.homekit, self.ecobee):
@@ -34,6 +34,16 @@ class DatapointConfigurationTests(ReconfigureFlowTestCase):
                 state.state,
                 dict(state.attributes) | {"current_humidity": 42, "humidity": 55},
             )
+
+    async def _save(self, result: dict[str, Any]) -> dict[str, Any]:
+        with patch.object(self.hass.config_entries, "async_reload", return_value=True):
+            result = await self._next(result, "reconfigure_finish")
+            if result["type"] == FlowResultType.FORM:
+                self.assertEqual("reconfigure_finish", result["step_id"])
+                result = await self._submit(result, {})
+            await self.hass.async_block_till_done()
+        self.assertEqual("reconfigure_successful", result["reason"])
+        return result
 
     def _values(self, **changes: Any) -> dict[str, Any]:
         return {
@@ -56,11 +66,8 @@ class DatapointConfigurationTests(ReconfigureFlowTestCase):
         rows: list[dict[str, Any]] | None = None,
         options: dict[str, Any] | None = None,
     ) -> MockConfigEntry:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
-            version=1,
-            minor_version=5,
             data={
                 CONF_MAPPINGS: [self.mapping.as_dict() | {"future_mapping": 7}],
                 "datapoints": rows or [],

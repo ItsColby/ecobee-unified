@@ -51,8 +51,6 @@ from .flow_datapoints import (
     _validate_datapoint_collection,
 )
 from .flow_mappings import (
-    OPTIONAL_SOURCE_KEYS,  # noqa: F401  (re-exported for the flow tests)
-    READ_POLICY_OPTIONS,
     _mapping_form_defaults,
     _mapping_from_input,
     _mapping_schema,
@@ -60,7 +58,13 @@ from .flow_mappings import (
     _validate_no_duplicate_sources,
 )
 from .flow_review import _reconfigure_summary
-from .models import READ_POLICIES, READ_POLICY_FIELDS, MappingConfig, merge_mapping_data
+from .models import (
+    READ_POLICIES,
+    READ_POLICY_FIELDS,
+    READ_POLICY_OPTIONS,
+    MappingConfig,
+    merge_mapping_data,
+)
 
 
 class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -593,6 +597,11 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
         )
 
 
+# (min, max, step) seconds, shared by the selector and the validator.
+_STALE_SECONDS_RANGE = (300, 7200, 60)
+_CONFIRMATION_SECONDS_RANGE = (300, 1800, 30)
+
+
 def _options_schema(defaults: dict[str, Any]) -> probatio.Schema:
     def selector(minimum: int, maximum: int, step: int) -> NumberSelector:
         return NumberSelector(
@@ -609,11 +618,11 @@ def _options_schema(defaults: dict[str, Any]) -> probatio.Schema:
             probatio.Required(
                 CONF_ECOBEE_STALE_SECONDS,
                 default=defaults[CONF_ECOBEE_STALE_SECONDS],
-            ): selector(300, 7200, 60),
+            ): selector(*_STALE_SECONDS_RANGE),
             probatio.Required(
                 CONF_CONFIRMATION_SECONDS,
                 default=defaults[CONF_CONFIRMATION_SECONDS],
-            ): selector(300, 1800, 30),
+            ): selector(*_CONFIRMATION_SECONDS_RANGE),
             probatio.Required(
                 CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
                 default=defaults[CONF_RELOAD_SILENT_TEMPERATURE_SOURCE],
@@ -649,9 +658,9 @@ def _validate_timing_options(user_input: dict[str, Any]) -> dict[str, int]:
 
     return {
         CONF_ECOBEE_STALE_SECONDS: validate(
-            user_input[CONF_ECOBEE_STALE_SECONDS], 300, 7200, 60
+            user_input[CONF_ECOBEE_STALE_SECONDS], *_STALE_SECONDS_RANGE
         ),
         CONF_CONFIRMATION_SECONDS: validate(
-            user_input[CONF_CONFIRMATION_SECONDS], 300, 1800, 30
+            user_input[CONF_CONFIRMATION_SECONDS], *_CONFIRMATION_SECONDS_RANGE
         ),
     }

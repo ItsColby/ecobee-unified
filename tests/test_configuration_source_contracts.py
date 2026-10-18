@@ -15,10 +15,8 @@ from homeassistant.core import ServiceCall
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified.config_flow import (
-    OPTIONAL_SOURCE_KEYS,
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
@@ -44,10 +42,11 @@ from custom_components.ecobee_unified.const import (
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
 )
+from custom_components.ecobee_unified.flow_mappings import OPTIONAL_SOURCE_KEYS
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig, SourceHealth
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
 class ConfigurationSourceContractTests(CoreRuntimeTestCase):
@@ -81,12 +80,9 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         )
         for service, _field, _limit, _data in cases:
             self.hass.services.async_register("ecobee", service, capture)
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -159,12 +155,9 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             physical_identity="thermostat_repair_b",
         )
         mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -184,15 +177,10 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                     issue.translation_placeholders,
                 )
 
-            result = await self.hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": "reconfigure", "entry_id": entry.entry_id},
-            )
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_edit"}
-            )
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {CONF_MAPPING_ID: self.mapping.mapping_id}
+            result = await self._open(entry)
+            result = await self._next(result, "reconfigure_edit")
+            result = await self._submit(
+                result, {CONF_MAPPING_ID: self.mapping.mapping_id}
             )
             form_values = {
                 key: value
@@ -201,17 +189,13 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                 ).items()
                 if value is not None
             }
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], form_values | {CONF_NAME: "Renamed Zone A"}
+            result = await self._submit(
+                result, form_values | {CONF_NAME: "Renamed Zone A"}
             )
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            result = await self._next(result, "reconfigure_finish")
             self.assertIs(FlowResultType.FORM, result["type"])
             self.assertEqual("reconfigure_finish", result["step_id"])
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {}
-            )
+            result = await self._submit(result, {})
             self.assertEqual("reconfigure_successful", result["reason"])
             await self.hass.async_block_till_done()
             issue_a = issues.async_get_issue(DOMAIN, "mapping_mapping_a")
@@ -288,12 +272,9 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             CONF_MAPPINGS: [mapping.as_dict() | {"future_mapping": future_mapping}],
             "future_entry": {"opaque": ["preserve"]},
         }
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         for name, confirm, error in (
@@ -301,15 +282,10 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             ("Zone A", False, "confirmation_required"),
         ):
             with self.subTest(error=error):
-                result = await self.hass.config_entries.flow.async_init(
-                    DOMAIN,
-                    context={"source": "reconfigure", "entry_id": entry.entry_id},
-                )
-                result = await self.hass.config_entries.flow.async_configure(
-                    result["flow_id"], {"next_step_id": "reconfigure_edit"}
-                )
-                result = await self.hass.config_entries.flow.async_configure(
-                    result["flow_id"], {CONF_MAPPING_ID: mapping.mapping_id}
+                result = await self._open(entry)
+                result = await self._next(result, "reconfigure_edit")
+                result = await self._submit(
+                    result, {CONF_MAPPING_ID: mapping.mapping_id}
                 )
                 # The frontend omits optional fields that the user clears.
                 submitted = {
@@ -318,9 +294,7 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                     CONF_ECOBEE_ENTITY: self.ecobee.entity_id,
                     CONF_CONFIRM_CHANGE: confirm,
                 }
-                result = await self.hass.config_entries.flow.async_configure(
-                    result["flow_id"], submitted
-                )
+                result = await self._submit(result, submitted)
                 self.assertIs(FlowResultType.FORM, result["type"])
                 self.assertEqual(error, result["errors"]["base"])
                 fields = {field.schema: field for field in result["data_schema"].schema}
@@ -330,23 +304,17 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                 if error == "invalid_name":
                     self.hass.config_entries.flow.async_abort(result["flow_id"])
 
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], submitted | {CONF_CONFIRM_CHANGE: True}
-        )
+        result = await self._submit(result, submitted | {CONF_CONFIRM_CHANGE: True})
         self.assertIs(FlowResultType.MENU, result["type"])
         with patch.object(
             self.hass.config_entries, "async_schedule_reload"
         ) as schedule_reload:
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            result = await self._next(result, "reconfigure_finish")
             self.assertIs(FlowResultType.FORM, result["type"])
             self.assertEqual("reconfigure_finish", result["step_id"])
             self.assertEqual(original_data, dict(entry.data))
             schedule_reload.assert_not_called()
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {}
-            )
+            result = await self._submit(result, {})
         self.assertEqual("reconfigure_successful", result["reason"])
         schedule_reload.assert_called_once_with(entry.entry_id)
         saved = entry.data[CONF_MAPPINGS][0]
@@ -362,13 +330,10 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             "future_option": {"opaque": ["preserve"]},
         }
         original_data = {CONF_MAPPINGS: [self.mapping.as_dict()]}
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
             data=original_data,
             options=original_options,
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.options.async_init(entry.entry_id)
@@ -427,25 +392,15 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()],
             "future_entry": {"opaque": ["preserve"]},
         }
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
+        result = await self._open(entry)
         self.assertIn("reconfigure_remove", result["menu_options"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_MAPPING_ID: self.mapping.mapping_id}
-        )
+        result = await self._next(result, "reconfigure_edit")
+        result = await self._submit(result, {CONF_MAPPING_ID: self.mapping.mapping_id})
         form_values = {
             key: value
             for key, value in _mapping_form_defaults(
@@ -453,28 +408,17 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
             ).items()
             if value is not None
         }
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            form_values | {CONF_NAME: "Renamed Zone A"},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_remove"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_MAPPING_ID: mapping_b.mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_CONFIRM_CHANGE: True}
-        )
+        result = await self._submit(result, form_values | {CONF_NAME: "Renamed Zone A"})
+        result = await self._next(result, "reconfigure_remove")
+        result = await self._submit(result, {CONF_MAPPING_ID: mapping_b.mapping_id})
+        result = await self._submit(result, {CONF_CONFIRM_CHANGE: True})
         self.assertIs(FlowResultType.MENU, result["type"])
         self.assertNotIn("reconfigure_remove", result["menu_options"])
         self.assertIn("reconfigure_finish", result["menu_options"])
         self.assertEqual(original_data, dict(entry.data))
 
         with self.assertRaises(InvalidData):
-            await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_remove"}
-            )
+            await self._next(result, "reconfigure_remove")
         # Exercise the defensive step directly on the native in-progress flow.
         flow = self.hass.config_entries.flow._progress[result["flow_id"]]
         assert isinstance(flow, EcobeeUnifiedConfigFlow)
@@ -486,16 +430,12 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
         with patch.object(
             self.hass.config_entries, "async_schedule_reload"
         ) as schedule_reload:
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            result = await self._next(result, "reconfigure_finish")
             self.assertIs(FlowResultType.FORM, result["type"])
             self.assertEqual("reconfigure_finish", result["step_id"])
             self.assertEqual(original_data, dict(entry.data))
             schedule_reload.assert_not_called()
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {}
-            )
+            result = await self._submit(result, {})
         self.assertEqual("reconfigure_successful", result["reason"])
         schedule_reload.assert_called_once_with(entry.entry_id)
         self.assertEqual(

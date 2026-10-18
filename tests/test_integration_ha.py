@@ -39,6 +39,8 @@ from custom_components.ecobee_unified.const import (
 )
 from custom_components.ecobee_unified.models import MappingConfig
 
+from .runtime_fixture import unified_entry
+
 
 async def test_config_flow_creates_two_explicit_mappings(
     hass: HomeAssistant,
@@ -431,13 +433,10 @@ def _mapping(
 
 
 def _entry(hass: HomeAssistant, mappings: tuple[MappingConfig, ...]) -> MockConfigEntry:
-    entry = MockConfigEntry(
-        domain=DOMAIN,
+    entry = unified_entry(
         title="Ecobee Unified",
         unique_id=DOMAIN,
         data={CONF_MAPPINGS: [mapping.as_dict() for mapping in mappings]},
-        version=1,
-        minor_version=5,
     )
     entry.add_to_hass(hass)
     return entry

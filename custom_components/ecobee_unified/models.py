@@ -256,9 +256,8 @@ STANDARD_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("fan_mode", "fan_mode", "text"),
 )
 
-READ_POLICIES = frozenset(
-    {"homekit_first", "ecobee_first", "homekit_only", "ecobee_only"}
-)
+READ_POLICY_OPTIONS = ("homekit_first", "ecobee_first", "homekit_only", "ecobee_only")
+READ_POLICIES = frozenset(READ_POLICY_OPTIONS)
 READ_POLICY_FIELDS = (
     "hvac_mode",
     "current_temperature",

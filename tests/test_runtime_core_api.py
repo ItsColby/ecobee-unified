@@ -51,6 +51,7 @@ from custom_components.ecobee_unified.climate import (
     EcobeeUnifiedClimate,
 )
 from custom_components.ecobee_unified.config_flow import (
+    EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
     _options_schema,
@@ -108,7 +109,7 @@ from custom_components.ecobee_unified.sensor import (
     EcobeeCloudSensor,
 )
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
 class RuntimeCoreApiTests(CoreRuntimeTestCase):
@@ -209,13 +210,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             return_value=baseline + timedelta(seconds=10),
         ):
             self.manager.refresh_mapping("mapping_a")
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         entry.runtime_data = EcobeeUnifiedRuntime(self.manager)
@@ -319,13 +317,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertFalse(fan_runtime.available)
 
     async def test_setup_removes_only_owned_orphaned_mapping_entities(self) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
@@ -369,13 +364,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
 
     def _add_air_quality_entry(self) -> MockConfigEntry:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         return entry
@@ -517,11 +509,8 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 ),
             ),
         )
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             unique_id=DOMAIN,
-            version=1,
-            minor_version=5,
             data={
                 CONF_MAPPINGS: [self.mapping.as_dict()],
                 "datapoints": [point.as_dict() for point in configs],
@@ -624,13 +613,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertTrue(await self.hass.config_entries.async_unload(entry.entry_id))
 
     async def test_setup_failure_and_entry_removal_release_owned_state(self) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         with (
@@ -649,12 +635,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertIsNone(failed_manager._unsub_device_registry)
         self.assertEqual({}, failed_manager._unsub_stale_refreshes)
 
-        start_entry = MockConfigEntry(
-            domain=DOMAIN,
+        start_entry = unified_entry(
             title="Ecobee Unified",
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         start_entry.add_to_hass(self.hass)
         with (
@@ -711,13 +694,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual("duplicate_homekit_source", result["errors"]["base"])
         self.hass.config_entries.flow.async_abort(result["flow_id"])
 
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         duplicate_entry = await self.hass.config_entries.flow.async_init(
@@ -2077,13 +2057,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             homekit_temperature_entity=self.homekit_temperature.id,
             ecobee_notify_entity=self.ecobee_notify.id,
         )
-        owner_entry = MockConfigEntry(
-            domain=DOMAIN,
+        owner_entry = unified_entry(
             title="Ecobee Unified",
             unique_id="optional_lifecycle",
             data={CONF_MAPPINGS: [mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         owner_entry.add_to_hass(self.hass)
         manager = MappingManager(self.hass, owner_entry.entry_id, (mapping,), {})
@@ -2246,19 +2223,13 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             "ecobee", "ec_b", device=True, physical_identity="thermostat_b"
         )
         mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
+        result = await self._open(entry)
         self.assertIs(FlowResultType.MENU, result["type"])
         self.assertEqual(
             tuple(
@@ -2272,14 +2243,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             ),
             tuple(result["menu_options"]),
         )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"mapping_id": self.mapping.mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
+        result = await self._next(result, "reconfigure_edit")
+        result = await self._submit(result, {"mapping_id": self.mapping.mapping_id})
+        result = await self._submit(
+            result,
             {
                 CONF_NAME: "Zone A updated",
                 CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
@@ -2291,24 +2258,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             },
         )
         self.assertIs(FlowResultType.MENU, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_remove"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"mapping_id": mapping_b.mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"confirm_change": False}
-        )
+        result = await self._next(result, "reconfigure_remove")
+        result = await self._submit(result, {"mapping_id": mapping_b.mapping_id})
+        result = await self._submit(result, {"confirm_change": False})
         self.assertIs(FlowResultType.FORM, result["type"])
         self.assertEqual("confirmation_required", result["errors"]["base"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"confirm_change": True}
-        )
+        result = await self._submit(result, {"confirm_change": True})
         self.assertIs(FlowResultType.MENU, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_finish"}
-        )
+        result = await self._next(result, "reconfigure_finish")
         self.assertIs(FlowResultType.FORM, result["type"])
         summary = result["description_placeholders"]["changes"]
         self.assertIn("Changed Thermostat: Zone A updated", summary)
@@ -2316,9 +2273,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertNotIn(self.mapping.mapping_id, summary)
         self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
         self.assertEqual(self.mapping.name, entry.data[CONF_MAPPINGS][0][CONF_NAME])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
-        )
+        result = await self._submit(result, {})
         self.assertIs(FlowResultType.ABORT, result["type"])
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
@@ -2337,25 +2292,17 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             device=True,
             physical_identity="thermostat_reconfigure_add",
         )
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_add"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
+        result = await self._open(entry)
+        result = await self._next(result, "reconfigure_add")
+        result = await self._submit(
+            result,
             {
                 CONF_NAME: "Zone B",
                 CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
@@ -2363,13 +2310,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             },
         )
         self.assertIs(FlowResultType.MENU, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_finish"}
-        )
+        result = await self._next(result, "reconfigure_finish")
         self.assertIs(FlowResultType.FORM, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
-        )
+        result = await self._submit(result, {})
         self.assertIs(FlowResultType.ABORT, result["type"])
         mappings = entry.data[CONF_MAPPINGS]
         self.assertEqual(2, len(mappings))
@@ -2380,28 +2323,15 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             for mapping in mappings
             if mapping[CONF_NAME] == "Zone B"
         )
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_remove"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_MAPPING_ID: added_mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {CONF_CONFIRM_CHANGE: True}
-        )
+        result = await self._open(entry)
+        result = await self._next(result, "reconfigure_remove")
+        result = await self._submit(result, {CONF_MAPPING_ID: added_mapping_id})
+        result = await self._submit(result, {CONF_CONFIRM_CHANGE: True})
         self.assertNotIn("reconfigure_remove", result["menu_options"])
         self.assertEqual(2, len(entry.data[CONF_MAPPINGS]))
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_finish"}
-        )
+        result = await self._next(result, "reconfigure_finish")
         self.assertIs(FlowResultType.FORM, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
-        )
+        result = await self._submit(result, {})
         self.assertIs(FlowResultType.ABORT, result["type"])
         self.assertEqual("reconfigure_successful", result["reason"])
         self.assertEqual(1, len(entry.data[CONF_MAPPINGS]))
@@ -2427,85 +2357,54 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         registry = er.async_get(self.hass)
         for source in (self.homekit, replacement_homekit):
             registry.async_update_entity(source.entity_id, name="Same thermostat name")
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"mapping_id": self.mapping.mapping_id}
-        )
+        result = await self._open(entry)
+        result = await self._next(result, "reconfigure_edit")
+        result = await self._submit(result, {"mapping_id": self.mapping.mapping_id})
         replacement = {
             CONF_NAME: "Zone A",
             CONF_HOMEKIT_ENTITY: replacement_homekit.entity_id,
             CONF_ECOBEE_ENTITY: replacement_ecobee.entity_id,
             "confirm_change": False,
         }
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], replacement
-        )
+        result = await self._submit(result, replacement)
         self.assertIs(FlowResultType.FORM, result["type"])
         self.assertEqual("confirmation_required", result["errors"]["base"])
 
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], replacement | {"confirm_change": True}
-        )
+        result = await self._submit(result, replacement | {"confirm_change": True})
         self.assertIs(FlowResultType.MENU, result["type"])
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_finish"}
-        )
+        result = await self._next(result, "reconfigure_finish")
         self.assertIs(FlowResultType.FORM, result["type"])
         summary = result["description_placeholders"]["changes"].replace("\\", "")
         self.assertIn(self.homekit.entity_id, summary)
         self.assertIn(replacement_homekit.entity_id, summary)
         self.assertNotIn(self.homekit.id, summary)
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
-        )
+        result = await self._submit(result, {})
         self.assertIs(FlowResultType.ABORT, result["type"])
         updated = entry.data[CONF_MAPPINGS][0]
         self.assertEqual(replacement_homekit.id, updated[CONF_HOMEKIT_ENTITY])
         self.assertEqual(replacement_ecobee.id, updated[CONF_ECOBEE_ENTITY])
 
     async def test_reconfigure_rejects_stale_mapping_snapshot(self) -> None:
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
-        first = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        stale = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
+        first = await self._open(entry)
+        stale = await self._open(entry)
 
-        first = await self.hass.config_entries.flow.async_configure(
-            first["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        first = await self.hass.config_entries.flow.async_configure(
-            first["flow_id"], {"mapping_id": self.mapping.mapping_id}
-        )
-        first = await self.hass.config_entries.flow.async_configure(
-            first["flow_id"],
+        first = await self._next(first, "reconfigure_edit")
+        first = await self._submit(first, {"mapping_id": self.mapping.mapping_id})
+        first = await self._submit(
+            first,
             {
                 CONF_NAME: "First update",
                 CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
@@ -2519,25 +2418,17 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         with patch.object(
             self.hass.config_entries, "async_schedule_reload"
         ) as schedule_reload:
-            first = await self.hass.config_entries.flow.async_configure(
-                first["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            first = await self._next(first, "reconfigure_finish")
             self.assertIs(FlowResultType.FORM, first["type"])
-            first = await self.hass.config_entries.flow.async_configure(
-                first["flow_id"], {}
-            )
+            first = await self._submit(first, {})
         schedule_reload.assert_called_once_with(entry.entry_id)
         self.assertIs(FlowResultType.ABORT, first["type"])
         self.assertEqual("reconfigure_successful", first["reason"])
 
-        stale = await self.hass.config_entries.flow.async_configure(
-            stale["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        stale = await self.hass.config_entries.flow.async_configure(
-            stale["flow_id"], {"mapping_id": self.mapping.mapping_id}
-        )
-        stale = await self.hass.config_entries.flow.async_configure(
-            stale["flow_id"],
+        stale = await self._next(stale, "reconfigure_edit")
+        stale = await self._submit(stale, {"mapping_id": self.mapping.mapping_id})
+        stale = await self._submit(
+            stale,
             {
                 CONF_NAME: "Stale update",
                 CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
@@ -2551,9 +2442,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         with patch.object(
             self.hass.config_entries, "async_schedule_reload"
         ) as schedule_reload:
-            stale = await self.hass.config_entries.flow.async_configure(
-                stale["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            stale = await self._next(stale, "reconfigure_finish")
         schedule_reload.assert_not_called()
 
         self.assertIs(FlowResultType.ABORT, stale["type"])
@@ -2566,31 +2455,21 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         stored_mapping = self.mapping.as_dict() | {
             "future_mapping_field": future_mapping_data
         }
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={
                 CONF_MAPPINGS: [stored_mapping],
                 "future_field": future_data,
             },
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"mapping_id": self.mapping.mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
+        result = await self._open(entry)
+        result = await self._next(result, "reconfigure_edit")
+        result = await self._submit(result, {"mapping_id": self.mapping.mapping_id})
+        result = await self._submit(
+            result,
             {
                 CONF_NAME: "Updated zone",
                 CONF_HOMEKIT_ENTITY: self.homekit.entity_id,
@@ -2605,13 +2484,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         with patch.object(
             self.hass.config_entries, "async_schedule_reload"
         ) as schedule_reload:
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {"next_step_id": "reconfigure_finish"}
-            )
+            result = await self._next(result, "reconfigure_finish")
             self.assertIs(FlowResultType.FORM, result["type"])
-            result = await self.hass.config_entries.flow.async_configure(
-                result["flow_id"], {}
-            )
+            result = await self._submit(result, {})
 
         schedule_reload.assert_called_once_with(entry.entry_id)
         self.assertIs(FlowResultType.ABORT, result["type"])
@@ -2638,27 +2513,17 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             physical_identity="thermostat_reconfigure_name_b",
         )
         mapping_b = MappingConfig("mapping_b", "Zone B", homekit_b.id, ecobee_b.id)
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict(), mapping_b.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
-        result = await self.hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "reconfigure", "entry_id": entry.entry_id},
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"next_step_id": "reconfigure_edit"}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"], {"mapping_id": mapping_b.mapping_id}
-        )
-        result = await self.hass.config_entries.flow.async_configure(
-            result["flow_id"],
+        result = await self._open(entry)
+        result = await self._next(result, "reconfigure_edit")
+        result = await self._submit(result, {"mapping_id": mapping_b.mapping_id})
+        result = await self._submit(
+            result,
             {
                 CONF_NAME: "ZONE A",
                 CONF_HOMEKIT_ENTITY: homekit_b.entity_id,
@@ -2672,14 +2537,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
 
     async def test_options_flow_updates_only_timing_policy(self) -> None:
         future_option = {"opaque": ["preserve", 3]}
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             options={"future_option": future_option},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         result = await self.hass.config_entries.options.async_init(entry.entry_id)
@@ -2788,14 +2650,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             CONF_CONFIRMATION_SECONDS: 1800,
             "future_option": {"opaque": "preserve"},
         }
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
             options=original_options,
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
 
@@ -2851,36 +2710,40 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data=original_data,
-            version=2,
+            version=EcobeeUnifiedConfigFlow.VERSION + 1,
             minor_version=0,
         )
         entry.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, entry))
-        self.assertEqual(2, entry.version)
+        self.assertEqual(EcobeeUnifiedConfigFlow.VERSION + 1, entry.version)
         self.assertEqual(original_data, entry.data)
 
         future_minor = MockConfigEntry(
             domain=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=6,
+            version=EcobeeUnifiedConfigFlow.VERSION,
+            minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION + 1,
             options={"future_policy": "preserve"},
         )
         future_minor.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, future_minor))
-        self.assertEqual(6, future_minor.minor_version)
+        self.assertEqual(
+            EcobeeUnifiedConfigFlow.MINOR_VERSION + 1, future_minor.minor_version
+        )
         self.assertEqual(original_data, future_minor.data)
         self.assertEqual({"future_policy": "preserve"}, future_minor.options)
 
         old_minor = MockConfigEntry(
             domain=DOMAIN,
             data=original_data,
-            version=1,
-            minor_version=4,
+            version=EcobeeUnifiedConfigFlow.VERSION,
+            minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION - 1,
         )
         old_minor.add_to_hass(self.hass)
         self.assertFalse(await async_migrate_entry(self.hass, old_minor))
-        self.assertEqual(4, old_minor.minor_version)
+        self.assertEqual(
+            EcobeeUnifiedConfigFlow.MINOR_VERSION - 1, old_minor.minor_version
+        )
         self.assertEqual(original_data, old_minor.data)
 
     async def test_unrelated_registry_events_do_not_refresh_mappings(self) -> None:
@@ -4461,13 +4324,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         )
         self.hass.states.async_set(self.ecobee.entity_id, "unavailable", {})
         await self.hass.async_block_till_done()
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         entry.runtime_data = EcobeeUnifiedRuntime(self.manager)
@@ -4586,13 +4446,10 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self,
     ) -> None:
         await self.manager.async_stop()
-        entry = MockConfigEntry(
-            domain=DOMAIN,
+        entry = unified_entry(
             title="Ecobee Unified",
             unique_id=DOMAIN,
             data={CONF_MAPPINGS: [self.mapping.as_dict()]},
-            version=1,
-            minor_version=5,
         )
         entry.add_to_hass(self.hass)
         self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))

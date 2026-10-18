@@ -24,13 +24,13 @@ from homeassistant.helpers.selector import (
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .datapoints import (
-    TEMPERATURE_ABSOLUTE_ZERO,
     DatapointConfig,
     SourceBinding,
     validate_datapoint,
     validate_datapoint_edit_sources,
 )
 from .flow_common import BOOLEAN_SELECTOR, SOURCE_SLOTS, _resolved_or_reference
+from .models import ABSOLUTE_ZERO
 
 DATAPOINT_DOMAINS = [
     "sensor",
@@ -288,8 +288,8 @@ def _datapoint_with_range(
             bounds = {
                 field: None
                 if value is None
-                else TEMPERATURE_ABSOLUTE_ZERO[config.unit]
-                if value == TEMPERATURE_ABSOLUTE_ZERO[previous.unit]
+                else ABSOLUTE_ZERO[config.unit]
+                if value == ABSOLUTE_ZERO[previous.unit]
                 else TemperatureConverter.convert(value, previous.unit, config.unit)
                 for field, value in bounds.items()
             }

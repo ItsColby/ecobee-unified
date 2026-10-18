@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import isclose
 
 SourceIdentity = tuple[str, str, str, str]
@@ -87,7 +87,9 @@ class TemperatureSilence:
         if identity is None:
             return
         self.changes.append(changed_at)
-        del self.changes[:-SILENT_CLIMATE_CHANGES]
+        # Keep the oldest unanswered evidence: additional changes cannot postpone
+        # a boundary already established by the first two.
+        del self.changes[SILENT_CLIMATE_CHANGES:]
 
     def silent(
         self,
@@ -112,3 +114,11 @@ class TemperatureSilence:
         """Require fresh evidence after a recovery attempt."""
 
         self.changes.clear()
+
+    def deadline(self, now: datetime) -> datetime | None:
+        """Return the next eligibility boundary after answered changes are pruned."""
+
+        if len(self.changes) < SILENT_CLIMATE_CHANGES:
+            return None
+        deadline = self.changes[0] + timedelta(seconds=SILENT_MINIMUM_SECONDS)
+        return deadline if deadline > now else None

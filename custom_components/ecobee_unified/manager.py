@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from asyncio import Event as AsyncEvent
-from asyncio import Lock
+from asyncio import Lock, Task, gather, shield
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -55,7 +55,7 @@ from .const import (
     SUFFIX_SOURCE_DEGRADED,
     SUFFIX_VOC,
 )
-from .manager_commands import CommandRunner
+from .manager_commands import CommandRunner, raise_validation
 from .manager_sources import _state_age_seconds
 from .models import (
     CommandSummary,
@@ -102,6 +102,7 @@ class MappingManager(CommandRunner):
         self._snapshots: dict[str, NormalizedSnapshot] = {}
         self._tracker = CommandTracker()
         self._command_locks = {mapping.mapping_id: Lock() for mapping in self.mappings}
+        self._admitted_commands = {mapping.mapping_id: 0 for mapping in self.mappings}
         self._stopped = AsyncEvent()
         self._options = options
         self._unsub_state: Callable[[], None] | None = None
@@ -117,6 +118,8 @@ class MappingManager(CommandRunner):
         self._unsub_temperature_mismatches: dict[str, Callable[[], None]] = {}
         self._temperature_silence: dict[str, TemperatureSilence] = {}
         self._silent_source_reloads: dict[str, datetime] = {}
+        self._temperature_reload_tasks: dict[str, Task[None]] = {}
+        self._reloading_sources: set[str] = set()
         self._watched_entity_ids: set[str] = set()
         self._watched_entity_references = {
             reference
@@ -185,6 +188,7 @@ class MappingManager(CommandRunner):
             ir.async_delete_issue(
                 self.hass, DOMAIN, _silent_temperature_issue_id(mapping.mapping_id)
             )
+        await self._async_stop_temperature_recovery()
 
     def snapshot(self, mapping_id: str) -> NormalizedSnapshot:
         """Return the current immutable snapshot."""
@@ -376,9 +380,13 @@ class MappingManager(CommandRunner):
             for source in cloud_sensors
             if source is not None
         )
-        self._schedule_stale_refresh(mapping_id, stale_inputs)
+        silence = self._temperature_silence.get(mapping_id)
+        self._schedule_stale_refresh(
+            mapping_id, stale_inputs, silence.deadline(now) if silence else None, now
+        )
         self._refresh_mapping_issue(mapping)
         self._handle_temperature_silence(mapping, temperature_silent)
+        self._retry_temperature_recovery()
         async_dispatcher_send(self.hass, f"{SIGNAL_SNAPSHOT_UPDATED}_{mapping_id}")
 
     @callback
@@ -633,6 +641,25 @@ class MappingManager(CommandRunner):
         after = finite_number(new_state.attributes.get("current_temperature"))
         if before is None or after is None or before == after:
             return
+        # A precise answer and further climate changes can share a settle window.
+        # Prune answered evidence before bounding the retained climate changes,
+        # using the same validity contract as snapshot construction.
+        now = dt_util.utcnow()
+        homekit = self._climate_raw_source(
+            mapping.homekit_entity,
+            None,
+            require_device=True,
+            now=now,
+            report_times=None,
+        )
+        precise = self._temperature_raw_source(
+            mapping.homekit_temperature_entity,
+            homekit,
+            now=now,
+            report_times=None,
+            required_device_id=self._source_device_id(mapping.homekit_entity),
+        )
+        self._temperature_silent(mapping, precise, now)
         self._temperature_silence.setdefault(
             mapping.mapping_id, TemperatureSilence()
         ).climate_changed(
@@ -706,7 +733,8 @@ class MappingManager(CommandRunner):
                 DEFAULT_RELOAD_SILENT_TEMPERATURE_SOURCE,
             )
             is True
-            and self._tracker.pending_operation(mapping.mapping_id) is None
+            and not self._source_has_commands(source_entry_id)
+            and source_entry_id not in self._temperature_reload_tasks
         ):
             now = dt_util.utcnow()
             last_reload = self._silent_source_reloads.get(source_entry_id)
@@ -715,19 +743,12 @@ class MappingManager(CommandRunner):
                 or (now - last_reload).total_seconds()
                 >= SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS
             ):
-                self._silent_source_reloads[source_entry_id] = now
-                # Evidence gathered before the reload cannot describe the
-                # reloaded entity; a still-silent sensor must be caught anew.
-                for other in self.mappings:
-                    silence = self._temperature_silence.get(other.mapping_id)
-                    if (
-                        silence is not None
-                        and self._temperature_source_entry_id(other) == source_entry_id
-                    ):
-                        silence.reset()
-                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-                self.hass.config_entries.async_schedule_reload(source_entry_id)
-                return
+                self._temperature_reload_tasks[source_entry_id] = (
+                    self.hass.async_create_task(
+                        self._async_reload_temperature_source(mapping, source_entry_id),
+                        eager_start=False,
+                    )
+                )
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -747,6 +768,88 @@ class MappingManager(CommandRunner):
                 else None
             ),
         )
+
+    def _homekit_entry_id(self, mapping: MappingConfig) -> str | None:
+        """Resolve the shared lifecycle owner, even without a precise selection."""
+
+        entity_id = self.resolve_entity_id(mapping.homekit_entity)
+        entry = er.async_get(self.hass).async_get(entity_id) if entity_id else None
+        return entry.config_entry_id if entry else None
+
+    def _source_has_commands(self, source_entry_id: str) -> bool:
+        return any(
+            self._homekit_entry_id(mapping) == source_entry_id
+            and (
+                self._admitted_commands[mapping.mapping_id] > 0
+                or self._tracker.pending_operation(mapping.mapping_id) is not None
+            )
+            for mapping in self.mappings
+        )
+
+    def _require_source_available(self, mapping_id: str) -> None:
+        if (
+            self._homekit_entry_id(self._mapping_by_id[mapping_id])
+            in self._reloading_sources
+        ):
+            raise_validation("source_recovery_in_progress")
+
+    def _retry_temperature_recovery(self) -> None:
+        """Reconsider blocked recovery after any mapping's command changes."""
+
+        if self._stopped.is_set():
+            return
+        for mapping in self.mappings:
+            snapshot = self._snapshots.get(mapping.mapping_id)
+            if snapshot and "homekit_temperature_silent" in snapshot.degradation:
+                self._handle_temperature_silence(mapping, True)
+
+    async def _async_reload_temperature_source(
+        self, mapping: MappingConfig, source_entry_id: str
+    ) -> None:
+        """Arbitrate at dispatch and retain ownership until Core finishes reload."""
+
+        try:
+            if self._stopped.is_set():
+                return
+            self.refresh_mapping(mapping.mapping_id)
+            if (
+                self._temperature_source_entry_id(mapping) != source_entry_id
+                or "homekit_temperature_silent"
+                not in self.snapshot(mapping.mapping_id).degradation
+                or self._source_has_commands(source_entry_id)
+            ):
+                return
+            self._reloading_sources.add(source_entry_id)
+            self._silent_source_reloads[source_entry_id] = dt_util.utcnow()
+            reloaded = await self.hass.config_entries.async_reload(source_entry_id)
+            if reloaded and not self._stopped.is_set():
+                # Pre-reload evidence cannot describe the reloaded source.
+                recovered = tuple(
+                    other
+                    for other in self.mappings
+                    if self._temperature_source_entry_id(other) == source_entry_id
+                )
+                for other in recovered:
+                    if silence := self._temperature_silence.get(other.mapping_id):
+                        silence.reset()
+                for other in recovered:
+                    self.refresh_mapping(other.mapping_id)
+        finally:
+            self._reloading_sources.discard(source_entry_id)
+            self._temperature_reload_tasks.pop(source_entry_id, None)
+
+    async def _async_stop_temperature_recovery(self) -> None:
+        tasks = tuple(self._temperature_reload_tasks.items())
+        for source_entry_id, task in tasks:
+            if source_entry_id not in self._reloading_sources:
+                task.cancel()
+                # A deferred task cancelled before its first step has no finally.
+                self._temperature_reload_tasks.pop(source_entry_id, None)
+        # Cancellation during Core unload/setup can strand the source entry in
+        # a nonrecoverable transition. Let dispatched reloads reach a terminal
+        # state, even if this drain's caller is cancelled. Core owns cancellation
+        # of its tracked tasks during whole-Home-Assistant shutdown.
+        await gather(*(shield(task) for _, task in tasks), return_exceptions=True)
 
     @callback
     def _handle_state_report_event(self, event: Event[EventStateReportedData]) -> None:
@@ -862,14 +965,18 @@ class MappingManager(CommandRunner):
         self,
         mapping_id: str,
         sources: list[tuple[RawSource, int]],
+        silence_deadline: datetime | None,
+        now: datetime,
     ) -> None:
         if unsubscribe := self._unsub_stale_refreshes.pop(mapping_id, None):
             unsubscribe()
         delays = [
-            max(1, stale_seconds - source.age_seconds + 1)
+            max(1.0, stale_seconds - source.age_seconds + 1)
             for source, stale_seconds in sources
             if source.health is SourceHealth.HEALTHY and source.age_seconds is not None
         ]
+        if silence_deadline is not None:
+            delays.append((silence_deadline - now).total_seconds())
         if delays:
             self._unsub_stale_refreshes[mapping_id] = async_call_later(
                 self.hass,

@@ -86,6 +86,40 @@ class TemperatureSilenceTests(unittest.TestCase):
         self.assertFalse(silence.silent(IDENTITY, START, first + timedelta(seconds=59)))
         self.assertTrue(silence.silent(IDENTITY, START, first + timedelta(seconds=60)))
 
+    def test_more_unanswered_changes_cannot_postpone_silence(self) -> None:
+        silence = TemperatureSilence()
+        first = START + timedelta(minutes=5)
+        for seconds in (0, 30, 59, 89, 119, 149, 179):
+            now = first + timedelta(seconds=seconds)
+            silence.climate_changed(IDENTITY, now)
+            self.assertLessEqual(len(silence.changes), 2)
+            self.assertEqual(seconds >= 60, silence.silent(IDENTITY, START, now))
+            if 30 <= seconds < 60:
+                self.assertEqual(first + timedelta(seconds=60), silence.deadline(now))
+
+    def test_precise_answer_preserves_only_unanswered_pending_evidence(self) -> None:
+        silence = TemperatureSilence()
+        first = START + timedelta(minutes=5)
+        for seconds in (0, 30, 45):
+            silence.climate_changed(IDENTITY, first + timedelta(seconds=seconds))
+        answer = first + timedelta(seconds=15)
+        self.assertFalse(
+            silence.silent(IDENTITY, answer, first + timedelta(seconds=50))
+        )
+        self.assertEqual([first + timedelta(seconds=30)], silence.changes)
+        for seconds in (50, 59, 70):
+            silence.climate_changed(IDENTITY, first + timedelta(seconds=seconds))
+        self.assertEqual(
+            first + timedelta(seconds=90),
+            silence.deadline(first + timedelta(seconds=70)),
+        )
+        self.assertFalse(
+            silence.silent(IDENTITY, answer, first + timedelta(seconds=89))
+        )
+        self.assertTrue(silence.silent(IDENTITY, answer, first + timedelta(seconds=90)))
+        self.assertFalse(silence.silent(IDENTITY, first + timedelta(seconds=91), LATER))
+        self.assertIsNone(silence.deadline(LATER))
+
     def test_a_later_precise_value_change_answers_earlier_changes(self) -> None:
         silence = TemperatureSilence()
         silence.climate_changed(IDENTITY, START + timedelta(minutes=5))

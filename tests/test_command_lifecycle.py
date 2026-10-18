@@ -6,25 +6,348 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from datetime import timedelta
 from inspect import iscoroutine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockModule,
+    mock_integration,
+    mock_platform,
+)
 
 from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
-from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
+from custom_components.ecobee_unified.const import (
+    CONF_MAPPINGS,
+    CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
+    DOMAIN,
+    HOMEKIT_SOURCE_DOMAIN,
+)
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
+from custom_components.ecobee_unified.temperature_quality import TemperatureSilence
 
 from .runtime_fixture import CoreRuntimeTestCase
 
 
 class CommandLifecycleTests(CoreRuntimeTestCase):
     """Exercise command lifecycle through real Core registries and states."""
+
+    async def _enable_temperature_recovery(self) -> None:
+        await self.manager.async_stop()
+        self.mapping = replace(
+            self.mapping, homekit_temperature_entity=self.homekit_temperature.id
+        )
+        self.hass.states.async_remove(self.homekit_temperature.entity_id)
+        self.hass.states.async_set(
+            self.homekit_temperature.entity_id,
+            "20.04",
+            {"device_class": "temperature", "unit_of_measurement": "°C"},
+            timestamp=(dt_util.utcnow() - timedelta(minutes=10)).timestamp(),
+        )
+        sibling = replace(
+            self.mapping, mapping_id="mapping_b", homekit_temperature_entity=None
+        )
+        self.manager = MappingManager(
+            self.hass,
+            "entry_a",
+            (self.mapping, sibling),
+            {CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True},
+        )
+        await self.manager.async_start()
+        await self.hass.async_block_till_done()
+        silence = TemperatureSilence()
+        for seconds in (120, 100):
+            silence.climate_changed(
+                self.manager._temperature_source_identity(self.mapping),
+                dt_util.utcnow() - timedelta(seconds=seconds),
+            )
+        self.manager._temperature_silence["mapping_a"] = silence
+
+    async def test_recovery_waits_for_admission_dispatch_queue_and_confirmation(
+        self,
+    ) -> None:
+        for kind in ("notification", "standard"):
+            with self.subTest(kind=kind):
+                await self._enable_temperature_recovery()
+                started, release = asyncio.Event(), asyncio.Event()
+
+                async def writer(
+                    call: ServiceCall, *, started=started, release=release
+                ) -> None:
+                    started.set()
+                    self.manager.refresh_mapping("mapping_a")
+                    await release.wait()
+
+                self._register_writer(kind, writer)
+                active = queued = None
+                with patch.object(
+                    self.hass.config_entries, "async_reload", return_value=True
+                ) as reload:
+                    try:
+                        active = asyncio.create_task(self._command(kind))
+                        await self._wait_for_fixture_event(active, started)
+                        reload.assert_not_awaited()
+                        queued = asyncio.create_task(self._command(kind))
+                        await asyncio.sleep(0)
+                        self.assertEqual(
+                            2, self.manager._admitted_commands["mapping_a"]
+                        )
+                        self.manager.refresh_mapping("mapping_a")
+                        reload.assert_not_awaited()
+                        release.set()
+                        await asyncio.gather(active, queued)
+                        if kind == "standard":
+                            reload.assert_not_awaited()
+                            revision = self.manager._tracker.pending_revision(
+                                "mapping_a"
+                            )
+                            assert revision is not None
+                            self.manager._handle_timeout("mapping_a", revision)
+                        await self.hass.async_block_till_done()
+                        reload.assert_awaited_once_with(self.homekit.config_entry_id)
+                        self.assertFalse(self.manager._temperature_reload_tasks)
+                        self.assertFalse(self.manager._reloading_sources)
+                    finally:
+                        release.set()
+                        await self._settle_fixture_tasks(active, queued)
+
+    async def test_sibling_without_precise_sensor_blocks_recovery(self) -> None:
+        await self._enable_temperature_recovery()
+        with patch.object(
+            self.hass.config_entries, "async_reload", return_value=True
+        ) as reload:
+            async with self.manager._command_slot("mapping_b"):
+                self.manager.refresh_mapping("mapping_a")
+                await asyncio.sleep(0)
+                reload.assert_not_awaited()
+            await self.hass.async_block_till_done()
+            reload.assert_awaited_once_with(self.homekit.config_entry_id)
+
+    async def test_deferred_recovery_rechecks_command_admission(self) -> None:
+        await self._enable_temperature_recovery()
+        with patch.object(
+            self.hass.config_entries, "async_reload", return_value=True
+        ) as reload:
+            self.manager.refresh_mapping("mapping_a")
+            self.assertTrue(self.manager._temperature_reload_tasks)
+            # Enter synchronously through admission before recovery gets its turn.
+            async with self.manager._command_slot("mapping_b"):
+                reload.assert_not_awaited()
+            await self.hass.async_block_till_done()
+            reload.assert_awaited_once_with(self.homekit.config_entry_id)
+
+    async def test_sibling_confirmation_blocks_recovery_until_observed(self) -> None:
+        await self._enable_temperature_recovery()
+        revision = self.manager._tracker.begin(
+            "mapping_b", "set_temperature", {"target_temperature": 22.0}
+        )
+        self.manager._tracker.accept_write("mapping_b", revision)
+        with patch.object(
+            self.hass.config_entries, "async_reload", return_value=True
+        ) as reload:
+            self.manager.refresh_mapping("mapping_a")
+            await self.hass.async_block_till_done()
+            reload.assert_not_awaited()
+            self.hass.states.async_set(
+                self.ecobee.entity_id,
+                "heat",
+                self._attributes(20.0) | {"temperature": 22.0},
+            )
+            await self.hass.async_block_till_done()
+            self.assertIs(
+                CommandStatus.CONFIRMED,
+                self.manager.snapshot("mapping_b").command.status,
+            )
+            reload.assert_awaited_once_with(self.homekit.config_entry_id)
+
+    async def test_stop_cancels_deferred_recovery_before_dispatch(self) -> None:
+        await self._enable_temperature_recovery()
+        with patch.object(self.hass.config_entries, "async_reload") as reload:
+            self.manager.refresh_mapping("mapping_a")
+            self.assertTrue(self.manager._temperature_reload_tasks)
+            await self.manager.async_stop()
+            await self.hass.async_block_till_done()
+            reload.assert_not_awaited()
+            self.assertFalse(self.manager._temperature_reload_tasks)
+            self.assertFalse(self.manager._reloading_sources)
+
+    async def test_running_recovery_rejects_writers_and_cleans_up(self) -> None:
+        for result in (True, False):
+            with self.subTest(result=result):
+                await self._enable_temperature_recovery()
+                started, release = asyncio.Event(), asyncio.Event()
+
+                async def recover(
+                    entry_id: str, *, started=started, release=release, result=result
+                ) -> bool:
+                    started.set()
+                    await release.wait()
+                    return result is True
+
+                with patch.object(
+                    self.hass.config_entries, "async_reload", side_effect=recover
+                ) as reload:
+                    self.manager.refresh_mapping("mapping_a")
+                    task = self.manager._temperature_reload_tasks[
+                        self.homekit.config_entry_id
+                    ]
+                    await self._wait_for_fixture_event(task, started)
+                    for kind in (
+                        "standard",
+                        "vendor",
+                        "action",
+                        "resume",
+                        "preset",
+                        "notification",
+                    ):
+                        with (
+                            self.subTest(kind=kind),
+                            self.assertRaises(ServiceValidationError) as error,
+                        ):
+                            await self._command(kind)
+                        self.assertEqual(
+                            "source_recovery_in_progress",
+                            error.exception.translation_key,
+                        )
+                    release.set()
+                    await task
+                    # A sibling refresh must not resurrect pre-reload evidence.
+                    self.manager.refresh_mapping("mapping_b")
+                    issue = ir.async_get(self.hass).async_get_issue(
+                        DOMAIN, "homekit_temperature_silent_mapping_a"
+                    )
+                    self.assertEqual(result is False, issue is not None)
+                    self.manager.refresh_mapping("mapping_a")
+                    issue = ir.async_get(self.hass).async_get_issue(
+                        DOMAIN, "homekit_temperature_silent_mapping_a"
+                    )
+                    self.assertEqual(result is False, issue is not None)
+                    self.assertFalse(self.manager._temperature_reload_tasks)
+                    self.assertFalse(self.manager._reloading_sources)
+                    reload.assert_awaited_once()
+
+    async def test_native_source_reload_finishes_during_unified_unload(self) -> None:
+        """Never strand Core's source unload or setup by cancelling its reload."""
+
+        for phase in ("unload", "setup"):
+            with self.subTest(phase=phase):
+                await self._enable_temperature_recovery()
+                silence = self.manager._temperature_silence["mapping_a"]
+                await self.manager.async_stop()
+                entry = MockConfigEntry(
+                    domain=DOMAIN,
+                    data={CONF_MAPPINGS: [self.mapping.as_dict()]},
+                    options={CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: True},
+                    version=1,
+                    minor_version=5,
+                )
+                entry.add_to_hass(self.hass)
+                self.assertTrue(
+                    await self.hass.config_entries.async_setup(entry.entry_id)
+                )
+                self.manager = entry.runtime_data.manager
+                self.manager._temperature_silence["mapping_a"] = silence
+                source = self.hass.config_entries.async_get_entry(
+                    self.homekit.config_entry_id
+                )
+                assert source is not None
+                source.mock_state(self.hass, ConfigEntryState.LOADED)
+                entered, release = asyncio.Event(), asyncio.Event()
+                calls: list[str] = []
+
+                async def boundary(
+                    current: str,
+                    *,
+                    calls=calls,
+                    phase=phase,
+                    entered=entered,
+                    release=release,
+                ) -> bool:
+                    calls.append(current)
+                    if current == phase:
+                        entered.set()
+                        await release.wait()
+                    return True
+
+                async def source_unload(
+                    hass, config_entry, *, boundary=boundary
+                ) -> bool:
+                    return await boundary("unload")
+
+                async def source_setup(
+                    hass, config_entry, *, boundary=boundary
+                ) -> bool:
+                    return await boundary("setup")
+
+                mock_integration(
+                    self.hass,
+                    MockModule(
+                        HOMEKIT_SOURCE_DOMAIN,
+                        async_unload_entry=source_unload,
+                        async_setup_entry=source_setup,
+                    ),
+                    top_level_files={"config_flow.py"},
+                )
+                mock_platform(self.hass, f"{HOMEKIT_SOURCE_DOMAIN}.config_flow", Mock())
+                self.hass.config.components.add(HOMEKIT_SOURCE_DOMAIN)
+                recovery = stop = None
+                with patch.object(source, "async_migrate", return_value=True):
+                    try:
+                        self.manager.refresh_mapping("mapping_a")
+                        recovery = self.manager._temperature_reload_tasks[
+                            source.entry_id
+                        ]
+                        await self._wait_for_fixture_event(recovery, entered)
+                        self.assertIs(
+                            ConfigEntryState.UNLOAD_IN_PROGRESS
+                            if phase == "unload"
+                            else ConfigEntryState.SETUP_IN_PROGRESS,
+                            source.state,
+                        )
+                        stop = asyncio.create_task(
+                            self.hass.config_entries.async_unload(entry.entry_id)
+                        )
+                        # Platform teardown may await Core; wait for manager admission to close.
+                        await self._wait_for_fixture_event(stop, self.manager._stopped)
+                        self._assert_stopped()
+                        self.assertFalse(recovery.done())
+                        self.assertFalse(stop.done())
+                        with self.assertRaises(ServiceValidationError):
+                            await self._command("standard")
+                        with patch(
+                            "custom_components.ecobee_unified.manager.async_dispatcher_send"
+                        ) as publish:
+                            self.manager.refresh_all()
+                            release.set()
+                            self.assertTrue(
+                                await asyncio.wait_for(asyncio.shield(stop), 1)
+                            )
+                            self.assertIsNone(await recovery)
+                            publish.assert_not_called()
+                        self.assertFalse(recovery.cancelled())
+                        self.assertIs(ConfigEntryState.LOADED, source.state)
+                        self.assertTrue(source.state.recoverable)
+                        self.assertFalse(source.setup_lock.locked())
+                        self.assertFalse(self.manager._temperature_reload_tasks)
+                        self.assertFalse(self.manager._reloading_sources)
+                        self.assertEqual(["unload", "setup"], calls)
+                        self.assertTrue(
+                            await self.hass.config_entries.async_reload(source.entry_id)
+                        )
+                        self.assertIs(ConfigEntryState.LOADED, source.state)
+                        self.assertEqual(["unload", "setup"] * 2, calls)
+                    finally:
+                        release.set()
+                        await self._settle_fixture_tasks(recovery, stop)
 
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()

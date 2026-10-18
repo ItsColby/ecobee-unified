@@ -238,8 +238,12 @@ behavior. HomeKit event silence is not a staleness timeout.
 on and a mapped precise temperature sensor stops answering its climate (see
 [When a precise temperature stops being selected](#when-a-precise-temperature-stops-being-selected)),
 Unified reloads that thermostat's HomeKit Device entry: at most once per six
-hours, and never while a command is pending. Every entity of that HomeKit
-pairing is briefly unavailable during the reload.
+hours, and only after queued or running actions and pending confirmations finish
+for every mapping using that HomeKit entry. Every entity of that HomeKit pairing
+is briefly unavailable during the reload. Requests made during recovery are
+rejected before dispatch; wait for recovery to finish before trying again.
+Unloading or reconfiguring Unified waits for a source recovery already in progress
+to finish, so the HomeKit pairing can complete its reload.
 
 ## Centralize other datapoints
 
@@ -406,8 +410,9 @@ and therefore cannot prove a repair. Unified does not control the thermostat or
 revise history in response to this condition.
 
 `homekit_temperature_silent` means something different: the sensor has stopped
-updating. The rounded climate reading changed twice, the older change at least
-a minute ago, while the sensor's value stayed the same. Both come from one
+updating. The rounded climate reading changed at least twice, with the oldest
+unanswered change at least a minute old, while the sensor's value stayed the same.
+Further climate changes do not restart the wait. Both come from one
 HomeKit characteristic, so a working sensor would have changed each time. A
 frozen sensor can keep re-reporting its old value; those reports do not count. This
 usually means Home Assistant's HomeKit entity stopped updating, not the

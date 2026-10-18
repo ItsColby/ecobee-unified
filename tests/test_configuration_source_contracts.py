@@ -18,7 +18,6 @@ from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ecobee_unified.config_flow import (
-    OPTIONAL_SOURCE_KEYS,
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
     _mapping_from_input,
@@ -44,6 +43,7 @@ from custom_components.ecobee_unified.const import (
     DOMAIN,
     HOMEKIT_PAIR_SETTLE_SECONDS,
 )
+from custom_components.ecobee_unified.flow_mappings import OPTIONAL_SOURCE_KEYS
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import MappingConfig, SourceHealth
 

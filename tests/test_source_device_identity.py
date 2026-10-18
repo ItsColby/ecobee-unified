@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -30,10 +29,6 @@ async def test_physical_source_device_is_preserved(hass: HomeAssistant) -> None:
     assert _device_for_reference(hass, entity.id) is device
 
 
-@pytest.mark.skipif(
-    not hasattr(dr.DeviceRegistry, "async_get_or_create_child"),
-    reason="This Core version predates native child devices",
-)
 async def test_child_source_cannot_supply_physical_identity(
     hass: HomeAssistant,
 ) -> None:

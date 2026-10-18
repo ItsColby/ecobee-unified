@@ -55,16 +55,18 @@ editor names, descriptions, and selectors, while Python owns executable input
 validation. Preserve stable keys and placeholders when changing explanations.
 The current date/time schema-format errors in `climate.py` are direct Python
 messages and are an explicit exception to the translation owner. The
-metadata tests check the runtime language file and help completeness.
+metadata tests check the runtime language file and help completeness, icon,
+action and translation key agreement, and that documentation links name the
+pinned Core.
 
 ## Keep public content safe
 
 Gitleaks uses its default credential rules plus the repository's
 [`.gitleaks.toml`](../.gitleaks.toml) rules for private paths, addresses,
-hostnames, and non-example email addresses, over both the working tree and Git
-history. Ignored files are outside its scope; keep private fixtures and
-deployment evidence out of distributable source. It is a bounded pattern check,
-so review new public material as well.
+hostnames, and non-example email addresses, over Git history. Ignored files are
+outside its scope; keep private fixtures and deployment evidence out of
+distributable source. It is a bounded pattern check, so review new public
+material as well.
 
 Installation acceptance and consumer migration are covered in the
 [operating guide](user-guide.md#verify-an-installation-before-moving-its-consumers).

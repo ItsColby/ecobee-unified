@@ -38,6 +38,18 @@ class MetadataTests(unittest.TestCase):
         pinned = _core_pin(root / "pyproject.toml")
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(hacs["homeassistant"], pinned)
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn(hacs["homeassistant"], readme)
+        core_refs = re.compile(
+            r"(?:github\.com/home-assistant/core/(?:tree|blob)"
+            r"|raw\.githubusercontent\.com/home-assistant/core)/([0-9][^/\s)\]]*)"
+        )
+        found = 0
+        for doc in [root / "README.md", *sorted((root / "docs").glob("*.md"))]:
+            for match in core_refs.finditer(doc.read_text(encoding="utf-8")):
+                found += 1
+                self.assertEqual(match.group(1), pinned, doc)
+        self.assertGreater(found, 0)
 
     def test_reconfigure_menu_has_complete_runtime_translations(self) -> None:
         root = (
@@ -89,3 +101,19 @@ class MetadataTests(unittest.TestCase):
             if not str(field_spec.get("description", "")).strip()
         ]
         self.assertEqual([], undescribed)
+
+    def test_services_icons_and_translations_agree(self) -> None:
+        root = (
+            Path(__file__).resolve().parents[1] / "custom_components" / "ecobee_unified"
+        )
+        translations = json.loads(
+            (root / "translations" / "en.json").read_text(encoding="utf-8")
+        )
+        icons = json.loads((root / "icons.json").read_text(encoding="utf-8"))
+        services = yaml.safe_load((root / "services.yaml").read_text(encoding="utf-8"))
+        self.assertNotIn("[%key:", json.dumps(translations))
+        self.assertEqual(set(services), set(icons.get("services", {})))
+        for platform, keys in icons.get("entity", {}).items():
+            self.assertLessEqual(
+                set(keys), set(translations["entity"].get(platform, {})), platform
+            )

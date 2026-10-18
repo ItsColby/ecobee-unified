@@ -218,7 +218,7 @@ If another configuration session saves first, reopen the flow to work from its
 saved state. Accepted changes reload this entry without a Home Assistant restart.
 
 **Configure** opens two local timing settings and an optional **Configure
-thermostat read preferences** choice. Select a thermostat to set HomeKit-first,
+per-thermostat read sources** choice. Select a thermostat to set HomeKit-first,
 Ecobee-first, HomeKit-only or Ecobee-only reads separately for mode, current
 action, display temperature, humidity, targets and fan mode. HomeKit-first is
 the default. An only-source policy makes the field unavailable when that source

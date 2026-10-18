@@ -8,9 +8,9 @@ or source interpretation.
 The supported Core is the pinned `ha-current`
 validation lane. The test harness and commands are in
 [Development](development.md). Source links below are pinned to it; the
-[HomeKit](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/homekit_controller)
+[HomeKit](https://github.com/home-assistant/core/tree/2026.10.2/homeassistant/components/homekit_controller)
 and
-[Ecobee](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/ecobee)
+[Ecobee](https://github.com/home-assistant/core/tree/2026.10.2/homeassistant/components/ecobee)
 implementations must preserve these same contracts.
 
 ## Source assumptions and their limits
@@ -65,21 +65,21 @@ references do not establish the behavior of every accessory model, firmware
 version, or account. Keep release-specific compatibility findings with their
 commit or release record.
 
-[hk-connection]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/homekit_controller/connection.py
-[hk-climate]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/homekit_controller/climate.py
-[hk-select]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/homekit_controller/select.py
-[hk-button]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/homekit_controller/button.py
-[hk-current-manifest]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/homekit_controller/manifest.json
+[hk-connection]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/homekit_controller/connection.py
+[hk-climate]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/homekit_controller/climate.py
+[hk-select]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/homekit_controller/select.py
+[hk-button]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/homekit_controller/button.py
+[hk-current-manifest]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/homekit_controller/manifest.json
 [hk-current-conversion]: https://raw.githubusercontent.com/Jc2k/aiohomekit/4.0.1/aiohomekit/model/characteristics/characteristic.py
-[ec-climate]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/ecobee/climate.py
-[ec-sensor]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/ecobee/sensor.py
-[ec-notify]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/ecobee/notify.py
+[ec-climate]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/ecobee/climate.py
+[ec-sensor]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/ecobee/sensor.py
+[ec-notify]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/ecobee/notify.py
 [ec-runtime]: https://www.ecobee.com/home/developer/api/documentation/v1/objects/Runtime.shtml
 [ec-air-quality]: https://www.ecobee.com/en-us/citizen/five-ways-to-improve-air-quality-in-your-home/
-[climate-base]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/climate/__init__.py
-[notify-base]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/components/notify/__init__.py
-[device-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/helpers/device.py
-[event-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/helpers/event.py
+[climate-base]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/climate/__init__.py
+[notify-base]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/components/notify/__init__.py
+[device-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/helpers/device.py
+[event-helper]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/helpers/event.py
 [state-reported]: https://developers.home-assistant.io/blog/2024/03/20/state_reported_timestamp/
 
-[core-setup]: https://raw.githubusercontent.com/home-assistant/core/2026.10.1/homeassistant/setup.py
+[core-setup]: https://raw.githubusercontent.com/home-assistant/core/2026.10.2/homeassistant/setup.py

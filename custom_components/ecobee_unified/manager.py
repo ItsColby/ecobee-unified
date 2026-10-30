@@ -79,9 +79,10 @@ from .temperature_quality import (
     TemperatureSilence,
 )
 
-# Core 2026.8's HomeKit writer honors the accessory's native granularity even
+# The pinned Core's HomeKit writer honors the accessory's native granularity even
 # though its climate adapter omits target_temp_step. Physical identity remains a
 # separate per-mapping proof that is reevaluated through registry events.
+# docs/upstream-contracts.md (HomeKit write granularity) owns the proof.
 HOMEKIT_WRITER_GRANULARITY_PROVEN = True
 
 

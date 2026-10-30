@@ -25,7 +25,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import ServiceCall, ServiceRegistry
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import (
+    ConfigEntryError,
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -2714,7 +2718,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             minor_version=0,
         )
         entry.add_to_hass(self.hass)
-        self.assertFalse(await async_migrate_entry(self.hass, entry))
+        with self.assertRaises(ConfigEntryError) as raised:
+            await async_migrate_entry(self.hass, entry)
+        self.assertEqual("unsupported_entry_version", raised.exception.translation_key)
         self.assertEqual(EcobeeUnifiedConfigFlow.VERSION + 1, entry.version)
         self.assertEqual(original_data, entry.data)
 
@@ -2726,7 +2732,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             options={"future_policy": "preserve"},
         )
         future_minor.add_to_hass(self.hass)
-        self.assertFalse(await async_migrate_entry(self.hass, future_minor))
+        with self.assertRaises(ConfigEntryError) as raised:
+            await async_migrate_entry(self.hass, future_minor)
+        self.assertEqual("unsupported_entry_version", raised.exception.translation_key)
         self.assertEqual(
             EcobeeUnifiedConfigFlow.MINOR_VERSION + 1, future_minor.minor_version
         )
@@ -2740,7 +2748,9 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             minor_version=EcobeeUnifiedConfigFlow.MINOR_VERSION - 1,
         )
         old_minor.add_to_hass(self.hass)
-        self.assertFalse(await async_migrate_entry(self.hass, old_minor))
+        with self.assertRaises(ConfigEntryError) as raised:
+            await async_migrate_entry(self.hass, old_minor)
+        self.assertEqual("unsupported_entry_version", raised.exception.translation_key)
         self.assertEqual(
             EcobeeUnifiedConfigFlow.MINOR_VERSION - 1, old_minor.minor_version
         )

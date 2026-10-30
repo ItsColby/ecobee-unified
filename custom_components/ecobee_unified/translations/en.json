@@ -438,6 +438,9 @@
     }
   },
   "exceptions": {
+    "unsupported_entry_version": {
+      "message": "This Ecobee Unified entry uses unsupported configuration version {version}. Remove the integration and add it again."
+    },
     "source_recovery_in_progress": {
       "message": "The HomeKit source is recovering, so this request was rejected before dispatch. Wait for recovery to finish, then try again."
     },

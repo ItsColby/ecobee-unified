@@ -122,6 +122,9 @@ SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | probatio.Marker, Any] = {
 }
 
 
+PARALLEL_UPDATES = 1
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EcobeeUnifiedConfigEntry,

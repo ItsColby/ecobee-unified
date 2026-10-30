@@ -19,6 +19,8 @@ from .manager import MappingManager
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry
 
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

@@ -739,6 +739,11 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                                 ).status,
                             )
                             self.assertFalse(self.manager._unsub_timeouts)
+                            if not stop:
+                                self.assertIs(
+                                    CommandStatus.UNCONFIRMED,
+                                    self.manager.snapshot("mapping_a").command.status,
+                                )
                         self.assertEqual(1, len(calls))
                         self.assertFalse(
                             self.manager._command_locks["mapping_a"].locked()

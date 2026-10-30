@@ -208,7 +208,6 @@ class NormalizedSnapshot:
     preset_modes: tuple[str, ...]
     ecobee_preset_mode: str | None
     climate_mode: str | None
-    equipment_running: str | None
     equipment_stage: str | None
     reported_equipment_stage: str | None
     equipment_detail_status: str
@@ -578,7 +577,6 @@ def build_snapshot(
         climate_mode=_bounded_text(ecobee.attributes.get("climate_mode"))
         if ecobee.usable
         else None,
-        equipment_running=equipment_running,
         equipment_stage=stage,
         reported_equipment_stage=reported_stage,
         equipment_detail_status=detail_status,

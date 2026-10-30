@@ -1828,7 +1828,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             )
             self.assertEqual(44.6, snapshot.ecobee_min_temp)
             self.assertEqual(95.0, snapshot.ecobee_max_temp)
-            self.assertEqual("", snapshot.equipment_running)
             self.assertNotIn(
                 "homekit_temperature_metadata_unavailable", snapshot.degradation
             )

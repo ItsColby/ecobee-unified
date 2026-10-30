@@ -26,7 +26,7 @@ from .const import (
     SUFFIX_VOC,
 )
 from .datapoints import BINARY_KINDS, DatapointConfig, DatapointManager
-from .manager import MappingManager
+from .manager import MappingManager, silent_temperature_issue_id
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 
@@ -108,9 +108,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         mapping_id = item.get("mapping_id")
         if mapping_id:
             ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")
-            ir.async_delete_issue(
-                hass, DOMAIN, f"homekit_temperature_silent_{mapping_id}"
-            )
+            ir.async_delete_issue(hass, DOMAIN, silent_temperature_issue_id(mapping_id))
 
 
 def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:

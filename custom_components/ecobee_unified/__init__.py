@@ -7,6 +7,7 @@ from asyncio import CancelledError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -96,12 +97,13 @@ async def async_unload_entry(
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Reject entries outside the supported schema; Core skips this at the current one."""
 
-    _LOGGER.error(
-        "Unsupported config entry version %s.%s; remove and re-add the integration",
-        entry.version,
-        entry.minor_version,
+    raise ConfigEntryError(
+        translation_domain=DOMAIN,
+        translation_key="unsupported_entry_version",
+        translation_placeholders={
+            "version": f"{entry.version}.{entry.minor_version}",
+        },
     )
-    return False
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

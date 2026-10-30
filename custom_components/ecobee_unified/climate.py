@@ -122,6 +122,10 @@ SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | probatio.Marker, Any] = {
 }
 
 
+# The manager serializes writes per mapping; independent thermostats may run concurrently.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EcobeeUnifiedConfigEntry,

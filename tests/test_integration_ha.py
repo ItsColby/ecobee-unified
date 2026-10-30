@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
@@ -9,6 +11,7 @@ from unittest.mock import patch
 import pytest
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntity
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import (
@@ -26,7 +29,9 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed_exact,
 )
 
+from custom_components.ecobee_unified import async_migrate_entry
 from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
+from custom_components.ecobee_unified.config_flow import EcobeeUnifiedConfigFlow
 from custom_components.ecobee_unified.const import (
     CONF_ADD_ANOTHER,
     CONF_ECOBEE_ENTITY,
@@ -366,6 +371,149 @@ async def test_vendor_action_services_target_unified_climate_once(
         "entity_id": ec.entity_id,
         "auto_away": True,
     }
+
+
+@pytest.mark.parametrize("platform", ["climate", "button", "number", "notify"])
+@pytest.mark.parametrize("cancel_first", [False, True])
+async def test_native_service_dispatch_keeps_mappings_independent(
+    hass: HomeAssistant, platform: str, cancel_first: bool
+) -> None:
+    """Core dispatch must not hold one thermostat behind another's writer."""
+    registry = er.async_get(hass)
+    mappings = []
+    writers = {}
+    for zone in ("a", "b"):
+        hk = _register_source(
+            hass, "homekit_controller", f"hk_{zone}", with_device=True
+        )
+        ec = _register_source(hass, "ecobee", f"ec_{zone}", with_device=True)
+        hass.states.async_set(
+            ec.entity_id, "heat", _climate_attributes(20.0) | {"fan_min_on_time": 15}
+        )
+        mapping = _mapping(f"mapping_{zone}", f"Zone {zone.upper()}", hk, ec)
+        if platform in {"button", "notify"}:
+            source = hk if platform == "button" else ec
+            optional = registry.async_get_or_create(
+                platform,
+                source.platform,
+                f"{zone}_{platform}",
+                config_entry=hass.config_entries.async_get_entry(
+                    source.config_entry_id
+                ),
+                device_id=source.device_id,
+            )
+            hass.states.async_set(optional.entity_id, "unknown")
+            mapping = replace(
+                mapping,
+                **{
+                    "homekit_clear_hold_entity"
+                    if platform == "button"
+                    else "ecobee_notify_entity": optional.id
+                },
+            )
+            writers[zone] = optional.entity_id
+        else:
+            writers[zone] = hk.entity_id if platform == "climate" else ec.entity_id
+        mappings.append(mapping)
+    entry = _entry(hass, tuple(mappings))
+
+    async def vendor_writer(_call) -> None:
+        pass
+
+    hass.services.async_register("ecobee", "set_fan_min_on_time", vendor_writer)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    service, data, suffix = {
+        "climate": ("set_temperature", {"temperature": 22}, ""),
+        "button": ("press", {}, "_resume_program"),
+        "number": ("set_value", {"value": 20}, "_minimum_fan_runtime"),
+        "notify": ("send_message", {"message": "Example"}, "_notification"),
+    }[platform]
+    targets = {
+        zone: registry.async_get_entity_id(platform, DOMAIN, f"mapping_{zone}{suffix}")
+        for zone in writers
+    }
+    assert all(targets.values())
+    first_started = asyncio.Event()
+    release = asyncio.Event()
+    other_started = asyncio.Event()
+    calls = []
+    native_call = hass.services.async_call
+
+    async def dispatch(_registry, domain, action, service_data=None, **kwargs):
+        target = (service_data or {}).get("entity_id") or (
+            kwargs.get("target") or {}
+        ).get("entity_id")
+        if target in writers.values():
+            calls.append(target)
+            if target == writers["a"] and calls.count(target) == 1:
+                first_started.set()
+                await release.wait()
+            if target == writers["b"]:
+                other_started.set()
+            return None
+        return await native_call(domain, action, service_data, **kwargs)
+
+    async def command(zone):
+        await hass.services.async_call(
+            platform, service, data | {"entity_id": targets[zone]}, blocking=True
+        )
+
+    tasks = []
+    with patch.object(type(hass.services), "async_call", dispatch):
+        try:
+            tasks.append(asyncio.create_task(command("a")))
+            await asyncio.wait_for(first_started.wait(), 2)
+            tasks.extend(
+                [asyncio.create_task(command("a")), asyncio.create_task(command("b"))]
+            )
+            await asyncio.wait_for(other_started.wait(), 2)
+            assert calls == [writers["a"], writers["b"]]
+            if cancel_first:
+                tasks[0].cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await tasks[0]
+            else:
+                release.set()
+                await tasks[0]
+            await asyncio.wait_for(asyncio.gather(*tasks[1:]), 2)
+            assert calls == [writers["a"], writers["b"], writers["a"]]
+        finally:
+            release.set()
+            # Let Core's queued service coroutines finish after a failed assertion.
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 2)
+
+
+@pytest.mark.parametrize("schema", ["future_major", "future_minor", "old_minor"])
+async def test_native_setup_rejects_unsupported_schema_without_writes(
+    hass: HomeAssistant, schema: str
+) -> None:
+    version = EcobeeUnifiedConfigFlow.VERSION + (schema == "future_major")
+    minor = EcobeeUnifiedConfigFlow.MINOR_VERSION + (
+        1 if schema == "future_minor" else -1
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=version,
+        minor_version=minor,
+        data={"future": "preserve"},
+        options={"policy": "preserve"},
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.ecobee_unified.async_migrate_entry",
+        wraps=async_migrate_entry,
+    ) as migrate:
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.MIGRATION_ERROR
+    if schema == "future_major":
+        migrate.assert_not_called()
+    else:
+        migrate.assert_awaited_once()
+        assert entry.error_reason_translation_key == "unsupported_entry_version"
+    assert entry.data == {"future": "preserve"}
+    assert entry.options == {"policy": "preserve"}
+    assert (entry.version, entry.minor_version) == (version, minor)
 
 
 def _register_source(

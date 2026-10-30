@@ -19,7 +19,8 @@ from .manager import MappingManager
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry
 
-PARALLEL_UPDATES = 1
+# The manager serializes writes per mapping; independent thermostats may run concurrently.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(

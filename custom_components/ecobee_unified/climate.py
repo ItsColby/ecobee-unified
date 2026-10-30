@@ -20,6 +20,8 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
+    MAX_FAN_RUNTIME_MINUTES,
+    MIN_FAN_RUNTIME_MINUTES,
     SERVICE_CREATE_VACATION,
     SERVICE_DELETE_VACATION,
     SERVICE_RESUME_PROGRAM,
@@ -98,7 +100,7 @@ CREATE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
     probatio.Inclusive(ATTR_END_TIME, "end"): _time_string,
     probatio.Optional(ATTR_FAN_MODE, default="auto"): probatio.In({"auto", "on"}),
     probatio.Optional(ATTR_FAN_MIN_ON_TIME, default=0): probatio.All(
-        int, probatio.Range(min=0, max=60)
+        int, probatio.Range(min=MIN_FAN_RUNTIME_MINUTES, max=MAX_FAN_RUNTIME_MINUTES)
     ),
 }
 DELETE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
@@ -494,7 +496,9 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             raise_validation("invalid_vacation_temperature_range")
         if fan_mode not in {"auto", "on"} or isinstance(fan_min_on_time, bool):
             raise_validation("invalid_vacation_options")
-        if not isinstance(fan_min_on_time, int) or not 0 <= fan_min_on_time <= 60:
+        if not isinstance(fan_min_on_time, int) or not (
+            MIN_FAN_RUNTIME_MINUTES <= fan_min_on_time <= MAX_FAN_RUNTIME_MINUTES
+        ):
             raise_validation("invalid_vacation_options")
         if (start_date is None) != (start_time is None) or (end_date is None) != (
             end_time is None

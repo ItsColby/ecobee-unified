@@ -9,7 +9,12 @@ from math import isclose, isfinite
 from types import MappingProxyType
 from typing import Any
 
-from .const import MAX_ATTRIBUTE_ITEMS, MAX_ATTRIBUTE_TEXT
+from .const import (
+    MAX_ATTRIBUTE_ITEMS,
+    MAX_ATTRIBUTE_TEXT,
+    MAX_FAN_RUNTIME_MINUTES,
+    MIN_FAN_RUNTIME_MINUTES,
+)
 
 UNAVAILABLE_STATES = frozenset({"unknown", "unavailable"})
 HVAC_MODES = frozenset({"off", "heat", "cool", "heat_cool", "auto", "dry", "fan_only"})
@@ -588,7 +593,9 @@ def build_snapshot(
         if ecobee.usable
         else (),
         minimum_fan_runtime=_bounded_integer(
-            ecobee.attributes.get("fan_min_on_time"), 0, 60
+            ecobee.attributes.get("fan_min_on_time"),
+            MIN_FAN_RUNTIME_MINUTES,
+            MAX_FAN_RUNTIME_MINUTES,
         )
         if ecobee.usable
         else None,
@@ -748,7 +755,9 @@ def _confirmation_values(
                 ),
                 "fan_mode": _bounded_text(ecobee.attributes.get("fan_mode")),
                 "minimum_fan_runtime": _bounded_integer(
-                    ecobee.attributes.get("fan_min_on_time"), 0, 60
+                    ecobee.attributes.get("fan_min_on_time"),
+                    MIN_FAN_RUNTIME_MINUTES,
+                    MAX_FAN_RUNTIME_MINUTES,
                 ),
             }
         )
@@ -981,7 +990,7 @@ def _normalize_source_attribute(
             climate_source=source_name,
         )
     if value_type == "fan_runtime":
-        return _bounded_integer(value, 0, 60)
+        return _bounded_integer(value, MIN_FAN_RUNTIME_MINUTES, MAX_FAN_RUNTIME_MINUTES)
     return _normalize_field(value, value_type)
 
 

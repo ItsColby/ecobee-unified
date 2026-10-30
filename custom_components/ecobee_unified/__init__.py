@@ -54,7 +54,7 @@ async def async_setup_entry(
     )
     entry.runtime_data = EcobeeUnifiedRuntime(manager, datapoints)
     _remove_orphaned_entities(hass, entry, mappings, datapoint_configs)
-    platforms = _platforms_for_mappings(mappings, datapoint_configs)
+    platforms = _platforms_for_mappings(mappings)
     try:
         await manager.async_start()
         if datapoints is not None:
@@ -80,12 +80,7 @@ async def async_unload_entry(
 
     if not await hass.config_entries.async_unload_platforms(
         entry,
-        _platforms_for_mappings(
-            entry.runtime_data.manager.mappings,
-            entry.runtime_data.datapoints.configs
-            if entry.runtime_data.datapoints is not None
-            else (),
-        ),
+        _platforms_for_mappings(entry.runtime_data.manager.mappings),
     ):
         return False
     await entry.runtime_data.manager.async_stop()
@@ -118,9 +113,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             )
 
 
-def _platforms_for_mappings(
-    mappings: tuple[MappingConfig, ...], datapoints: tuple[DatapointConfig, ...] = ()
-) -> list[str]:
+def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
     """Load optional platforms only when a mapping exposes their capability."""
 
     enabled_optional_platforms = {

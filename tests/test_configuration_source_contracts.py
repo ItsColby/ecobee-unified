@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -15,6 +15,8 @@ from homeassistant.core import ServiceCall
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.ecobee_unified.config_flow import (
     EcobeeUnifiedConfigFlow,
@@ -528,7 +530,12 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                         self.homekit_temperature.entity_id, state, attributes
                     )
                     await self.hass.async_block_till_done()
-                    await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.01)
+                    async_fire_time_changed(
+                        self.hass,
+                        dt_util.utcnow()
+                        + timedelta(seconds=HOMEKIT_PAIR_SETTLE_SECONDS + 1),
+                    )
+                    await self.hass.async_block_till_done()
                     with self.assertRaisesRegex(
                         probatio.Invalid, "invalid_homekit_temperature_source"
                     ):
@@ -555,7 +562,12 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
                         valid_attributes,
                     )
                     await self.hass.async_block_till_done()
-                    await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.01)
+                    async_fire_time_changed(
+                        self.hass,
+                        dt_util.utcnow()
+                        + timedelta(seconds=HOMEKIT_PAIR_SETTLE_SECONDS + 1),
+                    )
+                    await self.hass.async_block_till_done()
                     _mapping_from_input(self.hass, inputs)
                     recovered = manager.snapshot(mapping.mapping_id)
                     self.assertEqual(20.04, recovered.current_temperature)

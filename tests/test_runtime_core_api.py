@@ -1,4 +1,4 @@
-"""Core API checks that do not require the Linux pytest plugin."""
+"""Core API checks that run on the hand-built Core fixture (`tests/runtime_fixture.py`)."""
 
 from __future__ import annotations
 

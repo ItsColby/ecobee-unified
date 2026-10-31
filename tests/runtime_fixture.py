@@ -71,9 +71,10 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
         self.hass.config_entries = ConfigEntries(self.hass, {})
         loader.async_setup(self.hass)
         # This hass is not the pytest fixture's, so enable_custom_integrations does
-        # not apply. The integration is found because the repository root is
-        # importable as the `custom_components` namespace package (tests/__init__.py
-        # puts it on sys.path); fail early with a clear error if that stops working.
+        # not apply. The integration is found because `custom_components/` is
+        # importable as a namespace package: tests/ is a package, so pytest's
+        # default prepend import mode puts the repository root on sys.path. Fail
+        # early with a clear error if that stops working.
         await loader.async_get_integration(self.hass, DOMAIN)
         dr.async_setup(self.hass)
         await dr.async_load(self.hass, load_empty=True)

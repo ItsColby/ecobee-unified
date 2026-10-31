@@ -416,6 +416,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.mapping,
             ecobee_co2_entity=co2.id,
             ecobee_voc_entity=voc.id,
+            ecobee_aqi_entity=self.ecobee_aqi.id,
         )
         entry = unified_entry(
             title="Ecobee Unified",
@@ -432,6 +433,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 registry, entry.entry_id
             )
         }
+        self.assertIn(("sensor", f"mapping_a_{SUFFIX_AIR_QUALITY_INDEX}"), created)
         self.assertEqual(mapping_unique_ids(mapping), created)
         self.assertEqual(
             {"climate", "number", "sensor", "binary_sensor", "button"},

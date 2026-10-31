@@ -16,6 +16,8 @@ PLATFORMS: Final = [
 ]
 
 CONF_MAPPINGS: Final = "mappings"
+CONF_DATAPOINTS: Final = "datapoints"
+CONF_READ_POLICIES: Final = "read_policies"
 CONF_MAPPING_ID: Final = "mapping_id"
 CONF_NAME: Final = "name"
 CONF_HOMEKIT_ENTITY: Final = "homekit_entity"
@@ -78,3 +80,5 @@ SUFFIX_SOURCE_DEGRADED: Final = "source_degraded"
 
 MAX_ATTRIBUTE_ITEMS: Final = 8
 MAX_ATTRIBUTE_TEXT: Final = 64
+MIN_FAN_RUNTIME_MINUTES: Final = 0
+MAX_FAN_RUNTIME_MINUTES: Final = 60

@@ -50,9 +50,30 @@ class CommandTrackerTests(unittest.TestCase):
 
         self.assertFalse(tracker.observe("mapping_a", old_revision, old_snapshot))
         self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
+        self.assertFalse(tracker.accept_write("mapping_a", old_revision))
         self.assertTrue(tracker.accept_write("mapping_a", new_revision))
+        # A matching snapshot for the superseded revision still cannot confirm.
+        self.assertFalse(tracker.observe("mapping_a", old_revision, new_snapshot))
+        self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
         self.assertTrue(tracker.observe("mapping_a", new_revision, new_snapshot))
         self.assertEqual(CommandStatus.CONFIRMED, tracker.summary("mapping_a").status)
+
+    def test_settled_command_ignores_later_observation_and_acceptance(self) -> None:
+        for settle in ("fail", "unconfirm"):
+            with self.subTest(settle=settle):
+                tracker = CommandTracker(lambda: 10.0)
+                revision = tracker.begin(
+                    "mapping_a", "set_temperature", {"target_temperature": 21.0}
+                )
+                self.assertTrue(tracker.accept_write("mapping_a", revision))
+                self.assertTrue(getattr(tracker, settle)("mapping_a", revision))
+                settled = tracker.summary("mapping_a").status
+
+                self.assertFalse(tracker.accept_write("mapping_a", revision))
+                self.assertFalse(
+                    tracker.observe("mapping_a", revision, _snapshot(21.0))
+                )
+                self.assertEqual(settled, tracker.summary("mapping_a").status)
 
     def test_old_timeout_and_failure_are_revision_guarded(self) -> None:
         tracker = CommandTracker(lambda: 10.0)
@@ -62,11 +83,11 @@ class CommandTrackerTests(unittest.TestCase):
         new_revision = tracker.begin(
             "mapping_a", "set_hvac_mode", {"hvac_mode": "cool"}
         )
-        self.assertFalse(tracker.timeout("mapping_a", old_revision))
+        self.assertFalse(tracker.unconfirm("mapping_a", old_revision))
         self.assertFalse(tracker.fail("mapping_a", old_revision))
         self.assertEqual(new_revision, tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
-        self.assertTrue(tracker.timeout("mapping_a", new_revision))
+        self.assertTrue(tracker.unconfirm("mapping_a", new_revision))
         self.assertIsNone(tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.UNCONFIRMED, tracker.summary("mapping_a").status)
 
@@ -78,7 +99,7 @@ class CommandTrackerTests(unittest.TestCase):
         self.assertIsNone(tracker.pending_revision("mapping_a"))
         self.assertEqual(CommandStatus.SUBMITTED, tracker.summary("mapping_a").status)
         self.assertFalse(tracker.observe("mapping_a", revision, _snapshot(21.0)))
-        self.assertFalse(tracker.timeout("mapping_a", revision))
+        self.assertFalse(tracker.unconfirm("mapping_a", revision))
 
     def test_late_submission_cannot_mutate_newer_command(self) -> None:
         tracker = CommandTracker(lambda: 10.0)

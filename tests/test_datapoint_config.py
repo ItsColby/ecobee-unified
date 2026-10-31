@@ -19,11 +19,17 @@ from custom_components.ecobee_unified.config_flow import (
     _datapoint_from_input,
 )
 from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
+from custom_components.ecobee_unified.datapoints import KINDS
+from custom_components.ecobee_unified.flow_datapoints import DATAPOINT_KINDS
 
 from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 
 class DatapointConfigurationTests(CoreRuntimeTestCase):
+    def test_selector_offers_every_datapoint_kind_once(self) -> None:
+        self.assertEqual(KINDS, set(DATAPOINT_KINDS))
+        self.assertEqual(len(DATAPOINT_KINDS), len(set(DATAPOINT_KINDS)))
+
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         for source in (self.homekit, self.ecobee):

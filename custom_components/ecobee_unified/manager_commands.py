@@ -20,6 +20,8 @@ from .const import (
     CONF_ECOBEE_STALE_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
     DOMAIN,
+    MAX_FAN_RUNTIME_MINUTES,
+    MIN_FAN_RUNTIME_MINUTES,
     SERVICE_CREATE_VACATION,
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
 )
@@ -222,7 +224,7 @@ class CommandRunner(SourceReader):
         if (
             numeric_minutes is None
             or not numeric_minutes.is_integer()
-            or not 0 <= numeric_minutes <= 60
+            or not MIN_FAN_RUNTIME_MINUTES <= numeric_minutes <= MAX_FAN_RUNTIME_MINUTES
             or int(numeric_minutes) % 5 != 0
         ):
             raise_validation("invalid_fan_runtime")

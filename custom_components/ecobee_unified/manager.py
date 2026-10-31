@@ -37,6 +37,7 @@ from .commands import CommandTracker
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
+    CONF_READ_POLICIES,
     CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
@@ -187,7 +188,7 @@ class MappingManager(CommandRunner):
         for mapping in self.mappings:
             ir.async_delete_issue(self.hass, DOMAIN, f"mapping_{mapping.mapping_id}")
             ir.async_delete_issue(
-                self.hass, DOMAIN, _silent_temperature_issue_id(mapping.mapping_id)
+                self.hass, DOMAIN, silent_temperature_issue_id(mapping.mapping_id)
             )
         await self._async_stop_temperature_recovery()
 
@@ -346,7 +347,7 @@ class MappingManager(CommandRunner):
             homekit_preset=homekit_preset,
             homekit_temperature=homekit_temperature,
             homekit_temperature_recovery_pending=temperature_recovery_pending,
-            read_policies=self._options.get("read_policies", {}).get(mapping_id, {}),
+            read_policies=self._options.get(CONF_READ_POLICIES, {}).get(mapping_id, {}),
             air_quality_index=cloud_sensors[0],
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],
@@ -722,7 +723,7 @@ class MappingManager(CommandRunner):
     def _handle_temperature_silence(self, mapping: MappingConfig, silent: bool) -> None:
         """Reload the silent sensor's source once per cooldown, else raise a Repair."""
 
-        issue_id = _silent_temperature_issue_id(mapping.mapping_id)
+        issue_id = silent_temperature_issue_id(mapping.mapping_id)
         if not silent:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             return
@@ -936,7 +937,7 @@ class MappingManager(CommandRunner):
         self, mapping_id: str, revision: int, _now: datetime | None = None
     ) -> None:
         self._unsub_timeouts.pop(mapping_id, None)
-        if self._tracker.timeout(mapping_id, revision):
+        if self._tracker.unconfirm(mapping_id, revision):
             self._subscribe_state_reports()
             self.refresh_mapping(mapping_id)
 
@@ -1107,5 +1108,5 @@ def _source_references(mapping: MappingConfig) -> tuple[str | None, ...]:
     )
 
 
-def _silent_temperature_issue_id(mapping_id: str) -> str:
+def silent_temperature_issue_id(mapping_id: str) -> str:
     return f"homekit_temperature_silent_{mapping_id}"

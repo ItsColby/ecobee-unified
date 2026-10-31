@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from math import isfinite, ulp
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import (
@@ -48,20 +48,7 @@ type DatapointKind = Literal[
 type DatapointValue = float | bool | str | tuple[str, ...] | None
 type ValueRepresentation = Literal["label", "option", "reference"]
 
-KINDS = frozenset(
-    {
-        "temperature",
-        "humidity",
-        "occupancy",
-        "motion",
-        "battery",
-        "profile",
-        "duration",
-        "number",
-        "text",
-        "configured_membership",
-    }
-)
+KINDS = frozenset(get_args(DatapointKind.__value__))
 BINARY_KINDS = frozenset({"occupancy", "motion"})
 _PLATFORMS = frozenset(
     {"homekit_controller", "ecobee", "beestat_statistics", "battery_notes"}

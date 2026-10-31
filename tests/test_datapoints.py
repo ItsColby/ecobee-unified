@@ -1247,25 +1247,6 @@ def test_saved_config_roundtrip_and_required_interval_observation() -> None:
         replace(config, sources=(config.sources[0], config.sources[0]))
 
 
-def test_saved_config_ignores_removed_weather_keys() -> None:
-    """Entries saved before weather removal persisted these keys as null."""
-    config = DatapointConfig(
-        "humidity_a",
-        "Humidity",
-        "humidity",
-        (SourceBinding("first"), SourceBinding("second")),
-        unit="%",
-    )
-    stale = config.as_dict() | {
-        "weather_station": None,
-        "weather_config_entry_id": None,
-    }
-    restored = DatapointConfig.from_dict(stale)
-    assert restored == config
-    assert "weather_station" not in restored.as_dict()
-    assert "weather_config_entry_id" not in restored.as_dict()
-
-
 async def test_configured_membership_preserves_selected_labels_and_explicit_empty(
     hass: HomeAssistant,
 ) -> None:

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from math import isclose
 
+from .models import FLOAT_COMPARISON_EPSILON
+
 SourceIdentity = tuple[str, str, str, str]
 
 # The rounded climate reading and the precise sensor serialize one HomeKit
@@ -29,7 +31,7 @@ class TemperatureObservation:
         """Ignore only floating-point conversion noise, never source replacement."""
 
         return self.identity == other.identity and isclose(
-            self.celsius, other.celsius, rel_tol=0.0, abs_tol=1e-9
+            self.celsius, other.celsius, rel_tol=0.0, abs_tol=FLOAT_COMPARISON_EPSILON
         )
 
 

@@ -88,7 +88,7 @@ A `RawSource` is usable only when its effective health is `healthy` and it has a
 | Target-temperature step | Valid positive HomeKit step; only when omitted, the narrowly permitted same-device Ecobee metadata fusion described below. |
 | Target humidity and its bounds | HomeKit only, with the target-humidity feature and valid ordered percentage bounds. |
 | Unified preset and choices | The explicitly mapped HomeKit select only. Ecobee `preset_mode` remains separate vendor context. |
-| Vendor preset, climate mode, active comfort sensors, minimum fan runtime, equipment report | Usable Ecobee climate attributes only. Active sensors use `active_sensors`, falling back to `active_comfort_sensors` when the former is empty. |
+| Vendor preset, climate mode, active comfort sensors, minimum fan runtime, equipment report | Usable Ecobee climate attributes only. Active sensors use `active_sensors`. |
 | AQI, CO2, VOC | Their own selected, eligible Ecobee sensors; one sensor's absence does not remove another sensor's value. |
 
 The climate is available exactly when a valid HVAC mode and current temperature can be projected. Other fields can be missing while it remains available. Conversely, a readable climate can expose no ordinary controls because its current values came from fallback.

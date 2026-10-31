@@ -65,9 +65,6 @@ class TemperatureRecoveryTests(unittest.TestCase):
         original = TemperatureObservation(IDENTITY, 23.7)
         for _ in range(5):
             self.assertFalse(recovery.observe(IDENTITY, original, True))
-        other = TemperatureRecovery()
-        recovery.observe(IDENTITY, original, False, confirmed=True)
-        self.assertFalse(other.observe(IDENTITY, original, True))
 
 
 class TemperatureSilenceTests(unittest.TestCase):

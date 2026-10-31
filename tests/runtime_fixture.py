@@ -11,7 +11,7 @@ from homeassistant import loader
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntries
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -40,6 +40,18 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self) -> None:
         self._temp.cleanup()
+
+    def _capture_service(self, domain: str, *services: str) -> list[ServiceCall]:
+        """Register recording handlers and return the list their calls fill."""
+
+        calls: list[ServiceCall] = []
+
+        async def capture(call: ServiceCall) -> None:
+            calls.append(call)
+
+        for service in services:
+            self.hass.services.async_register(domain, service, capture)
+        return calls
 
     def _assert_stopped(self, manager: MappingManager | None = None) -> None:
         """Assert that ``async_stop`` released every subscription and cache."""

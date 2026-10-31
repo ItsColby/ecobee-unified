@@ -416,6 +416,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.mapping,
             ecobee_co2_entity=co2.id,
             ecobee_voc_entity=voc.id,
+            ecobee_aqi_entity=self.ecobee_aqi.id,
         )
         entry = unified_entry(
             title="Ecobee Unified",
@@ -1930,12 +1931,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_resume_button_projects_one_explicit_local_writer(self) -> None:
         """Expose clear-hold as a discoverable Unified button without dual writes."""
 
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("button", "press", capture)
+        calls = self._capture_service("button", "press")
         entity = EcobeeUnifiedResumeProgramButton(self.manager, self.mapping)
         self.assertEqual(self.homekit.device_id, entity.device_entry.id)
         self.assertTrue(entity.available)
@@ -3032,12 +3028,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertTrue(self.manager.snapshot("mapping_a").homekit_preset_writable)
 
     async def test_preset_control_survives_ecobee_read_fallback(self) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("select", "select_option", capture)
+        calls = self._capture_service("select", "select_option")
         self.hass.states.async_set(self.homekit.entity_id, "unavailable")
         await self.hass.async_block_till_done()
 
@@ -3056,12 +3047,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(self.homekit_preset.entity_id, calls[0].data["entity_id"])
 
     async def test_preset_control_survives_unreadable_current_option(self) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("select", "select_option", capture)
+        calls = self._capture_service("select", "select_option")
         self.hass.states.async_set(
             self.homekit_preset.entity_id,
             "unknown",
@@ -3349,12 +3335,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_vacation_temperature_bounds_follow_ecobee_writer_unit(
         self,
     ) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("ecobee", "create_vacation", capture)
+        calls = self._capture_service("ecobee", "create_vacation")
         entity = EcobeeUnifiedClimate(self.manager, self.mapping)
         entity.hass = self.hass
 
@@ -3738,12 +3719,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertIsNone(degraded.target_temperature_step)
         self.assertIn("physical_identity_mismatch", degraded.degradation)
         self.assertNotIn("physical_identity_unproven", degraded.degradation)
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("ecobee", "set_fan_min_on_time", capture)
+        calls = self._capture_service("ecobee", "set_fan_min_on_time")
         with self.assertRaises(ServiceValidationError):
             await self.manager.async_set_minimum_fan_runtime("mapping_a", 10, None)
         self.assertEqual([], calls)
@@ -3785,12 +3761,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
 
     async def test_command_timeout_reports_unconfirmed_without_retry(self) -> None:
         self.assertIsNotNone(self.manager._unsub_state_report)
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("climate", "set_temperature", capture)
+        calls = self._capture_service("climate", "set_temperature")
         with patch(
             "custom_components.ecobee_unified.manager.async_call_later",
             return_value=Mock(),
@@ -3939,12 +3910,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_matching_unchanged_ecobee_report_confirms_pending_command(
         self,
     ) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("climate", "set_temperature", capture)
+        calls = self._capture_service("climate", "set_temperature")
         await self.manager.async_standard_command(
             "mapping_a",
             "set_temperature",
@@ -4110,12 +4076,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         self.assertEqual(call_count, len(calls))
 
     async def test_late_observation_cannot_confirm_newer_command(self) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("climate", "set_temperature", capture)
+        calls = self._capture_service("climate", "set_temperature")
         await self.manager.async_standard_command(
             "mapping_a",
             "set_temperature",
@@ -4201,12 +4162,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_target_humidity_uses_one_homekit_writer_and_homekit_report(
         self,
     ) -> None:
-        calls: list[ServiceCall] = []
-
-        async def capture(call: ServiceCall) -> None:
-            calls.append(call)
-
-        self.hass.services.async_register("climate", "set_humidity", capture)
+        calls = self._capture_service("climate", "set_humidity")
         attributes = self._attributes(20.0) | {
             "supported_features": 389,
             "humidity": 40,

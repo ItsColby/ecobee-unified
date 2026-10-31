@@ -416,7 +416,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.mapping,
             ecobee_co2_entity=co2.id,
             ecobee_voc_entity=voc.id,
-            ecobee_aqi_entity=self.ecobee_aqi.id,
         )
         entry = unified_entry(
             title="Ecobee Unified",

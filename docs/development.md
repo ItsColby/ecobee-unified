@@ -22,11 +22,11 @@ Core version.
 
 ## Work on one change
 
-Install pre-commit once as a [uv tool](https://docs.astral.sh/uv/guides/tools/)
-and run the static checks before pushing:
+Install the pinned pre-commit from the `dev` dependency group, as CI does, and
+run the static checks before pushing:
 
 ```bash
-uv tool install pre-commit
+python -m pip install --group dev
 pre-commit install
 pre-commit run --all-files
 ```

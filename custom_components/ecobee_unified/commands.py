@@ -91,11 +91,6 @@ class CommandTracker:
 
         return self._set_status(mapping_id, revision, CommandStatus.SUBMITTED)
 
-    def timeout(self, mapping_id: str, revision: int) -> bool:
-        """Mark only the current pending revision unconfirmed."""
-
-        return self.unconfirm(mapping_id, revision)
-
     def unconfirm(self, mapping_id: str, revision: int) -> bool:
         """Retain uncertainty when observation or an accepted write is interrupted."""
 

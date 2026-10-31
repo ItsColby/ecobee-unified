@@ -13,7 +13,11 @@ from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import SUFFIX_MINIMUM_FAN_RUNTIME
+from .const import (
+    MAX_FAN_RUNTIME_MINUTES,
+    MIN_FAN_RUNTIME_MINUTES,
+    SUFFIX_MINIMUM_FAN_RUNTIME,
+)
 from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
 from .models import MappingConfig
@@ -40,8 +44,8 @@ class EcobeeMinimumFanRuntimeNumber(EcobeeUnifiedEntity, NumberEntity):
     """Canonical Ecobee cloud writer for minimum fan runtime."""
 
     _attr_device_class = NumberDeviceClass.DURATION
-    _attr_native_min_value = 0
-    _attr_native_max_value = 60
+    _attr_native_min_value = MIN_FAN_RUNTIME_MINUTES
+    _attr_native_max_value = MAX_FAN_RUNTIME_MINUTES
     _attr_native_step = 5
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_mode = NumberMode.BOX

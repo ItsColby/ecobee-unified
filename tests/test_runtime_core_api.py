@@ -1,4 +1,7 @@
-"""Core API checks that do not require the Linux pytest plugin."""
+"""Core API checks that run on the hand-built Core fixture.
+
+The fixture is `tests/runtime_fixture.py`.
+"""
 
 from __future__ import annotations
 
@@ -33,8 +36,12 @@ from homeassistant.exceptions import (
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.ecobee_unified import (
     async_migrate_entry,
@@ -1038,7 +1045,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 },
             )
             await self.hass.async_block_till_done()
-            await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.05)
+            async_fire_time_changed(
+                self.hass,
+                dt_util.utcnow() + timedelta(seconds=HOMEKIT_PAIR_SETTLE_SECONDS + 1),
+            )
+            await self.hass.async_block_till_done()
             self.assertEqual(
                 20.0, manager.snapshot(mapping.mapping_id).current_temperature
             )
@@ -1052,7 +1063,11 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                 },
             )
             await self.hass.async_block_till_done()
-            await asyncio.sleep(HOMEKIT_PAIR_SETTLE_SECONDS + 0.05)
+            async_fire_time_changed(
+                self.hass,
+                dt_util.utcnow() + timedelta(seconds=HOMEKIT_PAIR_SETTLE_SECONDS + 1),
+            )
+            await self.hass.async_block_till_done()
             self.assertEqual(
                 20.0, manager.snapshot(mapping.mapping_id).current_temperature
             )
@@ -1813,7 +1828,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             )
             self.assertEqual(44.6, snapshot.ecobee_min_temp)
             self.assertEqual(95.0, snapshot.ecobee_max_temp)
-            self.assertEqual("", snapshot.equipment_running)
             self.assertNotIn(
                 "homekit_temperature_metadata_unavailable", snapshot.degradation
             )

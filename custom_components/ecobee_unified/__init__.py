@@ -13,6 +13,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
+    CONF_DATAPOINTS,
     CONF_MAPPINGS,
     DOMAIN,
     PLATFORMS,
@@ -26,7 +27,7 @@ from .const import (
     SUFFIX_VOC,
 )
 from .datapoints import BINARY_KINDS, DatapointConfig, DatapointManager
-from .manager import MappingManager
+from .manager import MappingManager, silent_temperature_issue_id
 from .models import MappingConfig
 from .runtime import EcobeeUnifiedConfigEntry, EcobeeUnifiedRuntime
 
@@ -45,7 +46,7 @@ async def async_setup_entry(
     )
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     datapoint_configs = tuple(
-        DatapointConfig.from_dict(item) for item in entry.data.get("datapoints", [])
+        DatapointConfig.from_dict(item) for item in entry.data.get(CONF_DATAPOINTS, [])
     )
     datapoints = (
         DatapointManager(hass, entry.entry_id, datapoint_configs)
@@ -54,7 +55,7 @@ async def async_setup_entry(
     )
     entry.runtime_data = EcobeeUnifiedRuntime(manager, datapoints)
     _remove_orphaned_entities(hass, entry, mappings, datapoint_configs)
-    platforms = _platforms_for_mappings(mappings, datapoint_configs)
+    platforms = _platforms_for_mappings(mappings)
     try:
         await manager.async_start()
         if datapoints is not None:
@@ -80,12 +81,7 @@ async def async_unload_entry(
 
     if not await hass.config_entries.async_unload_platforms(
         entry,
-        _platforms_for_mappings(
-            entry.runtime_data.manager.mappings,
-            entry.runtime_data.datapoints.configs
-            if entry.runtime_data.datapoints is not None
-            else (),
-        ),
+        _platforms_for_mappings(entry.runtime_data.manager.mappings),
     ):
         return False
     await entry.runtime_data.manager.async_stop()
@@ -113,14 +109,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         mapping_id = item.get("mapping_id")
         if mapping_id:
             ir.async_delete_issue(hass, DOMAIN, f"mapping_{mapping_id}")
-            ir.async_delete_issue(
-                hass, DOMAIN, f"homekit_temperature_silent_{mapping_id}"
-            )
+            ir.async_delete_issue(hass, DOMAIN, silent_temperature_issue_id(mapping_id))
 
 
-def _platforms_for_mappings(
-    mappings: tuple[MappingConfig, ...], datapoints: tuple[DatapointConfig, ...] = ()
-) -> list[str]:
+def _platforms_for_mappings(mappings: tuple[MappingConfig, ...]) -> list[str]:
     """Load optional platforms only when a mapping exposes their capability."""
 
     enabled_optional_platforms = {

@@ -53,8 +53,8 @@ class Projection:
 EQUIPMENT_STAGE_OPTIONS = tuple(
     dict.fromkeys(
         (
-            *EQUIPMENT_STAGES.values(),
             "idle",
+            *EQUIPMENT_STAGES.values(),
             "multiple",
             "unknown",
             *sorted(HVAC_ACTIONS - {"off"}),

@@ -394,17 +394,6 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
         }[kind]
         self.hass.services.async_register(domain, service, writer)
 
-    def _assert_stopped(self, manager: MappingManager | None = None) -> None:
-        manager = manager or self.manager
-        self.assertIsNone(manager._unsub_state)
-        self.assertIsNone(manager._unsub_state_report)
-        self.assertIsNone(manager._unsub_registry)
-        self.assertIsNone(manager._unsub_device_registry)
-        self.assertFalse(manager._unsub_timeouts)
-        self.assertFalse(manager._unsub_stale_refreshes)
-        self.assertFalse(manager._unsub_homekit_settles)
-        self.assertFalse(manager._unsub_temperature_mismatches)
-
     async def test_stopped_manager_rejects_every_writer_entry_point(self) -> None:
         calls = []
 

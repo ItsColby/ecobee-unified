@@ -47,14 +47,6 @@ from .const import (
     HOMEKIT_SOURCE_DOMAIN,
     SIGNAL_SNAPSHOT_UPDATED,
     SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS,
-    SUFFIX_AIR_QUALITY_INDEX,
-    SUFFIX_CO2,
-    SUFFIX_EQUIPMENT_STAGE,
-    SUFFIX_MINIMUM_FAN_RUNTIME,
-    SUFFIX_NOTIFICATION,
-    SUFFIX_RESUME_PROGRAM,
-    SUFFIX_SOURCE_DEGRADED,
-    SUFFIX_VOC,
 )
 from .manager_commands import CommandRunner, raise_validation
 from .manager_sources import _state_age_seconds
@@ -67,6 +59,7 @@ from .models import (
     build_snapshot,
     finite_number,
     homekit_temperature_agrees,
+    mapping_unique_ids,
 )
 from .source_contracts import (
     PhysicalIdentityStatus,
@@ -1058,17 +1051,7 @@ class MappingManager(CommandRunner):
         mapping_by_unique_id = {
             unique_id: mapping
             for mapping in self.mappings
-            for unique_id in (
-                mapping.mapping_id,
-                f"{mapping.mapping_id}_{SUFFIX_RESUME_PROGRAM}",
-                f"{mapping.mapping_id}_{SUFFIX_SOURCE_DEGRADED}",
-                f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}",
-                f"{mapping.mapping_id}_{SUFFIX_NOTIFICATION}",
-                f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}",
-                f"{mapping.mapping_id}_{SUFFIX_AIR_QUALITY_INDEX}",
-                f"{mapping.mapping_id}_{SUFFIX_CO2}",
-                f"{mapping.mapping_id}_{SUFFIX_VOC}",
-            )
+            for _domain, unique_id in mapping_unique_ids(mapping)
         }
         for helper_entry in er.async_entries_for_config_entry(registry, self.entry_id):
             mapping = mapping_by_unique_id.get(helper_entry.unique_id)

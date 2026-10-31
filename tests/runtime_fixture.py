@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 
 from homeassistant import loader
@@ -39,13 +37,34 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         self._temp = tempfile.TemporaryDirectory()
-        shutil.copytree(
-            Path(__file__).resolve().parents[1] / "custom_components",
-            Path(self._temp.name) / "custom_components",
-        )
 
     def tearDown(self) -> None:
         self._temp.cleanup()
+
+    def _assert_stopped(self, manager: MappingManager | None = None) -> None:
+        """Assert that ``async_stop`` released every subscription and cache."""
+
+        manager = manager or self.manager
+        for name in (
+            "_unsub_state",
+            "_unsub_state_report",
+            "_unsub_registry",
+            "_unsub_device_registry",
+        ):
+            self.assertIsNone(getattr(manager, name), name)
+        for name in (
+            "_unsub_timeouts",
+            "_unsub_stale_refreshes",
+            "_unsub_homekit_settles",
+            "_unsub_temperature_mismatches",
+            "_homekit_settle_report_times",
+            "_temperature_mismatch_candidates",
+            "_temperature_recovery",
+            "_temperature_silence",
+            "_watched_entity_ids",
+            "_watched_device_ids",
+        ):
+            self.assertFalse(getattr(manager, name), name)
 
     async def asyncSetUp(self) -> None:
         self.hass = HomeAssistant(self._temp.name)

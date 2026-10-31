@@ -223,7 +223,7 @@ The only cross-integration capability fusion is the omitted target step. It requ
 
 The separate reported equipment stage is a bounded interpretation of the Ecobee equipment report, not a measurement of output, power, or efficiency. The normalizer splits comma-separated tokens, trims and lowercases them, and maps recognized tokens to cooling stages 1–2, heat-pump or auxiliary stages 1–3, fan, humidifying, dehumidifying, or ventilating. A fan accompanying another recognized stage is subordinate. Multiple remaining stages, or a mixture of recognized and unknown tokens, produce `multiple`; only unknown tokens produce `unknown`. An empty report means reported `idle`; a missing report means unavailable. The canonical stage then qualifies that detail against the selected current action as described above.
 
-Vendor text is truncated to 64 characters, and text lists retain at most eight distinct nonempty items. `active_comfort_sensors` and `configured_comfort_sensors` on the climate currently expose the same bounded source list; they do not prove present occupancy, actual participation, an average-temperature calculation, or distinct configured-versus-active sets.
+Vendor text is truncated to 64 characters, and text lists retain at most eight distinct nonempty items. `active_comfort_sensors` on the climate currently exposes a bounded source list; it does not prove present occupancy, actual participation, an average-temperature calculation, or a configured-versus-active distinction.
 
 ## Separate loss of data from loss of a capability
 

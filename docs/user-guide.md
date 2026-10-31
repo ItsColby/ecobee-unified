@@ -430,8 +430,7 @@ mapping positions, capabilities, selected source roles, report ages, reason
 codes, and a command summary. It excludes source IDs, mapping and sensor names,
 measurements, command/message payloads, credentials, and raw backend errors.
 Live entity attributes and screenshots have a different boundary and may show
-comfort-sensor names. `configured_comfort_sensors` is a compatibility alias of
-`active_comfort_sensors`, not evidence of a separately retrieved configured roster.
+comfort-sensor names.
 
 Include the Core and Unified versions, relevant capability/reason codes, exact
 reproduction steps, and what you observed at the source or thermostat. State

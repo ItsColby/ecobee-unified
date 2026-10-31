@@ -13,6 +13,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
+    CONF_DATAPOINTS,
     CONF_MAPPINGS,
     DOMAIN,
     PLATFORMS,
@@ -45,7 +46,7 @@ async def async_setup_entry(
     )
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     datapoint_configs = tuple(
-        DatapointConfig.from_dict(item) for item in entry.data.get("datapoints", [])
+        DatapointConfig.from_dict(item) for item in entry.data.get(CONF_DATAPOINTS, [])
     )
     datapoints = (
         DatapointManager(hass, entry.entry_id, datapoint_configs)

@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    CONF_DATAPOINTS,
     CONF_ECOBEE_AQI_ENTITY,
     CONF_ECOBEE_CO2_ENTITY,
     CONF_ECOBEE_ENTITY,
@@ -153,7 +154,7 @@ def _reconfigure_summary(
     sections = []
     for collection, identity, label in (
         (CONF_MAPPINGS, CONF_MAPPING_ID, "Thermostat"),
-        ("datapoints", "datapoint_id", "Datapoint"),
+        (CONF_DATAPOINTS, "datapoint_id", "Datapoint"),
     ):
         before = {row[identity]: row for row in original.get(collection, [])}
         after = {row[identity]: row for row in pending.get(collection, [])}

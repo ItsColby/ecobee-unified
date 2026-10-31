@@ -37,6 +37,7 @@ from .commands import CommandTracker
 from .const import (
     CONF_CONFIRMATION_SECONDS,
     CONF_ECOBEE_STALE_SECONDS,
+    CONF_READ_POLICIES,
     CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
@@ -346,7 +347,7 @@ class MappingManager(CommandRunner):
             homekit_preset=homekit_preset,
             homekit_temperature=homekit_temperature,
             homekit_temperature_recovery_pending=temperature_recovery_pending,
-            read_policies=self._options.get("read_policies", {}).get(mapping_id, {}),
+            read_policies=self._options.get(CONF_READ_POLICIES, {}).get(mapping_id, {}),
             air_quality_index=cloud_sensors[0],
             co2=cloud_sensors[1],
             voc=cloud_sensors[2],

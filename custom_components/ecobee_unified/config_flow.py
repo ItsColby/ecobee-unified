@@ -21,6 +21,7 @@ from .const import (
     CONF_ADD_ANOTHER,
     CONF_CONFIRM_CHANGE,
     CONF_CONFIRMATION_SECONDS,
+    CONF_DATAPOINTS,
     CONF_ECOBEE_ENTITY,
     CONF_ECOBEE_NOTIFY_ENTITY,
     CONF_ECOBEE_STALE_SECONDS,
@@ -30,6 +31,7 @@ from .const import (
     CONF_MAPPING_ID,
     CONF_MAPPINGS,
     CONF_NAME,
+    CONF_READ_POLICIES,
     CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DEFAULT_CONFIRMATION_SECONDS,
     DEFAULT_ECOBEE_STALE_SECONDS,
@@ -140,7 +142,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._original_data.get(CONF_MAPPINGS, [])
             )
             self._pending_datapoints = deepcopy(
-                self._original_data.get("datapoints", [])
+                self._original_data.get(CONF_DATAPOINTS, [])
             )
         return self.async_show_menu(
             step_id="reconfigure",
@@ -437,8 +439,8 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         accepted_data = deepcopy(original_data)
         accepted_data[CONF_MAPPINGS] = deepcopy(self._pending_mappings)
-        if self._pending_datapoints or "datapoints" in original_data:
-            accepted_data["datapoints"] = deepcopy(self._pending_datapoints)
+        if self._pending_datapoints or CONF_DATAPOINTS in original_data:
+            accepted_data[CONF_DATAPOINTS] = deepcopy(self._pending_datapoints)
 
         if user_input is None and accepted_data != original_data:
             return self.async_show_form(
@@ -561,7 +563,7 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             return self.async_abort(reason="configuration_changed")
         selected = self._selected_mapping_id
         assert selected is not None
-        policies = self._pending_options.get("read_policies", {})
+        policies = self._pending_options.get(CONF_READ_POLICIES, {})
         current = policies.get(selected, {})
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -571,7 +573,7 @@ class EcobeeUnifiedOptionsFlow(config_entries.OptionsFlowWithReload):
             ):
                 errors["base"] = "invalid_read_policy"
             else:
-                self._pending_options["read_policies"] = deepcopy(policies) | {
+                self._pending_options[CONF_READ_POLICIES] = deepcopy(policies) | {
                     selected: deepcopy(current)
                     | {field: user_input[field] for field in READ_POLICY_FIELDS}
                 }

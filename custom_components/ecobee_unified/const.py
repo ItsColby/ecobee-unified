@@ -16,6 +16,8 @@ PLATFORMS: Final = [
 ]
 
 CONF_MAPPINGS: Final = "mappings"
+CONF_DATAPOINTS: Final = "datapoints"
+CONF_READ_POLICIES: Final = "read_policies"
 CONF_MAPPING_ID: Final = "mapping_id"
 CONF_NAME: Final = "name"
 CONF_HOMEKIT_ENTITY: Final = "homekit_entity"

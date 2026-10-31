@@ -14,6 +14,14 @@ from .const import (
     MAX_ATTRIBUTE_TEXT,
     MAX_FAN_RUNTIME_MINUTES,
     MIN_FAN_RUNTIME_MINUTES,
+    SUFFIX_AIR_QUALITY_INDEX,
+    SUFFIX_CO2,
+    SUFFIX_EQUIPMENT_STAGE,
+    SUFFIX_MINIMUM_FAN_RUNTIME,
+    SUFFIX_NOTIFICATION,
+    SUFFIX_RESUME_PROGRAM,
+    SUFFIX_SOURCE_DEGRADED,
+    SUFFIX_VOC,
 )
 
 UNAVAILABLE_STATES = frozenset({"unknown", "unavailable"})
@@ -124,6 +132,32 @@ class MappingConfig:
             }
         )
         return result
+
+
+def mapping_unique_ids(mapping: MappingConfig) -> set[tuple[str, str]]:
+    """Return the (domain, unique_id) of every entity a mapping declares.
+
+    Optional entities appear only while their source is configured.
+    """
+
+    optional = (
+        (mapping.homekit_clear_hold_entity, "button", SUFFIX_RESUME_PROGRAM),
+        (mapping.ecobee_notify_entity, "notify", SUFFIX_NOTIFICATION),
+        (mapping.ecobee_aqi_entity, "sensor", SUFFIX_AIR_QUALITY_INDEX),
+        (mapping.ecobee_co2_entity, "sensor", SUFFIX_CO2),
+        (mapping.ecobee_voc_entity, "sensor", SUFFIX_VOC),
+    )
+    return {
+        ("climate", mapping.mapping_id),
+        ("number", f"{mapping.mapping_id}_{SUFFIX_MINIMUM_FAN_RUNTIME}"),
+        ("sensor", f"{mapping.mapping_id}_{SUFFIX_EQUIPMENT_STAGE}"),
+        ("binary_sensor", f"{mapping.mapping_id}_{SUFFIX_SOURCE_DEGRADED}"),
+        *(
+            (domain, f"{mapping.mapping_id}_{suffix}")
+            for reference, domain, suffix in optional
+            if reference
+        ),
+    }
 
 
 MAPPING_DATA_KEYS = frozenset(item.name for item in fields(MappingConfig))

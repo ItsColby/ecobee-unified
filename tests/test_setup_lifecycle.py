@@ -494,24 +494,3 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                             await asyncio.wait_for(asyncio.shield(stop), timeout=5)
                         finally:
                             await self._settle_fixture_tasks(stop)
-
-    def _assert_stopped(self, manager: MappingManager) -> None:
-        for name in (
-            "_unsub_state",
-            "_unsub_state_report",
-            "_unsub_registry",
-            "_unsub_device_registry",
-        ):
-            self.assertIsNone(getattr(manager, name), name)
-        for name in (
-            "_unsub_timeouts",
-            "_unsub_stale_refreshes",
-            "_unsub_homekit_settles",
-            "_unsub_temperature_mismatches",
-            "_homekit_settle_report_times",
-            "_temperature_mismatch_candidates",
-            "_temperature_recovery",
-            "_watched_entity_ids",
-            "_watched_device_ids",
-        ):
-            self.assertFalse(getattr(manager, name), name)

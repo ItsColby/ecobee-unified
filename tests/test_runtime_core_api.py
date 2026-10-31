@@ -105,6 +105,7 @@ from custom_components.ecobee_unified.models import (
     CommandStatus,
     MappingConfig,
     SourceHealth,
+    mapping_unique_ids,
 )
 from custom_components.ecobee_unified.notify import (
     EcobeeUnifiedNotify,
@@ -372,6 +373,70 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             registry.async_get_entity_id(
                 "binary_sensor", DOMAIN, f"mapping_a_{SUFFIX_SOURCE_DEGRADED}"
             ),
+        )
+
+    async def test_declared_unique_ids_match_the_entities_platforms_create(
+        self,
+    ) -> None:
+        # The notify entity is left out: its platform needs the HTTP stack that
+        # this bare-Core fixture does not provide.
+        registry = er.async_get(self.hass)
+        ecobee_entry = self.hass.config_entries.async_get_entry(
+            self.ecobee.config_entry_id
+        )
+        assert ecobee_entry is not None
+        co2 = registry.async_get_or_create(
+            "sensor",
+            "ecobee",
+            "ec_a_co2",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            original_device_class=SensorDeviceClass.CO2,
+            unit_of_measurement="ppm",
+        )
+        voc = registry.async_get_or_create(
+            "sensor",
+            "ecobee",
+            "ec_a_voc",
+            config_entry=ecobee_entry,
+            device_id=self.ecobee.device_id,
+            original_device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+            unit_of_measurement="µg/m³",
+        )
+        for source, value in ((co2, "600"), (voc, "30")):
+            self.hass.states.async_set(
+                source.entity_id,
+                value,
+                {
+                    "device_class": source.original_device_class,
+                    "unit_of_measurement": source.unit_of_measurement,
+                },
+            )
+        mapping = replace(
+            self.mapping,
+            ecobee_co2_entity=co2.id,
+            ecobee_voc_entity=voc.id,
+        )
+        entry = unified_entry(
+            title="Ecobee Unified",
+            unique_id=DOMAIN,
+            data={CONF_MAPPINGS: [mapping.as_dict()]},
+        )
+        entry.add_to_hass(self.hass)
+        self.assertTrue(await self.hass.config_entries.async_setup(entry.entry_id))
+        await self.hass.async_block_till_done()
+
+        created = {
+            (registry_entry.domain, registry_entry.unique_id)
+            for registry_entry in er.async_entries_for_config_entry(
+                registry, entry.entry_id
+            )
+        }
+        self.assertIn(("sensor", f"mapping_a_{SUFFIX_AIR_QUALITY_INDEX}"), created)
+        self.assertEqual(mapping_unique_ids(mapping), created)
+        self.assertEqual(
+            {"climate", "number", "sensor", "binary_sensor", "button"},
+            {domain for domain, _ in created},
         )
 
     def _add_air_quality_entry(self) -> MockConfigEntry:

@@ -53,16 +53,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
         pending = asyncio.Event()
         release = asyncio.Event()
         selected = set()
-        native_forward = self.hass.config_entries.async_forward_entry_setups
-
-        async def forward(config_entry, platforms) -> None:
-            selected.update(platforms)
-            await native_forward(
-                config_entry,
-                [platform for platform in platforms if platform != "sensor"],
-            )
-            await native_forward(config_entry, ["sensor"])
-
+        forward = self._sensor_last_forward(selected)
         sensor_task = None
 
         async def sensor_setup(*_args) -> None:
@@ -86,36 +77,15 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 self.assertTrue(selected <= self.hass.config.components)
                 old_manager = entry.runtime_data.manager
                 self.manager = old_manager
-                old_platforms = {
-                    domain: component._platforms[entry.entry_id]
-                    for domain, component in self.hass.data["entity_components"].items()
-                    if entry.entry_id in component._platforms
-                }
-                old_entities = {
-                    entity_id: entity
-                    for platform in old_platforms.values()
-                    for entity_id, entity in platform.entities.items()
-                }
+                old_platforms, old_entities = self._entry_platforms_and_entities(entry)
                 self.assertIn("climate", old_platforms)
                 self.assertTrue(old_entities)
                 self.assertTrue(all(self.hass.states.get(key) for key in old_entities))
-                setup.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await asyncio.wait_for(setup, 10)
-                await self._async_drain_entry_tasks(entry)
-                self.assertEqual(ConfigEntryState.SETUP_ERROR, entry.state)
-                self.assertIsNotNone(sensor_task)
-                self.assertTrue(sensor_task.cancelled())
-                self._assert_entry_cleanup(
-                    entry, old_manager, old_platforms, old_entities
+                await self._cancel_setup_and_assert_cleanup(
+                    entry, setup, sensor_task, old_manager, old_platforms, old_entities
                 )
             finally:
-                setup.cancel()
-                release.set()
-                await asyncio.wait_for(
-                    asyncio.gather(setup, return_exceptions=True), 10
-                )
-                await self._async_drain_entry_tasks(entry)
+                await self._release_setup(entry, setup, release)
 
         self.assertTrue(
             await asyncio.wait_for(
@@ -129,16 +99,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
         self.manager = new_manager
         self.assertIsNot(new_manager, old_manager)
         self.assertFalse(new_manager._stopped.is_set())
-        new_platforms = {
-            domain: component._platforms[entry.entry_id]
-            for domain, component in self.hass.data["entity_components"].items()
-            if entry.entry_id in component._platforms
-        }
-        new_entities = {
-            entity_id: entity
-            for platform in new_platforms.values()
-            for entity_id, entity in platform.entities.items()
-        }
+        new_platforms, new_entities = self._entry_platforms_and_entities(entry)
         for entity_id, old_entity in old_entities.items():
             entity = new_entities.get(entity_id)
             self.assertIsNotNone(entity)
@@ -166,17 +127,10 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
         pending = asyncio.Event()
         release = asyncio.Event()
         selected = set()
-        native_forward = self.hass.config_entries.async_forward_entry_setups
         native_deps_reqs = ha_setup.async_process_deps_reqs
         sensor_task = None
 
-        async def forward(config_entry, platforms) -> None:
-            selected.update(platforms)
-            await native_forward(
-                config_entry,
-                [platform for platform in platforms if platform != "sensor"],
-            )
-            await native_forward(config_entry, ["sensor"])
+        forward = self._sensor_last_forward(selected)
 
         async def deps_reqs(hass, config, integration) -> None:
             nonlocal sensor_task
@@ -202,36 +156,15 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 self.assertTrue(selected - {"sensor"} <= self.hass.config.components)
                 old_manager = entry.runtime_data.manager
                 self.manager = old_manager
-                old_platforms = {
-                    domain: component._platforms[entry.entry_id]
-                    for domain, component in self.hass.data["entity_components"].items()
-                    if entry.entry_id in component._platforms
-                }
-                old_entities = {
-                    entity_id: entity
-                    for platform in old_platforms.values()
-                    for entity_id, entity in platform.entities.items()
-                }
+                old_platforms, old_entities = self._entry_platforms_and_entities(entry)
                 self.assertIn("climate", old_platforms)
                 self.assertTrue(old_entities)
                 self.assertTrue(all(self.hass.states.get(key) for key in old_entities))
-                setup.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await asyncio.wait_for(setup, 10)
-                await self._async_drain_entry_tasks(entry)
-                self.assertEqual(ConfigEntryState.SETUP_ERROR, entry.state)
-                self.assertIsNotNone(sensor_task)
-                self.assertTrue(sensor_task.cancelled())
-                self._assert_entry_cleanup(
-                    entry, old_manager, old_platforms, old_entities
+                await self._cancel_setup_and_assert_cleanup(
+                    entry, setup, sensor_task, old_manager, old_platforms, old_entities
                 )
             finally:
-                setup.cancel()
-                release.set()
-                await asyncio.wait_for(
-                    asyncio.gather(setup, return_exceptions=True), 10
-                )
-                await self._async_drain_entry_tasks(entry)
+                await self._release_setup(entry, setup, release)
 
         # Both patches are removed: exercise Core's cached failure and the
         # integration's ordinary concurrent forwarding on the failed retry.
@@ -249,6 +182,54 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
         self.manager = new_manager
         self.assertIsNot(new_manager, old_manager)
         self._assert_entry_cleanup(entry, new_manager, old_platforms, old_entities)
+
+    def _sensor_last_forward(self, selected: set[str]):
+        """Wrap native forwarding so the sensor platform loads after the others."""
+        native_forward = self.hass.config_entries.async_forward_entry_setups
+
+        async def forward(config_entry, platforms) -> None:
+            selected.update(platforms)
+            await native_forward(
+                config_entry,
+                [platform for platform in platforms if platform != "sensor"],
+            )
+            await native_forward(config_entry, ["sensor"])
+
+        return forward
+
+    def _entry_platforms_and_entities(self, entry: MockConfigEntry):
+        """Return the entry's loaded entity platforms and their entities."""
+        platforms = {
+            domain: component._platforms[entry.entry_id]
+            for domain, component in self.hass.data["entity_components"].items()
+            if entry.entry_id in component._platforms
+        }
+        entities = {
+            entity_id: entity
+            for platform in platforms.values()
+            for entity_id, entity in platform.entities.items()
+        }
+        return platforms, entities
+
+    async def _cancel_setup_and_assert_cleanup(
+        self, entry, setup, sensor_task, old_manager, old_platforms, old_entities
+    ) -> None:
+        """Cancel a gated setup and assert the entry released everything."""
+        setup.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(setup, 10)
+        await self._async_drain_entry_tasks(entry)
+        self.assertEqual(ConfigEntryState.SETUP_ERROR, entry.state)
+        self.assertIsNotNone(sensor_task)
+        self.assertTrue(sensor_task.cancelled())
+        self._assert_entry_cleanup(entry, old_manager, old_platforms, old_entities)
+
+    async def _release_setup(self, entry, setup, release) -> None:
+        """Unblock and drain a gated setup, whatever the test body did."""
+        setup.cancel()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(setup, return_exceptions=True), 10)
+        await self._async_drain_entry_tasks(entry)
 
     async def _async_drain_entry_tasks(self, entry: MockConfigEntry) -> None:
         """Drain native forward tasks as well as HA-tracked work without retries."""

@@ -1,4 +1,4 @@
-"""Physical source identity across device-registry API versions."""
+"""Physical source identity comes from the HomeKit parent device's serial."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from custom_components.ecobee_unified.source_contracts import _device_for_refere
 
 
 async def test_physical_source_device_is_preserved(hass: HomeAssistant) -> None:
-    """Real device entries remain the identity owner on every supported Core."""
+    """A real device entry is the identity owner for its entity."""
     config = MockConfigEntry(domain="homekit_controller")
     config.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(
@@ -32,7 +32,7 @@ async def test_physical_source_device_is_preserved(hass: HomeAssistant) -> None:
 async def test_child_source_cannot_supply_physical_identity(
     hass: HomeAssistant,
 ) -> None:
-    """Do not read parent-only serial metadata through a child compatibility shim."""
+    """A child device cannot supply the parent device's serial as physical identity."""
     config = MockConfigEntry(domain="homekit_controller")
     config.add_to_hass(hass)
     registry = dr.async_get(hass)

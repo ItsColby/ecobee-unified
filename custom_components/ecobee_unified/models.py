@@ -618,10 +618,7 @@ def build_snapshot(
         equipment_reported_at=ecobee.reported_at
         if equipment_running is not None
         else None,
-        active_sensors=_bounded_strings(
-            ecobee.attributes.get("active_sensors")
-            or ecobee.attributes.get("active_comfort_sensors")
-        )
+        active_sensors=_bounded_strings(ecobee.attributes.get("active_sensors"))
         if ecobee.usable
         else (),
         minimum_fan_runtime=_bounded_integer(

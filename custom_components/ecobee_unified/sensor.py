@@ -28,7 +28,12 @@ from .datapoint_entity import UnifiedDatapointSensor
 from .datapoints import BINARY_KINDS
 from .entity import EcobeeUnifiedEntity
 from .manager import MappingManager
-from .models import MappingConfig, NormalizedSnapshot
+from .models import (
+    EQUIPMENT_STAGES,
+    HVAC_ACTIONS,
+    MappingConfig,
+    NormalizedSnapshot,
+)
 from .runtime import EcobeeUnifiedConfigEntry
 
 
@@ -45,27 +50,16 @@ class Projection:
     enabled_default: bool = True
 
 
-EQUIPMENT_STAGE_OPTIONS = (
-    "idle",
-    "fan",
-    "cooling",
-    "heating",
-    "drying",
-    "defrosting",
-    "preheating",
-    "cool_stage_1",
-    "cool_stage_2",
-    "heat_pump_stage_1",
-    "heat_pump_stage_2",
-    "heat_pump_stage_3",
-    "aux_heat_stage_1",
-    "aux_heat_stage_2",
-    "aux_heat_stage_3",
-    "humidifying",
-    "dehumidifying",
-    "ventilating",
-    "multiple",
-    "unknown",
+EQUIPMENT_STAGE_OPTIONS = tuple(
+    dict.fromkeys(
+        (
+            *EQUIPMENT_STAGES.values(),
+            "idle",
+            "multiple",
+            "unknown",
+            *sorted(HVAC_ACTIONS - {"off"}),
+        )
+    )
 )
 
 

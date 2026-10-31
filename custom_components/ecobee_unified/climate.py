@@ -175,7 +175,6 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
         {
             "active_comfort_sensors",
             "advisories",
-            "configured_comfort_sensors",
             "command_confirmation",
             "problem_reasons",
             "action_reported_at",
@@ -363,7 +362,6 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             "action_reported_at": snapshot.action_reported_at,
             "equipment_reported_at": snapshot.equipment_reported_at,
             "active_comfort_sensors": list(snapshot.active_sensors),
-            "configured_comfort_sensors": list(snapshot.active_sensors),
             "command_confirmation": {
                 "revision": snapshot.command.revision,
                 "operation": snapshot.command.operation,

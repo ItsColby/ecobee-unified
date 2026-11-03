@@ -25,6 +25,19 @@ class CommandTrackerTests(unittest.TestCase):
         self.assertTrue(tracker.accept_write("mapping_a", revision))
         self.assertEqual(CommandStatus.CONFIRMED, tracker.summary("mapping_a").status)
 
+    def test_mismatch_before_writer_acceptance_discards_earlier_match(self) -> None:
+        tracker = CommandTracker(lambda: 10.0)
+        revision = tracker.begin(
+            "mapping_a", "set_temperature", {"target_temperature": 21.0}
+        )
+
+        self.assertFalse(tracker.observe("mapping_a", revision, _snapshot(21.0)))
+        self.assertFalse(tracker.observe("mapping_a", revision, _snapshot(20.0)))
+        self.assertTrue(tracker.accept_write("mapping_a", revision))
+        self.assertEqual(CommandStatus.PENDING, tracker.summary("mapping_a").status)
+        self.assertTrue(tracker.observe("mapping_a", revision, _snapshot(21.0)))
+        self.assertEqual(CommandStatus.CONFIRMED, tracker.summary("mapping_a").status)
+
     def test_writer_acceptance_without_new_observation_remains_pending(self) -> None:
         tracker = CommandTracker(lambda: 10.0)
         revision = tracker.begin(

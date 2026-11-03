@@ -224,7 +224,11 @@ class NumericValidityTests(unittest.TestCase):
         self.assertIn("homekit_temperature_metadata_unavailable", snapshot.degradation)
 
     def test_nonfinite_and_overflowing_confirmation_never_confirm(self) -> None:
-        snapshot = build_snapshot("mapping", climate(), climate(temperature=74))
+        # Confirmation values come from the Ecobee source's target only.
+        ecobee = climate()
+        ecobee = replace(ecobee, attributes={**ecobee.attributes, "temperature": 74})
+        snapshot = build_snapshot("mapping", climate(), ecobee)
+        self.assertTrue(command_matches(snapshot, {"target_temperature": 74}))
         for value in (10**400, nan, inf, True):
             with self.subTest(value_type=type(value).__name__):
                 self.assertFalse(

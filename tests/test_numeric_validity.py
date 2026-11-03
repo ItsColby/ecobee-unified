@@ -247,13 +247,15 @@ class NumericValidityTests(unittest.TestCase):
                     max_temp=90,
                     target_temp_step=step,
                 )
-                homekit = replace(
-                    homekit, attributes={**homekit.attributes, "temperature": 85}
+                # Confirmation values come from the Ecobee source only.
+                ecobee = climate(target_temp_step=0.5)
+                ecobee = replace(
+                    ecobee, attributes={**ecobee.attributes, "temperature": 85}
                 )
                 snapshot = build_snapshot(
                     "mapping",
                     homekit,
-                    climate(target_temp_step=0.5),
+                    ecobee,
                     temperature_step_fusion_proven=True,
                 )
                 self.assertEqual(1, snapshot.supported_features)
@@ -263,6 +265,8 @@ class NumericValidityTests(unittest.TestCase):
                 self.assertIn(
                     "homekit_target_temperature_step_invalid", snapshot.degradation
                 )
+                # Positive control: the Ecobee target is reported and confirms.
+                self.assertTrue(command_matches(snapshot, {"target_temperature": 85}))
                 self.assertFalse(command_matches(snapshot, {"target_temperature": 70}))
 
     def test_native_step_span_and_omitted_step_fusion_boundaries(self) -> None:

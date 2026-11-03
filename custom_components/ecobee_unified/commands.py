@@ -59,6 +59,7 @@ class CommandTracker:
         ):
             return False
         if not command_matches(snapshot, command.expected):
+            command.matching_observation_pending = False
             return False
         if not command.writer_accepted:
             command.matching_observation_pending = True

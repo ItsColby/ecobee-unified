@@ -221,7 +221,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._snapshot.current_temperature
 
     @property
@@ -266,17 +266,17 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._snapshot.target_temperature
 
     @property
     @override
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         return self._snapshot.target_temperature_low
 
     @property
     @override
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         return self._snapshot.target_temperature_high
 
     @property
@@ -337,7 +337,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         return (
             self._snapshot.temperature_unit or self.hass.config.units.temperature_unit
         )

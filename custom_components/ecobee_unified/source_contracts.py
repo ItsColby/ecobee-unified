@@ -46,6 +46,7 @@ AIR_QUALITY_SENSOR_CONTRACTS = {
     ),
 }
 HOMEKIT_PRESET_OPTIONS = frozenset({"home", "sleep", "away"})
+HOMEKIT_CLEAR_HOLD_TRANSLATION_KEYS = frozenset({None, "clear_hold"})
 
 
 def physical_identity_status(
@@ -139,10 +140,11 @@ def homekit_action_contract_valid(
 ) -> bool:
     """Reject action roles contradicted by supported public entity metadata.
 
-    Current Mode has a supported option contract. Clear Hold has no positive
-    public role marker: an explicitly selected uncategorized, classless button
-    can only be checked for known incompatibility, not proven to clear a hold.
-    Association and current writer availability are separate caller checks.
+    Current Mode has a supported option contract. HomeKit marks Clear Hold with
+    the ``clear_hold`` translation key; a registry entry written before that
+    marker existed has none until HomeKit re-registers it, so an uncategorized,
+    classless button without a key is still accepted. Association and current
+    writer availability are separate caller checks.
     """
 
     registry = er.async_get(hass)
@@ -168,7 +170,7 @@ def homekit_action_contract_valid(
     ):
         return False
     if role == "clear_hold":
-        return entry.translation_key is None
+        return entry.translation_key in HOMEKIT_CLEAR_HOLD_TRANSLATION_KEYS
     if entry.translation_key not in {None, "ecobee_mode"}:
         return False
     options = attributes.get("options", (entry.capabilities or {}).get("options"))

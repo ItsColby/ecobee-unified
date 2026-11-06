@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: EcobeeUnifiedConfigEntry
-) -> bool:
+) -> None:
     """Set up one typed runtime and its climate entities."""
 
     mappings = tuple(
@@ -63,26 +63,23 @@ async def async_setup_entry(
             if datapoints is not None:
                 await datapoints.async_stop()
         raise
-    return True
 
 
 async def async_unload_entry(
     hass: HomeAssistant, entry: EcobeeUnifiedConfigEntry
-) -> bool:
+) -> None:
     """Unload entities before releasing manager subscriptions."""
 
-    if not await hass.config_entries.async_unload_platforms(
+    await hass.config_entries.async_unload_platforms_or_raise(
         entry,
         _platforms_for_mappings(entry.runtime_data.manager.mappings),
-    ):
-        return False
+    )
     await entry.runtime_data.manager.async_stop()
     if entry.runtime_data.datapoints is not None:
         await entry.runtime_data.datapoints.async_stop()
-    return True
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reject entries outside the supported schema; Core skips this at the current one."""
 
     raise ConfigEntryError(

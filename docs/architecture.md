@@ -65,7 +65,7 @@ Optional selections add only the capability they can establish:
 | Optional source | Required association and semantics |
 | --- | --- |
 | HomeKit Current Mode select | Same HomeKit device; an uncategorized, classless `select` with one to three distinct case-insensitive options drawn from `home`, `sleep`, and `away`. Its translation key must be absent or `ecobee_mode`. The advertised options, rather than the current value, establish the role. |
-| HomeKit Clear Hold button | Same HomeKit device; an uncategorized, classless `button` with no translation key. These checks reject known incompatible roles such as Identify, but public metadata cannot positively prove that every otherwise eligible button clears a hold. Correct explicit selection remains necessary. |
+| HomeKit Clear Hold button | Same HomeKit device; an uncategorized, classless `button` whose translation key is `clear_hold`, or absent on a registry entry written before HomeKit added that key. Another translation key, such as Setup or Thread provisioning, is rejected, as is Identify by its device class. A button without a key cannot be positively proven to clear a hold, so correct explicit selection remains necessary. |
 | HomeKit precise temperature sensor | Same HomeKit device; temperature device class and a recognized temperature unit. A present readable state must be numeric. Runtime conversion and comparison against the climate add further checks. |
 | Ecobee AQI, CO2, VOC sensors | Same Ecobee device. Native sensor classes are `AQI` with no unit, `CO2` with `ppm`, and `VOLATILE_ORGANIC_COMPOUNDS` with `µg/m³`. Readable values must be finite and nonnegative. |
 | Ecobee notify entity | An explicitly selected `notify` entity from Ecobee on the mapped Ecobee device. |

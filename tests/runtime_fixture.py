@@ -14,7 +14,7 @@ from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.ecobee_unified.config_flow import EcobeeUnifiedConfigFlow
 from custom_components.ecobee_unified.const import DOMAIN
@@ -81,6 +81,8 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.hass = HomeAssistant(self._temp.name)
         self.hass.config_entries = ConfigEntries(self.hass, {})
+        # The entity registry load waits for config entries to be initialized.
+        await self.hass.config_entries.async_initialize()
         loader.async_setup(self.hass)
         # This hass is not the pytest fixture's, so enable_custom_integrations does
         # not apply. The integration is found because `custom_components/` is
@@ -120,6 +122,7 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
             config_entry=homekit_entry,
             device_id=self.homekit.device_id,
             suggested_object_id="hk_a_clear_hold",
+            translation_key="clear_hold",
         )
         self.hass.states.async_set(self.homekit_clear_hold.entity_id, "unknown")
         self.hass.states.async_set(

@@ -96,6 +96,32 @@ class HomeKitActionRoleTests(CoreRuntimeTestCase):
                     source.entity_id, **dict.fromkeys(metadata)
                 )
 
+    async def test_configuration_accepts_clear_hold_translation_keys(self) -> None:
+        """Accept HomeKit's Clear Hold key and entries registered before it."""
+
+        for translation_key in ("clear_hold", None):
+            with self.subTest(translation_key=translation_key):
+                self.registry.async_update_entity(
+                    self.clear_hold.entity_id, translation_key=translation_key
+                )
+                mapping = _mapping_from_input(self.hass, self._mapping_input())
+                self.assertEqual(
+                    self.clear_hold.id, mapping[CONF_HOMEKIT_CLEAR_HOLD_ENTITY]
+                )
+
+    async def test_configuration_rejects_other_homekit_button_roles(self) -> None:
+        """Another translated HomeKit button is not Clear Hold."""
+
+        for translation_key in ("setup", "provision_preferred_thread_credentials"):
+            with self.subTest(translation_key=translation_key):
+                self.registry.async_update_entity(
+                    self.clear_hold.entity_id, translation_key=translation_key
+                )
+                with self.assertRaisesRegex(
+                    probatio.Invalid, "invalid_homekit_clear_hold_source"
+                ):
+                    _mapping_from_input(self.hass, self._mapping_input())
+
     async def test_configuration_validates_preset_options_not_current_value(
         self,
     ) -> None:

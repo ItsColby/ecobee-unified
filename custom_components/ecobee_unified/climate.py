@@ -15,8 +15,6 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
@@ -24,7 +22,6 @@ from .const import (
     MIN_FAN_RUNTIME_MINUTES,
     SERVICE_CREATE_VACATION,
     SERVICE_DELETE_VACATION,
-    SERVICE_RESUME_PROGRAM,
     SERVICE_SET_OCCUPANCY_MODES,
     SERVICE_SET_SENSORS_USED_IN_CLIMATE,
 )
@@ -37,6 +34,23 @@ from .models import (
     degradation_problem_reasons,
 )
 from .runtime import EcobeeUnifiedConfigEntry
+from .services import (
+    ATTR_AUTO_AWAY,
+    ATTR_COOL_TEMP,
+    ATTR_DEVICE_IDS,
+    ATTR_END_DATE,
+    ATTR_END_TIME,
+    ATTR_FAN_MIN_ON_TIME,
+    ATTR_FAN_MODE,
+    ATTR_FOLLOW_ME,
+    ATTR_HEAT_TEMP,
+    ATTR_PRESET_MODE,
+    ATTR_START_DATE,
+    ATTR_START_TIME,
+    ATTR_VACATION_NAME,
+    date_string,
+    time_string,
+)
 
 SUPPORTED_CONTROL_FEATURES = (
     ClimateEntityFeature.TARGET_TEMPERATURE
@@ -47,80 +61,10 @@ SUPPORTED_CONTROL_FEATURES = (
     | ClimateEntityFeature.TURN_ON
 )
 
-ATTR_AUTO_AWAY = "auto_away"
-ATTR_COOL_TEMP = "cool_temp"
-ATTR_DEVICE_IDS = "device_ids"
-ATTR_END_DATE = "end_date"
-ATTR_END_TIME = "end_time"
-ATTR_FAN_MIN_ON_TIME = "fan_min_on_time"
-ATTR_FAN_MODE = "fan_mode"
-ATTR_FOLLOW_ME = "follow_me"
-ATTR_HEAT_TEMP = "heat_temp"
-ATTR_PRESET_MODE = "preset_mode"
-ATTR_START_DATE = "start_date"
-ATTR_START_TIME = "start_time"
-ATTR_VACATION_NAME = "vacation_name"
-
 ECOBEE_BUILT_IN_PROFILE_NAMES = {
     "away": "Away",
     "home": "Home",
     "sleep": "Sleep",
-}
-
-
-def _date_string(value: Any) -> str:
-    result = cv.string(value)
-    try:
-        if dt_date.fromisoformat(result).isoformat() != result:
-            raise ValueError
-    except ValueError as err:
-        raise probatio.Invalid("Date must use YYYY-MM-DD") from err
-    return result
-
-
-def _time_string(value: Any) -> str:
-    result = cv.string(value)
-    try:
-        if len(result) != 8 or dt_time.fromisoformat(result).isoformat() != result:
-            raise ValueError
-    except ValueError as err:
-        raise probatio.Invalid("Time must use HH:MM:SS") from err
-    return result
-
-
-CREATE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
-    probatio.Required(ATTR_VACATION_NAME): probatio.All(
-        cv.string, str.strip, probatio.Length(min=1, max=12)
-    ),
-    probatio.Required(ATTR_COOL_TEMP): probatio.Coerce(float),
-    probatio.Required(ATTR_HEAT_TEMP): probatio.Coerce(float),
-    probatio.Inclusive(ATTR_START_DATE, "start"): _date_string,
-    probatio.Inclusive(ATTR_START_TIME, "start"): _time_string,
-    probatio.Inclusive(ATTR_END_DATE, "end"): _date_string,
-    probatio.Inclusive(ATTR_END_TIME, "end"): _time_string,
-    probatio.Optional(ATTR_FAN_MODE, default="auto"): probatio.In({"auto", "on"}),
-    probatio.Optional(ATTR_FAN_MIN_ON_TIME, default=0): probatio.All(
-        int, probatio.Range(min=MIN_FAN_RUNTIME_MINUTES, max=MAX_FAN_RUNTIME_MINUTES)
-    ),
-}
-DELETE_VACATION_SCHEMA: dict[str | probatio.Marker, Any] = {
-    probatio.Required(ATTR_VACATION_NAME): probatio.All(
-        cv.string, str.strip, probatio.Length(min=1, max=12)
-    )
-}
-SET_OCCUPANCY_MODES_SCHEMA: dict[str | probatio.Marker, Any] = {
-    probatio.Optional(ATTR_AUTO_AWAY): cv.boolean,
-    probatio.Optional(ATTR_FOLLOW_ME): cv.boolean,
-}
-SET_SENSORS_USED_IN_CLIMATE_SCHEMA: dict[str | probatio.Marker, Any] = {
-    probatio.Optional(ATTR_PRESET_MODE): probatio.All(
-        cv.string, str.strip, probatio.Length(min=1, max=64)
-    ),
-    probatio.Required(ATTR_DEVICE_IDS): probatio.All(
-        cv.ensure_list,
-        [cv.string],
-        probatio.Length(min=1, max=32),
-    ),
 }
 
 
@@ -138,33 +82,6 @@ async def async_setup_entry(
     manager = entry.runtime_data.manager
     async_add_entities(
         EcobeeUnifiedClimate(manager, mapping) for mapping in manager.mappings
-    )
-
-    platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_RESUME_PROGRAM,
-        {},
-        "async_resume_program",
-    )
-    platform.async_register_entity_service(
-        SERVICE_CREATE_VACATION,
-        CREATE_VACATION_SCHEMA,
-        "async_create_vacation",
-    )
-    platform.async_register_entity_service(
-        SERVICE_DELETE_VACATION,
-        DELETE_VACATION_SCHEMA,
-        "async_delete_vacation",
-    )
-    platform.async_register_entity_service(
-        SERVICE_SET_OCCUPANCY_MODES,
-        SET_OCCUPANCY_MODES_SCHEMA,
-        "async_set_occupancy_modes",
-    )
-    platform.async_register_entity_service(
-        SERVICE_SET_SENSORS_USED_IN_CLIMATE,
-        SET_SENSORS_USED_IN_CLIMATE_SCHEMA,
-        "async_set_sensors_used_in_climate",
     )
 
 
@@ -221,7 +138,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         return self._snapshot.current_temperature
 
     @property
@@ -266,17 +183,17 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         return self._snapshot.target_temperature
 
     @property
     @override
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         return self._snapshot.target_temperature_low
 
     @property
     @override
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         return self._snapshot.target_temperature_high
 
     @property
@@ -337,7 +254,7 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
 
     @property
     @override
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         return (
             self._snapshot.temperature_unit or self.hass.config.units.temperature_unit
         )
@@ -504,11 +421,11 @@ class EcobeeUnifiedClimate(EcobeeUnifiedEntity, ClimateEntity):
             raise_validation("invalid_vacation_period")
         try:
             if start_date is not None and start_time is not None:
-                _date_string(start_date)
-                _time_string(start_time)
+                date_string(start_date)
+                time_string(start_time)
             if end_date is not None and end_time is not None:
-                _date_string(end_date)
-                _time_string(end_time)
+                date_string(end_date)
+                time_string(end_time)
         except probatio.Invalid:
             raise_validation("invalid_vacation_period")
         if all(

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
+import probatio
 import pytest
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntity
@@ -24,7 +26,9 @@ from homeassistant.helpers import (
     issue_registry as ir,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from pytest_homeassistant_custom_component.common import (
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed_exact,
 )
@@ -186,6 +190,30 @@ async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
         assert writes == []
 
 
+async def test_failed_platform_unload_keeps_the_manager_running(
+    hass: HomeAssistant,
+) -> None:
+    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
+    hass.states.async_set(hk.entity_id, "heat", _climate_attributes(20.0))
+    hass.states.async_set(ec.entity_id, "heat", _climate_attributes(20.0))
+    entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data.manager
+
+    with (
+        patch.object(hass.config_entries, "async_unload_platforms", return_value=False),
+        patch.object(manager, "async_stop") as stop,
+    ):
+        assert not await hass.config_entries.async_unload(entry.entry_id)
+
+    assert entry.state is ConfigEntryState.FAILED_UNLOAD
+    assert entry.error_reason_translation_key == "unload_platforms_failed"
+    stop.assert_not_called()
+    await manager.async_stop()
+
+
 async def test_rename_loss_fallback_recovery_and_removal_repair(
     hass: HomeAssistant,
 ) -> None:
@@ -331,6 +359,35 @@ async def test_serialized_climate_withholds_conflicting_range_and_recovers(
             "target_temperature_range_conflict"
             not in recovered.attributes["problem_reasons"]
         )
+
+
+async def test_actions_exist_before_any_entry_loads(hass: HomeAssistant) -> None:
+    """Actions validate and report a missing target instead of being unknown."""
+
+    assert await async_setup_component(hass, DOMAIN, {})
+    assert not hass.config_entries.async_entries(DOMAIN)
+    for service in (
+        "resume_program",
+        "create_vacation",
+        "delete_vacation",
+        "set_occupancy_modes",
+        "set_sensors_used_in_climate",
+    ):
+        assert hass.services.has_service(DOMAIN, service)
+
+    with pytest.raises(probatio.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "delete_vacation",
+            {"entity_id": "climate.missing", "vacation_name": "x" * 13},
+            blocking=True,
+        )
+    await hass.services.async_call(
+        DOMAIN,
+        "delete_vacation",
+        {"entity_id": "climate.missing", "vacation_name": "Trip"},
+        blocking=True,
+    )
 
 
 async def test_vendor_action_services_target_unified_climate_once(
@@ -514,6 +571,57 @@ async def test_native_setup_rejects_unsupported_schema_without_writes(
     assert entry.data == {"future": "preserve"}
     assert entry.options == {"policy": "preserve"}
     assert (entry.version, entry.minor_version) == (version, minor)
+
+
+def test_climate_provides_no_deprecated_temperature_members(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Core reports a subclass still providing a legacy temperature member."""
+
+    with caplog.at_level(logging.WARNING):
+        type(
+            "ClimateProbe",
+            (EcobeeUnifiedClimate,),
+            {"__module__": "custom_components.ecobee_unified.probe"},
+        )
+    assert "provides the deprecated" not in caplog.text
+
+
+async def test_climate_publishes_native_temperatures_in_system_unit(
+    hass: HomeAssistant,
+) -> None:
+    """Sources report in the system unit; the native values publish unchanged."""
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
+    attributes = _climate_attributes(68.0) | {
+        "temperature": 70.0,
+        "target_temp_low": 64.0,
+        "target_temp_high": 75.0,
+        "min_temp": 45.0,
+        "max_temp": 95.0,
+        "target_temp_step": 1.0,
+        "supported_features": 387,
+        "unit_of_measurement": "°F",
+    }
+    hass.states.async_set(hk.entity_id, "heat_cool", attributes)
+    hass.states.async_set(ec.entity_id, "heat_cool", attributes)
+    entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    unified = er.async_get(hass).async_get_entity_id("climate", DOMAIN, "mapping_a")
+    assert unified is not None
+    state = hass.states.get(unified)
+    assert state is not None
+    assert state.attributes["temperature_unit"] == "°F"
+    assert state.attributes["current_temperature"] == 68.0
+    assert state.attributes["temperature"] == 70.0
+    assert state.attributes["target_temp_low"] == 64.0
+    assert state.attributes["target_temp_high"] == 75.0
+    assert state.attributes["min_temp"] == 45.0
+    assert state.attributes["max_temp"] == 95.0
 
 
 def _register_source(

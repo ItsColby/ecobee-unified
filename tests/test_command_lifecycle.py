@@ -17,7 +17,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockModule,
     mock_integration,
     mock_platform,
@@ -267,22 +267,21 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                     phase=phase,
                     entered=entered,
                     release=release,
-                ) -> bool:
+                ) -> None:
                     calls.append(current)
                     if current == phase:
                         entered.set()
                         await release.wait()
-                    return True
 
                 async def source_unload(
                     hass, config_entry, *, boundary=boundary
-                ) -> bool:
-                    return await boundary("unload")
+                ) -> None:
+                    await boundary("unload")
 
                 async def source_setup(
                     hass, config_entry, *, boundary=boundary
-                ) -> bool:
-                    return await boundary("setup")
+                ) -> None:
+                    await boundary("setup")
 
                 mock_integration(
                     self.hass,

@@ -38,7 +38,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
@@ -57,10 +57,7 @@ from custom_components.ecobee_unified.button import (
 from custom_components.ecobee_unified.button import (
     async_setup_entry as async_setup_button_entry,
 )
-from custom_components.ecobee_unified.climate import (
-    CREATE_VACATION_SCHEMA,
-    EcobeeUnifiedClimate,
-)
+from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.config_flow import (
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
@@ -120,6 +117,7 @@ from custom_components.ecobee_unified.sensor import (
     PROJECTIONS,
     EcobeeCloudSensor,
 )
+from custom_components.ecobee_unified.services import CREATE_VACATION_SCHEMA
 
 from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
@@ -279,14 +277,14 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             self.assertTrue(entity.available)
             self.assertIs(HVACMode.HEAT_COOL, entity.hvac_mode)
             self.assertIn(HVACMode.HEAT_COOL, entity.hvac_modes)
-            self.assertEqual(20.0, entity.current_temperature)
+            self.assertEqual(20.0, entity.native_current_temperature)
             self.assertEqual(42.0, entity.current_humidity)
             self.assertEqual(36.0, entity.target_humidity)
             self.assertEqual(20.0, entity.min_humidity)
             self.assertEqual(50.0, entity.max_humidity)
-            self.assertEqual(21.0, entity.target_temperature)
-            self.assertEqual(18.0, entity.target_temperature_low)
-            self.assertEqual(24.0, entity.target_temperature_high)
+            self.assertEqual(21.0, entity.native_target_temperature)
+            self.assertEqual(18.0, entity.native_target_temperature_low)
+            self.assertEqual(24.0, entity.native_target_temperature_high)
             self.assertEqual("auto", entity.fan_mode)
             self.assertEqual(["auto", "on"], entity.fan_modes)
             self.assertEqual(7.0, entity.min_temp)
@@ -298,7 +296,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
                     "target_temperature_step"
                 ],
             )
-            self.assertEqual("°C", entity.temperature_unit)
+            self.assertEqual("°C", entity.native_temperature_unit)
             self.assertEqual(415, int(entity.supported_features))
             self.assertIn("source_health", entity.extra_state_attributes)
             for first_class_key in (
@@ -1901,14 +1899,16 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
 
             climate = EcobeeUnifiedClimate(manager, mapping)
             climate.hass = self.hass
-            self.assertEqual(76.82, climate.current_temperature)
+            self.assertEqual(76.82, climate.native_current_temperature)
             self.assertEqual(0.1, climate.precision)
-            self.assertEqual(71.0, climate.target_temperature_low)
-            self.assertEqual(74.0, climate.target_temperature_high)
+            self.assertEqual(71.0, climate.native_target_temperature_low)
+            self.assertEqual(74.0, climate.native_target_temperature_high)
             self.assertEqual(45.0, climate.min_temp)
             self.assertEqual(92.0, climate.max_temp)
             self.assertEqual(0.5, climate.target_temperature_step)
-            self.assertEqual(UnitOfTemperature.FAHRENHEIT, climate.temperature_unit)
+            self.assertEqual(
+                UnitOfTemperature.FAHRENHEIT, climate.native_temperature_unit
+            )
             self.assertTrue(
                 climate.supported_features
                 & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE

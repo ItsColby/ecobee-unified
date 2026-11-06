@@ -44,8 +44,10 @@ does not supply these source entities.
 Each optional source can occupy only one field across all mappings. Leave a
 field empty when you do not need the capability or its source is absent.
 
-Clear Hold needs particular care: public registry metadata rejects known
-incompatible buttons but cannot positively identify every Clear Hold action.
+Clear Hold needs particular care: Home Assistant names the HomeKit button
+Clear hold, and registry metadata rejects known incompatible buttons, but a
+button registered by an older Home Assistant version carries no marker until
+HomeKit loads it again.
 Verify the purpose of the source button without pressing an unfamiliar control.
 Current Mode and Clear Hold are independent selections.
 

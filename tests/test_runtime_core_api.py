@@ -57,10 +57,7 @@ from custom_components.ecobee_unified.button import (
 from custom_components.ecobee_unified.button import (
     async_setup_entry as async_setup_button_entry,
 )
-from custom_components.ecobee_unified.climate import (
-    CREATE_VACATION_SCHEMA,
-    EcobeeUnifiedClimate,
-)
+from custom_components.ecobee_unified.climate import EcobeeUnifiedClimate
 from custom_components.ecobee_unified.config_flow import (
     EcobeeUnifiedConfigFlow,
     _mapping_form_defaults,
@@ -120,6 +117,7 @@ from custom_components.ecobee_unified.sensor import (
     PROJECTIONS,
     EcobeeCloudSensor,
 )
+from custom_components.ecobee_unified.services import CREATE_VACATION_SCHEMA
 
 from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 

@@ -25,6 +25,7 @@ from homeassistant.helpers import (
     issue_registry as ir,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant.common import (
     MockConfigEntry,
@@ -188,6 +189,30 @@ async def test_load_links_entities_to_source_devices_and_unloads_cleanly(
         assert writes == []
 
 
+async def test_failed_platform_unload_keeps_the_manager_running(
+    hass: HomeAssistant,
+) -> None:
+    hk = _register_source(hass, "homekit_controller", "hk_a", with_device=True)
+    ec = _register_source(hass, "ecobee", "ec_a", with_device=True)
+    hass.states.async_set(hk.entity_id, "heat", _climate_attributes(20.0))
+    hass.states.async_set(ec.entity_id, "heat", _climate_attributes(20.0))
+    entry = _entry(hass, (_mapping("mapping_a", "Zone A", hk, ec),))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data.manager
+
+    with (
+        patch.object(hass.config_entries, "async_unload_platforms", return_value=False),
+        patch.object(manager, "async_stop") as stop,
+    ):
+        assert not await hass.config_entries.async_unload(entry.entry_id)
+
+    assert entry.state is ConfigEntryState.FAILED_UNLOAD
+    assert entry.error_reason_translation_key == "unload_platforms_failed"
+    stop.assert_not_called()
+    await manager.async_stop()
+
+
 async def test_rename_loss_fallback_recovery_and_removal_repair(
     hass: HomeAssistant,
 ) -> None:
@@ -333,6 +358,21 @@ async def test_serialized_climate_withholds_conflicting_range_and_recovers(
             "target_temperature_range_conflict"
             not in recovered.attributes["problem_reasons"]
         )
+
+
+async def test_actions_exist_before_any_entry_loads(hass: HomeAssistant) -> None:
+    """Actions validate and report a missing target instead of being unknown."""
+
+    assert await async_setup_component(hass, DOMAIN, {})
+    assert not hass.config_entries.async_entries(DOMAIN)
+    for service in (
+        "resume_program",
+        "create_vacation",
+        "delete_vacation",
+        "set_occupancy_modes",
+        "set_sensors_used_in_climate",
+    ):
+        assert hass.services.has_service(DOMAIN, service)
 
 
 async def test_vendor_action_services_target_unified_climate_once(

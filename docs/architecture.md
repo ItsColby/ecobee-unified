@@ -53,6 +53,7 @@ The implementation responsibilities are deliberately small:
 | [`commands.py`](../custom_components/ecobee_unified/commands.py) | Track the latest command revision and bounded result for each mapping. |
 | [`entity.py`](../custom_components/ecobee_unified/entity.py) and platform modules | Project the cached snapshot and expose validated action entry points. |
 | [`__init__.py`](../custom_components/ecobee_unified/__init__.py) and [`diagnostics.py`](../custom_components/ecobee_unified/diagnostics.py) | Own entry lifecycle and the allow-listed diagnostic export respectively. |
+| [`services.py`](../custom_components/ecobee_unified/services.py) | Register the five climate actions and their schemas at integration setup, so they exist before any entry loads. |
 
 ## Establish identity before combining sources
 

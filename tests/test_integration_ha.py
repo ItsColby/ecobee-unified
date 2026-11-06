@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
+import probatio
 import pytest
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntity
@@ -373,6 +374,20 @@ async def test_actions_exist_before_any_entry_loads(hass: HomeAssistant) -> None
         "set_sensors_used_in_climate",
     ):
         assert hass.services.has_service(DOMAIN, service)
+
+    with pytest.raises(probatio.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "delete_vacation",
+            {"entity_id": "climate.missing", "vacation_name": "x" * 13},
+            blocking=True,
+        )
+    await hass.services.async_call(
+        DOMAIN,
+        "delete_vacation",
+        {"entity_id": "climate.missing", "vacation_name": "Trip"},
+        blocking=True,
+    )
 
 
 async def test_vendor_action_services_target_unified_climate_once(

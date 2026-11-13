@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from time import time
 from unittest.mock import Mock, patch
 
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
@@ -24,8 +27,9 @@ from custom_components.ecobee_unified.repairs import (
     ReloadSilentTemperatureSourceFlow,
     async_create_fix_flow,
 )
+from custom_components.ecobee_unified.runtime import EcobeeUnifiedRuntime
 
-from .runtime_fixture import CoreRuntimeTestCase
+from .runtime_fixture import CoreRuntimeTestCase, unified_entry
 
 PRECISE_ATTRIBUTES = {
     ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
@@ -284,7 +288,11 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                 self.assertTrue(issue.is_fixable)
                 self.assertEqual("homekit_temperature_silent", issue.translation_key)
                 self.assertEqual(
-                    {"source_entry_id": self.homekit.config_entry_id}, issue.data
+                    {
+                        "source_entry_id": self.homekit.config_entry_id,
+                        "entry_id": manager.entry_id,
+                    },
+                    issue.data,
                 )
                 self.assertEqual(
                     {"mapping": self.silence_mapping.name},
@@ -468,17 +476,34 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
             await manager.async_stop()
 
     async def test_fix_flow_reloads_only_the_named_homekit_entry(self) -> None:
+        manager = await self._start("mapping_a")
+        entry = unified_entry(entry_id=manager.entry_id)
+        entry.add_to_hass(self.hass)
+        entry.runtime_data = EcobeeUnifiedRuntime(manager)
+        entry.mock_state(self.hass, ConfigEntryState.LOADED)
+        await self._climate(manager, 21.0, 5)
+        await self._climate(manager, 22.0, 20)
         source_entry_id = self.homekit.config_entry_id
         assert source_entry_id is not None
         issue_id = "homekit_temperature_silent_mapping_a"
         flow = await async_create_fix_flow(
-            self.hass, issue_id, {"source_entry_id": source_entry_id}
+            self.hass,
+            issue_id,
+            {"source_entry_id": source_entry_id, "entry_id": manager.entry_id},
         )
         self.assertIsInstance(flow, ReloadSilentTemperatureSourceFlow)
         flow.hass = self.hass
         form = await flow.async_step_init()
         self.assertIs(FlowResultType.FORM, form["type"])
         self.assertEqual("confirm", form["step_id"])
+
+        with (
+            patch.object(manager, "_temperature_source_entry_id", return_value=None),
+            patch.object(self.hass.config_entries, "async_reload") as reload,
+        ):
+            stale = await flow.async_step_confirm({})
+            self.assertEqual("source_entry_missing", stale["reason"])
+            reload.assert_not_awaited()
 
         with patch.object(
             self.hass.config_entries, "async_reload", return_value=True
@@ -487,6 +512,9 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
         reload.assert_awaited_once_with(source_entry_id)
         self.assertIs(FlowResultType.CREATE_ENTRY, done["type"])
 
+        # Recreate silence after the successful reload reset its evidence.
+        await self._climate(manager, 23.0, 30)
+        await self._climate(manager, 24.0, 40)
         with patch.object(self.hass.config_entries, "async_reload", return_value=False):
             failed = await flow.async_step_confirm({})
         self.assertEqual("source_reload_failed", failed["reason"])
@@ -494,7 +522,9 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
         ecobee_entry_id = self.ecobee.config_entry_id
         assert ecobee_entry_id is not None
         wrong = await async_create_fix_flow(
-            self.hass, issue_id, {"source_entry_id": ecobee_entry_id}
+            self.hass,
+            issue_id,
+            {"source_entry_id": ecobee_entry_id, "entry_id": manager.entry_id},
         )
         wrong.hass = self.hass
         with patch.object(self.hass.config_entries, "async_reload") as reload:
@@ -512,3 +542,91 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                 self.assertRaises(ValueError),
             ):
                 await async_create_fix_flow(self.hass, bad_issue, data)
+        await manager.async_stop()
+
+    async def test_fix_flow_does_not_interrupt_admitted_command(self) -> None:
+        manager = await self._start("repair_busy")
+        entry = unified_entry(entry_id=manager.entry_id)
+        entry.add_to_hass(self.hass)
+        entry.runtime_data = EcobeeUnifiedRuntime(manager)
+        entry.mock_state(self.hass, ConfigEntryState.LOADED)
+        await self._climate(manager, 21.0, 5)
+        await self._climate(manager, 22.0, 20)
+        source_entry_id = self.homekit.config_entry_id
+        assert source_entry_id is not None
+        flow = await async_create_fix_flow(
+            self.hass,
+            "homekit_temperature_silent_repair_busy",
+            {"source_entry_id": source_entry_id, "entry_id": manager.entry_id},
+        )
+        flow.hass = self.hass
+        try:
+            with patch.object(self.hass.config_entries, "async_reload") as reload:
+                async with manager._command_slot(self.silence_mapping.mapping_id):
+                    result = await flow.async_step_confirm({})
+                    reload.assert_not_awaited()
+                    self.assertEqual("source_busy", result["reason"])
+                revision = manager._tracker.begin(
+                    self.silence_mapping.mapping_id,
+                    "set_temperature",
+                    {"target_temperature": 23.0},
+                )
+                manager._tracker.accept_write(self.silence_mapping.mapping_id, revision)
+                result = await flow.async_step_confirm({})
+                reload.assert_not_awaited()
+                self.assertEqual("source_busy", result["reason"])
+        finally:
+            await manager.async_stop()
+
+    async def test_repair_reload_is_owned_shielded_and_revalidated(self) -> None:
+        manager = await self._start("repair_running")
+        entry = unified_entry(entry_id=manager.entry_id)
+        entry.add_to_hass(self.hass)
+        entry.runtime_data = EcobeeUnifiedRuntime(manager)
+        entry.mock_state(self.hass, ConfigEntryState.LOADED)
+        await self._climate(manager, 21.0, 5)
+        await self._climate(manager, 22.0, 20)
+        source_id = self.homekit.config_entry_id
+        assert source_id is not None
+        flow = await async_create_fix_flow(
+            self.hass,
+            "homekit_temperature_silent_repair_running",
+            {"source_entry_id": source_id, "entry_id": entry.entry_id},
+        )
+        flow.hass = self.hass
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def reload_source(entry_id: str) -> bool:
+            entered.set()
+            await release.wait()
+            return True
+
+        caller = None
+        try:
+            with patch.object(
+                self.hass.config_entries, "async_reload", side_effect=reload_source
+            ) as reload:
+                caller = asyncio.create_task(flow.async_step_confirm({}))
+                await self._wait_for_fixture_event(caller, entered)
+                with self.assertRaises(ServiceValidationError):
+                    async with manager._command_slot("repair_running"):
+                        pass
+                other = asyncio.create_task(flow.async_step_confirm({}))
+                await asyncio.sleep(0)
+                caller.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await caller
+                task = manager._temperature_reload_tasks[source_id]
+                self.assertFalse(task.cancelled())
+                release.set()
+                self.assertEqual("success", await task)
+                self.assertIs(FlowResultType.CREATE_ENTRY, (await other)["type"])
+                reload.assert_awaited_once_with(source_id)
+                stale = await flow.async_step_confirm({})
+                self.assertEqual("source_entry_missing", stale["reason"])
+                entry.mock_state(self.hass, ConfigEntryState.NOT_LOADED)
+                unloaded = await flow.async_step_confirm({})
+                self.assertEqual("source_entry_missing", unloaded["reason"])
+        finally:
+            release.set()
+            await manager.async_stop()

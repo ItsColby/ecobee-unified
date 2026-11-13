@@ -45,6 +45,11 @@ async def async_setup_entry(
     mappings = tuple(
         MappingConfig.from_dict(item) for item in entry.data[CONF_MAPPINGS]
     )
+    if len({mapping.mapping_id for mapping in mappings}) != len(mappings):
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="duplicate_mapping_identity",
+        )
     manager = MappingManager(hass, entry.entry_id, mappings, entry.options)
     datapoint_configs = tuple(
         DatapointConfig.from_dict(item) for item in entry.data.get(CONF_DATAPOINTS, [])
@@ -68,9 +73,11 @@ async def async_setup_entry(
         except Exception, CancelledError:
             _LOGGER.exception("Error unloading platforms after setup failure")
         finally:
-            await manager.async_stop()
-            if datapoints is not None:
-                await datapoints.async_stop()
+            try:
+                if datapoints is not None:
+                    await datapoints.async_stop()
+            finally:
+                await manager.async_stop()
         raise
 
 
@@ -83,9 +90,11 @@ async def async_unload_entry(
         entry,
         _platforms_for_mappings(entry.runtime_data.manager.mappings),
     )
-    await entry.runtime_data.manager.async_stop()
-    if entry.runtime_data.datapoints is not None:
-        await entry.runtime_data.datapoints.async_stop()
+    try:
+        if entry.runtime_data.datapoints is not None:
+            await entry.runtime_data.datapoints.async_stop()
+    finally:
+        await entry.runtime_data.manager.async_stop()
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

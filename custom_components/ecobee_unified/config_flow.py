@@ -320,6 +320,8 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Require explicit confirmation before changing source/writer identity."""
 
         current = self._selected_mapping()
+        if current is None:
+            return self.async_abort(reason="invalid_mapping_identity")
         defaults = _mapping_form_defaults(self.hass, current)
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -398,6 +400,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Require confirmation before removing a canonical thermostat."""
 
+        current = self._selected_mapping()
+        if current is None:
+            return self.async_abort(reason="invalid_mapping_identity")
         errors: dict[str, str] = {}
         if user_input is not None:
             if not user_input.get(CONF_CONFIRM_CHANGE, False):
@@ -420,7 +425,7 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
-            description_placeholders={"name": self._selected_mapping()[CONF_NAME]},
+            description_placeholders={"name": current[CONF_NAME]},
         )
 
     async def async_step_reconfigure_finish(
@@ -461,13 +466,9 @@ class EcobeeUnifiedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             reload_even_if_entry_is_unchanged=False,
         )
 
-    def _selected_mapping(self) -> dict[str, str]:
-        if self._selected_mapping_id is None:
-            raise RuntimeError("No mapping selected")
-        return next(
-            mapping
-            for mapping in self._pending_mappings
-            if mapping[CONF_MAPPING_ID] == self._selected_mapping_id
+    def _selected_mapping(self) -> dict[str, str] | None:
+        return _single_row(
+            self._pending_mappings, CONF_MAPPING_ID, self._selected_mapping_id
         )
 
 

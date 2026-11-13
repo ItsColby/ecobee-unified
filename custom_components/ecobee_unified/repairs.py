@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import probatio
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
-from .const import HOMEKIT_SOURCE_DOMAIN
+from .const import DOMAIN, HOMEKIT_SOURCE_DOMAIN
+from .runtime import EcobeeUnifiedConfigEntry
 
 
 class ReloadSilentTemperatureSourceFlow(RepairsFlow):
     """Reload the HomeKit entry whose precise temperature stopped updating."""
 
-    def __init__(self, source_entry_id: str) -> None:
+    def __init__(self, source_entry_id: str, entry_id: str, mapping_id: str) -> None:
         self._source_entry_id = source_entry_id
+        self._entry_id = entry_id
+        self._mapping_id = mapping_id
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -34,8 +38,19 @@ class ReloadSilentTemperatureSourceFlow(RepairsFlow):
                 data_schema=probatio.Schema({}),
                 description_placeholders={"source": source_entry.title},
             )
-        if not await self.hass.config_entries.async_reload(source_entry.entry_id):
-            return self.async_abort(reason="source_reload_failed")
+        entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if (
+            entry is None
+            or entry.domain != DOMAIN
+            or entry.state != ConfigEntryState.LOADED
+        ):
+            return self.async_abort(reason="source_entry_missing")
+        manager = cast(EcobeeUnifiedConfigEntry, entry).runtime_data.manager
+        result = await manager.async_repair_temperature_source(
+            self._mapping_id, source_entry.entry_id
+        )
+        if result != "success":
+            return self.async_abort(reason=result)
         # The manager removes the Repair once the reloaded sensor reports a new value.
         return self.async_create_entry(data={})
 
@@ -48,8 +63,15 @@ async def async_create_fix_flow(
     """Create the only fix flow this integration registers."""
 
     source_entry_id = data.get("source_entry_id") if data else None
-    if not issue_id.startswith("homekit_temperature_silent_") or not isinstance(
-        source_entry_id, str
+    entry_id = data.get("entry_id") if data else None
+    prefix = "homekit_temperature_silent_"
+    if (
+        not issue_id.startswith("homekit_temperature_silent_")
+        or not isinstance(source_entry_id, str)
+        or not isinstance(entry_id, str)
+        or not issue_id[len(prefix) :]
     ):
         raise ValueError(f"Unsupported Ecobee Unified repair: {issue_id}")
-    return ReloadSilentTemperatureSourceFlow(source_entry_id)
+    return ReloadSilentTemperatureSourceFlow(
+        source_entry_id, entry_id, issue_id[len(prefix) :]
+    )

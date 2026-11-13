@@ -113,7 +113,7 @@ class MappingManager(CommandRunner):
         self._unsub_temperature_mismatches: dict[str, Callable[[], None]] = {}
         self._temperature_silence: dict[str, TemperatureSilence] = {}
         self._silent_source_reloads: dict[str, datetime] = {}
-        self._temperature_reload_tasks: dict[str, Task[None]] = {}
+        self._temperature_reload_tasks: dict[str, Task[str]] = {}
         self._reloading_sources: set[str] = set()
         self._watched_entity_ids: set[str] = set()
         self._watched_entity_references = {
@@ -758,7 +758,7 @@ class MappingManager(CommandRunner):
             ),
             translation_placeholders={"mapping": mapping.name},
             data=(
-                {"source_entry_id": source_entry_id}
+                {"source_entry_id": source_entry_id, "entry_id": self.entry_id}
                 if source_entry_id is not None
                 else None
             ),
@@ -798,22 +798,47 @@ class MappingManager(CommandRunner):
             if snapshot and "homekit_temperature_silent" in snapshot.degradation:
                 self._handle_temperature_silence(mapping, True)
 
+    async def async_repair_temperature_source(
+        self, mapping_id: str, source_entry_id: str
+    ) -> str:
+        """Reload the still-current silent source through the recovery owner."""
+
+        mapping = self._mapping_by_id.get(mapping_id)
+        if self._stopped.is_set() or mapping is None:
+            return "source_entry_missing"
+        if self._temperature_source_entry_id(mapping) != source_entry_id:
+            return "source_entry_missing"
+        snapshot = self._snapshots.get(mapping_id)
+        if snapshot is None or "homekit_temperature_silent" not in snapshot.degradation:
+            return "source_entry_missing"
+        task = self._temperature_reload_tasks.get(source_entry_id)
+        if task is None:
+            if self._source_has_commands(source_entry_id):
+                return "source_busy"
+            task = self.hass.async_create_task(
+                self._async_reload_temperature_source(mapping, source_entry_id),
+                eager_start=False,
+            )
+            self._temperature_reload_tasks[source_entry_id] = task
+        return await shield(task)
+
     async def _async_reload_temperature_source(
         self, mapping: MappingConfig, source_entry_id: str
-    ) -> None:
+    ) -> str:
         """Arbitrate at dispatch and retain ownership until Core finishes reload."""
 
         try:
             if self._stopped.is_set():
-                return
+                return "source_entry_missing"
             self.refresh_mapping(mapping.mapping_id)
             if (
                 self._temperature_source_entry_id(mapping) != source_entry_id
                 or "homekit_temperature_silent"
                 not in self.snapshot(mapping.mapping_id).degradation
-                or self._source_has_commands(source_entry_id)
             ):
-                return
+                return "source_entry_missing"
+            if self._source_has_commands(source_entry_id):
+                return "source_busy"
             self._reloading_sources.add(source_entry_id)
             self._silent_source_reloads[source_entry_id] = dt_util.utcnow()
             reloaded = await self.hass.config_entries.async_reload(source_entry_id)
@@ -829,6 +854,7 @@ class MappingManager(CommandRunner):
                         silence.reset()
                 for other in recovered:
                     self.refresh_mapping(other.mapping_id)
+            return "success" if reloaded else "source_reload_failed"
         finally:
             self._reloading_sources.discard(source_entry_id)
             self._temperature_reload_tasks.pop(source_entry_id, None)

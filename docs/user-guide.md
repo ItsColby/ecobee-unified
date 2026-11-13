@@ -244,6 +244,10 @@ hours, and only after queued or running actions and pending confirmations finish
 for every mapping using that HomeKit entry. Every entity of that HomeKit pairing
 is briefly unavailable during the reload. Requests made during recovery are
 rejected before dispatch; wait for recovery to finish before trying again.
+A Repair offers the same reload after confirmation. It checks the current mapping
+and refuses to start while an action or confirmation is pending; retry the Repair
+after that work finishes. Cancelling the Repair does not cancel a reload already
+in progress.
 Unloading or reconfiguring Unified waits for a source recovery already in progress
 to finish, so the HomeKit pairing can complete its reload.
 

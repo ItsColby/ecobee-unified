@@ -326,7 +326,7 @@ class CommandLifecycleTests(CoreRuntimeTestCase):
                             self.assertTrue(
                                 await asyncio.wait_for(asyncio.shield(stop), 1)
                             )
-                            self.assertIsNone(await recovery)
+                            self.assertEqual("success", await recovery)
                             publish.assert_not_called()
                         self.assertFalse(recovery.cancelled())
                         self.assertIs(ConfigEntryState.LOADED, source.state)

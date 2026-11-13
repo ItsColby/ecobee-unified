@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
@@ -10,6 +11,7 @@ from homeassistant import setup as ha_setup
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE, EntityStateAttribute
 from homeassistant.core import ServiceCall
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import EntityPlatform
@@ -17,8 +19,17 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 
-from custom_components.ecobee_unified import async_setup_entry
-from custom_components.ecobee_unified.const import CONF_MAPPINGS, DOMAIN
+from custom_components.ecobee_unified import async_setup_entry, async_unload_entry
+from custom_components.ecobee_unified.const import (
+    CONF_DATAPOINTS,
+    CONF_MAPPINGS,
+    DOMAIN,
+)
+from custom_components.ecobee_unified.datapoints import (
+    DatapointConfig,
+    DatapointManager,
+    SourceBinding,
+)
 from custom_components.ecobee_unified.manager import MappingManager
 from custom_components.ecobee_unified.models import CommandStatus
 
@@ -36,11 +47,201 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
     async def test_cancel_during_manager_start(self) -> None:
         await self._cancel_setup("start", "mismatch")
 
+    async def test_duplicate_saved_identities_do_not_start_or_remove_entities(
+        self,
+    ) -> None:
+        """Ambiguous persistence must not select a writer or prune prior outputs."""
+        row = self.mapping.as_dict()
+        entry = unified_entry(
+            data={CONF_MAPPINGS: [row, row | {"name": "Repeated identity"}]}
+        )
+        entry.add_to_hass(self.hass)
+        original = deepcopy(dict(entry.data))
+        registry = er.async_get(self.hass)
+        prior = registry.async_get_or_create(
+            "sensor", DOMAIN, "prior_output", config_entry=entry
+        )
+        with (
+            patch.object(MappingManager, "async_start") as start,
+            patch.object(self.hass.config_entries, "async_forward_entry_setups"),
+            self.assertRaises(ConfigEntryError) as raised,
+        ):
+            await async_setup_entry(self.hass, entry)
+        self.assertEqual("duplicate_mapping_identity", raised.exception.translation_key)
+        self.assertEqual(original, entry.data)
+        self.assertIsNotNone(registry.async_get(prior.entity_id))
+        start.assert_not_called()
+
     async def test_cancel_during_forward_with_mismatch_deadline(self) -> None:
         await self._cancel_setup("forward", "mismatch")
 
     async def test_cancel_during_forward_with_settle_deadline(self) -> None:
         await self._cancel_setup("forward", "settle")
+
+    async def test_unload_fences_datapoints_before_draining_reload(self) -> None:
+        """A source reload cannot leave datapoint listeners live during unload."""
+        await self._check_datapoint_cleanup("unload")
+
+    async def test_failed_setup_fences_datapoints_before_draining_reload(self) -> None:
+        """Failed setup fences datapoints even when a source reload is still running."""
+        await self._check_datapoint_cleanup("failure")
+
+    async def test_cancelled_setup_fences_datapoints_before_draining_reload(
+        self,
+    ) -> None:
+        """Cancellation during cleanup cannot strand datapoint listeners."""
+        await self._check_datapoint_cleanup("cancel")
+
+    async def _check_datapoint_cleanup(self, phase: str) -> None:
+        datapoint = DatapointConfig(
+            datapoint_id="temperature",
+            name="Temperature",
+            kind="temperature",
+            unit="°C",
+            semantic="physical_temperature",
+            sources=(
+                SourceBinding(self.homekit_temperature.id),
+                SourceBinding(self.ecobee.id, "current_temperature"),
+            ),
+        )
+        entry = unified_entry(
+            data={
+                CONF_MAPPINGS: [self.mapping.as_dict()],
+                CONF_DATAPOINTS: [datapoint.as_dict()],
+            }
+        )
+        entry.add_to_hass(self.hass)
+        release = asyncio.Event()
+        dispatched = asyncio.Event()
+        forward_wait = asyncio.Event()
+        source_id = self.homekit.config_entry_id
+        assert source_id is not None
+        reload_task = None
+        lifecycle = None
+
+        async def reload_source(_entry_id: str) -> bool:
+            dispatched.set()
+            await release.wait()
+            return False
+
+        async def dispatch_reload() -> None:
+            nonlocal reload_task
+            manager = entry.runtime_data.manager
+            with (
+                patch.object(manager, "refresh_mapping"),
+                patch.object(
+                    manager, "_temperature_source_entry_id", return_value=source_id
+                ),
+                patch.object(manager, "_source_has_commands", return_value=False),
+                patch.object(
+                    manager,
+                    "snapshot",
+                    return_value=Mock(degradation={"homekit_temperature_silent"}),
+                ),
+                patch.object(self.hass.config_entries, "async_reload", reload_source),
+            ):
+                reload_task = asyncio.create_task(
+                    manager._async_reload_temperature_source(self.mapping, source_id)
+                )
+                manager._temperature_reload_tasks[source_id] = reload_task
+                await dispatched.wait()
+
+        async def forward(*_args: object) -> None:
+            await dispatch_reload()
+            if phase == "failure":
+                raise RuntimeError("forwarding failed")
+            await forward_wait.wait()
+
+        try:
+            if phase == "unload":
+                self.assertTrue(
+                    await self.hass.config_entries.async_setup(entry.entry_id)
+                )
+                await dispatch_reload()
+                lifecycle = asyncio.create_task(
+                    self.hass.config_entries.async_unload(entry.entry_id)
+                )
+            else:
+                with patch.object(
+                    self.hass.config_entries, "async_forward_entry_setups", forward
+                ):
+                    lifecycle = asyncio.create_task(
+                        self.hass.config_entries.async_setup(entry.entry_id)
+                    )
+                    await asyncio.wait_for(dispatched.wait(), 10)
+                    if phase == "cancel":
+                        lifecycle.cancel()
+                    await asyncio.wait_for(
+                        entry.runtime_data.manager._stopped.wait(), 10
+                    )
+                    self._assert_datapoints_stopped(entry)
+                    if phase == "cancel":
+                        lifecycle.cancel()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await lifecycle
+                    else:
+                        release.set()
+                        self.assertFalse(await lifecycle)
+                return
+            await asyncio.wait_for(entry.runtime_data.manager._stopped.wait(), 10)
+            self._assert_datapoints_stopped(entry)
+            lifecycle.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await lifecycle
+        finally:
+            release.set()
+            forward_wait.set()
+            await self._settle_fixture_tasks(lifecycle, reload_task)
+            self.manager = entry.runtime_data.manager
+            if entry.runtime_data.datapoints is not None:
+                await entry.runtime_data.datapoints.async_stop()
+
+    def _assert_datapoints_stopped(self, entry: MockConfigEntry) -> None:
+        datapoints = entry.runtime_data.datapoints
+        assert datapoints is not None
+        self.assertFalse(datapoints._running)
+        self.assertFalse(datapoints._unsub)
+        self.assertFalse(datapoints._state_unsub)
+        self.assertIsNone(datapoints._timer)
+
+    async def test_datapoint_stop_error_still_closes_mapping_admission(self) -> None:
+        """A failing datapoint cleanup cannot leave the mapping manager active."""
+        for error in (RuntimeError("stop failed"), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                datapoint = DatapointConfig(
+                    datapoint_id="temperature",
+                    name="Temperature",
+                    kind="temperature",
+                    unit="°C",
+                    semantic="physical_temperature",
+                    sources=(
+                        SourceBinding(self.homekit_temperature.id),
+                        SourceBinding(self.ecobee.id, "current_temperature"),
+                    ),
+                )
+                entry = unified_entry(
+                    data={
+                        CONF_MAPPINGS: [self.mapping.as_dict()],
+                        CONF_DATAPOINTS: [datapoint.as_dict()],
+                    }
+                )
+                entry.add_to_hass(self.hass)
+                with patch.object(
+                    self.hass.config_entries, "async_forward_entry_setups"
+                ):
+                    await async_setup_entry(self.hass, entry)
+                self.manager = entry.runtime_data.manager
+                with (
+                    patch.object(
+                        self.hass.config_entries, "async_unload_platforms_or_raise"
+                    ),
+                    patch.object(DatapointManager, "async_stop", side_effect=error),
+                    self.assertRaises(type(error)),
+                ):
+                    await async_unload_entry(self.hass, entry)
+                self.assertTrue(self.manager._stopped.is_set())
+                self._assert_stopped(self.manager)
+                await entry.runtime_data.datapoints.async_stop()
 
     async def test_cancel_after_platform_load_then_retry(self) -> None:
         """Entry cancellation releases ownership and retries after global setup."""

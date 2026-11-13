@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -55,6 +56,29 @@ class ConfigurationSourceContractTests(CoreRuntimeTestCase):
     async def asyncSetUp(self) -> None:
         await super().asyncSetUp()
         self.registry = er.async_get(self.hass)
+
+    async def test_ambiguous_mapping_cannot_be_edited_or_removed(self) -> None:
+        """A single selected identity must never change multiple saved rows."""
+        rows = [
+            self.mapping.as_dict(),
+            self.mapping.as_dict() | {CONF_NAME: "Repeated identity"},
+        ]
+        entry = unified_entry(data={CONF_MAPPINGS: rows})
+        entry.add_to_hass(self.hass)
+        original = deepcopy(dict(entry.data))
+        for operation in ("reconfigure_edit", "reconfigure_remove"):
+            with (
+                self.subTest(operation=operation),
+                patch.object(self.hass.config_entries, "async_reload") as reload,
+            ):
+                result = await self._next(await self._open(entry), operation)
+                result = await self._submit(
+                    result, {CONF_MAPPING_ID: self.mapping.mapping_id}
+                )
+                self.assertIs(FlowResultType.ABORT, result["type"])
+                self.assertEqual("invalid_mapping_identity", result["reason"])
+                self.assertEqual(original, entry.data)
+                reload.assert_not_called()
 
     async def test_native_action_names_are_trimmed_before_length_validation(
         self,

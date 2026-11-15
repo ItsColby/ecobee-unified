@@ -432,11 +432,13 @@ class CommandRunner(SourceReader):
             self.validated_vacation_temperature(
                 mapping_id, service_data.get("heat_temp")
             )
-        elif service == SERVICE_SET_SENSORS_USED_IN_CLIMATE:
-            if not self.ecobee_sensor_devices_valid(
+        elif (
+            service == SERVICE_SET_SENSORS_USED_IN_CLIMATE
+            and not self.ecobee_sensor_devices_valid(
                 mapping_id, service_data["device_ids"]
-            ):
-                raise_validation("invalid_sensor_selection")
+            )
+        ):
+            raise_validation("invalid_sensor_selection")
 
     def validated_temperature(self, mapping_id: str, value: Any) -> float:
         """Validate a numeric target using current HomeKit bounds."""

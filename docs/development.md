@@ -9,7 +9,7 @@ and the **Release gate** that requires them,
 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) the static hooks, and
 [`.github/dependabot.yml`](../.github/dependabot.yml) the dependency update
 policy. The [Dependabot auto-merge workflow](../.github/workflows/dependabot-auto-merge.yaml)
-enables auto-merge for its patch-level Actions and pre-commit updates, which merge once required checks pass.
+merges its Actions and pre-commit updates once required checks pass.
 
 The advisory [Upcoming Core workflow](../.github/workflows/upcoming-core.yaml)
 tests newer Core and harness releases, is not part of the Release gate and never

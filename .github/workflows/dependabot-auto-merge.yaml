@@ -12,8 +12,7 @@ jobs:
   enable:
     name: Enable auto-merge
     # Python pins move only with their Core and harness contracts, so only
-    # Actions and pre-commit updates are eligible, and of those only patch
-    # updates; minor, major and groups with any non-patch member stay manual.
+    # Actions and pre-commit updates merge themselves.
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
       && (startsWith(github.head_ref, 'dependabot/github_actions/')
@@ -24,15 +23,7 @@ jobs:
       contents: write # gh pr merge --auto enables auto-merge on the PR
       pull-requests: write # gh pr merge --auto enables auto-merge on the PR
     steps:
-      - id: metadata
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        with:
-          github-token: ${{ github.token }}
-      - if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-patch'
-          && !contains(steps.metadata.outputs.updated-dependencies-json, 'version-update:semver-minor')
-          && !contains(steps.metadata.outputs.updated-dependencies-json, 'version-update:semver-major')
-        run: gh pr merge --auto --squash "$PR_URL"
+      - run: gh pr merge --auto --squash "$PR_URL"
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}

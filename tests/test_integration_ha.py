@@ -6,11 +6,13 @@ import asyncio
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import probatio
 import pytest
+import yaml
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.config_entries import ConfigEntryState
@@ -49,6 +51,10 @@ from custom_components.ecobee_unified.const import (
 from custom_components.ecobee_unified.models import MappingConfig
 
 from .runtime_fixture import unified_entry
+
+SERVICES_YAML = (
+    Path(__file__).parents[1] / "custom_components" / "ecobee_unified" / "services.yaml"
+)
 
 
 async def test_config_flow_creates_two_explicit_mappings(
@@ -366,13 +372,7 @@ async def test_actions_exist_before_any_entry_loads(hass: HomeAssistant) -> None
 
     assert await async_setup_component(hass, DOMAIN, {})
     assert not hass.config_entries.async_entries(DOMAIN)
-    for service in (
-        "resume_program",
-        "create_vacation",
-        "delete_vacation",
-        "set_occupancy_modes",
-        "set_sensors_used_in_climate",
-    ):
+    for service in yaml.safe_load(SERVICES_YAML.read_text(encoding="utf-8")):
         assert hass.services.has_service(DOMAIN, service)
 
     with pytest.raises(probatio.Invalid):

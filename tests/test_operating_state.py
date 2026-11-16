@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from custom_components.ecobee_unified.models import (
+    READ_POLICY_FIELDS,
     RawSource,
     SourceHealth,
     build_snapshot,
@@ -115,15 +116,8 @@ def test_missing_cloud_detail_is_coarse_and_policy_controls_fallback(
 
 @pytest.mark.parametrize(
     "field",
-    [
-        "hvac_mode",
-        "current_temperature",
-        "current_humidity",
-        "target_temperature",
-        "target_temperature_low",
-        "target_temperature_high",
-        "fan_mode",
-    ],
+    # hvac_action is covered by the preceding fallback test.
+    [field for field in READ_POLICY_FIELDS if field != "hvac_action"],
 )
 def test_each_read_policy_has_explicit_no_fallback(field: str) -> None:
     missing = RawSource(None)

@@ -9,9 +9,11 @@ and [ecobee](https://www.home-assistant.io/integrations/ecobee/) instructions.
 
 ## Bring a thermostat into the shared view
 
-Install on the Home Assistant Core version the [README](../README.md) requires. In HACS, add
-`https://github.com/ItsColby/ecobee-unified` as a custom repository of type
-**Integration** and download it. The [HACS dashboard guide](https://hacs.xyz/docs/use/repositories/dashboard/)
+Install on the Home Assistant Core version the [README](../README.md) requires. In
+**Settings > Marketplace**, select **Add from link**, enter
+`https://github.com/ItsColby/ecobee-unified`, select **Add**, then open the
+repository and install it. Adding a custom repository asks you to connect GitHub
+through device sign-in. The [Marketplace documentation](https://www.home-assistant.io/integrations/marketplace/)
 explains custom repositories. Alternatively, copy `custom_components/ecobee_unified`
 from a [release](https://github.com/ItsColby/ecobee-unified/releases) into your
 Home Assistant configuration, preserving that directory structure. Load the

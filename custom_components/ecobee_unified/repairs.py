@@ -66,7 +66,7 @@ async def async_create_fix_flow(
     entry_id = data.get("entry_id") if data else None
     prefix = "homekit_temperature_silent_"
     if (
-        not issue_id.startswith("homekit_temperature_silent_")
+        not issue_id.startswith(prefix)
         or not isinstance(source_entry_id, str)
         or not isinstance(entry_id, str)
         or not issue_id[len(prefix) :]

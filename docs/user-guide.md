@@ -126,7 +126,7 @@ Beestat history/context entities retain their own uses and owners.
 
 ## Make a deliberate vendor or schedule change
 
-The five custom actions below target a **Unified climate**, which resolves the
+The custom actions below target a **Unified climate**, which resolves the
 mapped writer. Their native editor shows the complete field help. They expose
 mechanisms for your choices; Unified does not decide household occupancy,
 vacation dates, comfort policy, or when to send a notification.
@@ -139,7 +139,7 @@ vacation dates, comfort policy, or when to send a notification.
 | Change occupancy features | `ecobee_unified.set_occupancy_modes` | At least one of `auto_away` or `follow_me`, each a boolean; omitted fields are omitted from the request |
 | Change comfort-profile participation | `ecobee_unified.set_sensors_used_in_climate` | `device_ids`, plus `preset_mode` when the current Ecobee climate mode is not the intended profile or cannot be read |
 
-The four Ecobee actions use the mapped vendor climate. A vacation name is 1–12
+The Ecobee actions use the mapped vendor climate. A vacation name is 1–12
 characters; Unified does not check whether that name already exists. Vacation
 temperatures use the Ecobee writer's unit and limits, with heat no higher than
 cool. Supply a date and time together for each endpoint, using `YYYY-MM-DD` and
@@ -193,7 +193,7 @@ tracked request supersedes the previous record, and reload starts a new record.
 | `unconfirmed` | Observation timed out, or cancellation/unload interrupted tracking; the effect is uncertain |
 
 Climate controls, preset selection, and minimum fan runtime have defined
-observers. All five custom actions are submitted-only. In particular, a
+observers. All custom actions are submitted-only. In particular, a
 successful Clear Hold call does not prove schedule resumption. Notifications
 use the native notify result and never enter this tracker.
 

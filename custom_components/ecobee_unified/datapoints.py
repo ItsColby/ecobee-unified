@@ -40,10 +40,10 @@ type DatapointKind = Literal[
     "motion",
     "battery",
     "profile",
+    "configured_membership",
     "duration",
     "number",
     "text",
-    "configured_membership",
 ]
 type DatapointValue = float | bool | str | tuple[str, ...] | None
 type ValueRepresentation = Literal["label", "option", "reference"]

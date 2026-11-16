@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 from math import isfinite
-from typing import Any
+from typing import Any, get_args
 from uuid import uuid4
 
 import probatio
@@ -25,6 +25,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .datapoints import (
     DatapointConfig,
+    DatapointKind,
     SourceBinding,
     validate_datapoint,
     validate_datapoint_edit_sources,
@@ -42,18 +43,7 @@ DATAPOINT_DOMAINS = [
 DATAPOINT_SOURCE_SELECTOR = EntitySelector(
     EntitySelectorConfig(domain=DATAPOINT_DOMAINS)
 )
-DATAPOINT_KINDS = (
-    "temperature",
-    "humidity",
-    "occupancy",
-    "motion",
-    "battery",
-    "profile",
-    "configured_membership",
-    "duration",
-    "number",
-    "text",
-)
+DATAPOINT_KINDS = get_args(DatapointKind.__value__)
 
 
 class _TemperatureBoundSelector(NumberSelector):

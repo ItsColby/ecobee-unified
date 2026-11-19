@@ -135,8 +135,8 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 patch.object(manager, "_source_has_commands", return_value=False),
                 patch.object(
                     manager,
-                    "snapshot",
-                    return_value=Mock(degradation={"homekit_temperature_silent"}),
+                    "_temperature_source_is_silent",
+                    return_value=True,
                 ),
                 patch.object(self.hass.config_entries, "async_reload", reload_source),
             ):

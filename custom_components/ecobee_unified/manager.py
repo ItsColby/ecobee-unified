@@ -794,9 +794,17 @@ class MappingManager(CommandRunner):
         if self._stopped.is_set():
             return
         for mapping in self.mappings:
-            snapshot = self._snapshots.get(mapping.mapping_id)
-            if snapshot and "homekit_temperature_silent" in snapshot.degradation:
+            if self._temperature_source_is_silent(mapping.mapping_id):
                 self._handle_temperature_silence(mapping, True)
+
+    def _temperature_source_is_silent(self, mapping_id: str) -> bool:
+        """Use source health regardless of the selected temperature projection."""
+
+        snapshot = self._snapshots.get(mapping_id)
+        return (
+            snapshot is not None
+            and snapshot.source_health.get("homekit_temperature") is SourceHealth.STALE
+        )
 
     async def async_repair_temperature_source(
         self, mapping_id: str, source_entry_id: str
@@ -808,8 +816,7 @@ class MappingManager(CommandRunner):
             return "source_entry_missing"
         if self._temperature_source_entry_id(mapping) != source_entry_id:
             return "source_entry_missing"
-        snapshot = self._snapshots.get(mapping_id)
-        if snapshot is None or "homekit_temperature_silent" not in snapshot.degradation:
+        if not self._temperature_source_is_silent(mapping_id):
             return "source_entry_missing"
         task = self._temperature_reload_tasks.get(source_entry_id)
         if task is None:
@@ -831,10 +838,10 @@ class MappingManager(CommandRunner):
             if self._stopped.is_set():
                 return "source_entry_missing"
             self.refresh_mapping(mapping.mapping_id)
-            if (
-                self._temperature_source_entry_id(mapping) != source_entry_id
-                or "homekit_temperature_silent"
-                not in self.snapshot(mapping.mapping_id).degradation
+            if self._temperature_source_entry_id(
+                mapping
+            ) != source_entry_id or not self._temperature_source_is_silent(
+                mapping.mapping_id
             ):
                 return "source_entry_missing"
             if self._source_has_commands(source_entry_id):

@@ -144,7 +144,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                     manager._async_reload_temperature_source(self.mapping, source_id)
                 )
                 manager._temperature_reload_tasks[source_id] = reload_task
-                await dispatched.wait()
+                await self._wait_for_fixture_event(reload_task, dispatched)
 
         async def forward(*_args: object) -> None:
             await dispatch_reload()
@@ -168,7 +168,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                     lifecycle = asyncio.create_task(
                         self.hass.config_entries.async_setup(entry.entry_id)
                     )
-                    await asyncio.wait_for(dispatched.wait(), 10)
+                    await self._wait_for_fixture_event(lifecycle, dispatched)
                     if phase == "cancel":
                         lifecycle.cancel()
                     await asyncio.wait_for(

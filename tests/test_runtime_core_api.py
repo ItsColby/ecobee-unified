@@ -4301,7 +4301,7 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
     async def test_overlapping_commands_are_dispatched_in_user_order(self) -> None:
         first_started = asyncio.Event()
         release_first = asyncio.Event()
-        second_started = asyncio.Event()
+        second_waiting = asyncio.Event()
         call_order: list[tuple[str, float]] = []
 
         async def ordered_writer(call: ServiceCall) -> None:
@@ -4310,8 +4310,6 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
             if temperature == 22.0:
                 first_started.set()
                 await release_first.wait()
-            else:
-                second_started.set()
             call_order.append(("finish", temperature))
 
         self.hass.services.async_register("climate", "set_temperature", ordered_writer)
@@ -4327,18 +4325,25 @@ class RuntimeCoreApiTests(CoreRuntimeTestCase):
         second_task = None
         try:
             await self._wait_for_fixture_event(first_task, first_started)
-            second_task = asyncio.create_task(
-                self.manager.async_standard_command(
-                    "mapping_a",
-                    "set_temperature",
-                    {"temperature": 23.0},
-                    {"target_temperature": 23.0},
-                    None,
-                )
-            )
+            lock = self.manager._command_locks["mapping_a"]
+            acquire = lock.acquire
 
-            with self.assertRaises(TimeoutError):
-                await asyncio.wait_for(second_started.wait(), timeout=0.01)
+            async def observe_second_acquire() -> bool:
+                second_waiting.set()
+                return await acquire()
+
+            with patch.object(lock, "acquire", side_effect=observe_second_acquire):
+                second_task = asyncio.create_task(
+                    self.manager.async_standard_command(
+                        "mapping_a",
+                        "set_temperature",
+                        {"temperature": 23.0},
+                        {"target_temperature": 23.0},
+                        None,
+                    )
+                )
+                await self._wait_for_fixture_event(second_task, second_waiting)
+
             self.assertEqual([("start", 22.0)], call_order)
 
             release_first.set()

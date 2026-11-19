@@ -208,6 +208,8 @@ class CoreRuntimeTestCase(unittest.IsolatedAsyncioTestCase):
     async def _settle_fixture_tasks(self, *tasks: asyncio.Task[Any] | None) -> None:
         """Cancel and retrieve only the caller tasks created by a gated fixture."""
         owned = [task for task in tasks if task is not None]
+        if not owned:
+            return
         for task in owned:
             if not task.done():
                 task.cancel()

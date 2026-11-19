@@ -135,8 +135,8 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                 patch.object(manager, "_source_has_commands", return_value=False),
                 patch.object(
                     manager,
-                    "snapshot",
-                    return_value=Mock(degradation={"homekit_temperature_silent"}),
+                    "_temperature_source_is_silent",
+                    return_value=True,
                 ),
                 patch.object(self.hass.config_entries, "async_reload", reload_source),
             ):
@@ -144,7 +144,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                     manager._async_reload_temperature_source(self.mapping, source_id)
                 )
                 manager._temperature_reload_tasks[source_id] = reload_task
-                await dispatched.wait()
+                await self._wait_for_fixture_event(reload_task, dispatched)
 
         async def forward(*_args: object) -> None:
             await dispatch_reload()
@@ -168,7 +168,7 @@ class SetupLifecycleTests(CoreRuntimeTestCase):
                     lifecycle = asyncio.create_task(
                         self.hass.config_entries.async_setup(entry.entry_id)
                     )
-                    await asyncio.wait_for(dispatched.wait(), 10)
+                    await self._wait_for_fixture_event(lifecycle, dispatched)
                     if phase == "cancel":
                         lifecycle.cancel()
                     await asyncio.wait_for(

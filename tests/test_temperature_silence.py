@@ -17,6 +17,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from custom_components.ecobee_unified.const import (
+    CONF_READ_POLICIES,
     CONF_RELOAD_SILENT_TEMPERATURE_SOURCE,
     DOMAIN,
     SILENT_TEMPERATURE_RELOAD_COOLDOWN_SECONDS,
@@ -415,6 +416,55 @@ class TemperatureSilenceRuntimeTests(CoreRuntimeTestCase):
                 self.assertIsNone(self._issue())
         finally:
             await manager.async_stop()
+
+    async def test_cloud_temperature_preserves_silent_source_recovery(self) -> None:
+        """Cloud projection does not disable manual or automatic source recovery."""
+
+        source_entry_id = self.homekit.config_entry_id
+        assert source_entry_id is not None
+        for policy in ("ecobee_first", "ecobee_only"):
+            for automatic in (False, True):
+                with self.subTest(policy=policy, automatic=automatic):
+                    mapping_id = f"{policy}_{automatic}"
+                    manager = await self._start(
+                        mapping_id,
+                        {
+                            CONF_READ_POLICIES: {
+                                mapping_id: {"current_temperature": policy}
+                            },
+                            CONF_RELOAD_SILENT_TEMPERATURE_SOURCE: automatic,
+                        },
+                    )
+                    try:
+                        with (
+                            patch(
+                                "custom_components.ecobee_unified.manager.async_call_later",
+                                return_value=Mock(),
+                            ),
+                            patch.object(
+                                self.hass.config_entries,
+                                "async_reload",
+                                return_value=True,
+                            ) as reload,
+                        ):
+                            await self._climate(manager, 21.0, 5)
+                            await self._climate(manager, 22.0, 20)
+                            if not automatic:
+                                self.assertIsNotNone(self._issue())
+                                result = await manager.async_repair_temperature_source(
+                                    mapping_id, source_entry_id
+                                )
+                                self.assertEqual("success", result)
+                            reload.assert_awaited_once_with(source_entry_id)
+                            self.assertIsNone(self._issue())
+                            self.assertEqual(
+                                "ecobee",
+                                manager.snapshot(mapping_id).provenance[
+                                    "current_temperature"
+                                ],
+                            )
+                    finally:
+                        await manager.async_stop()
 
     async def test_opt_in_reload_waits_for_a_pending_command(self) -> None:
         """A reload never interrupts an observation the tracker still owns."""
